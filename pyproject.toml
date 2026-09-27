@@ -1,0 +1,12 @@
+[project]
+name = "arc-canteen-hackathon"
+version = "0.1.0"
+description = "Arc Canteen Hackathon project workspace"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "arc-canteen",
+]
+
+[tool.uv]
+package = false

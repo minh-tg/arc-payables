@@ -1,0 +1,15 @@
+{
+  "name": "arc-canteen-hackathon",
+  "version": "0.1.0",
+  "description": "Hackathon project on Arc with Canteen",
+  "private": true,
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "arc:login": "uv run arc-canteen login",
+    "arc:wallet": "uv run arc-canteen wallet",
+    "arc:rpc": "uv run arc-canteen rpc-url",
+    "arc:context": "uv run arc-canteen context",
+    "arc:status": "uv run arc-canteen status"
+  }
+}

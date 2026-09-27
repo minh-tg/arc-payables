@@ -1,0 +1,38 @@
+# Environment and secrets
+.env
+.env.local
+*.key
+*.pem
+
+# Direnv & Nix
+.direnv/
+result
+result-*
+
+# Python & uv
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+
+# Node.js
+node_modules/
+dist/
+build/
+.next/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Foundry
+cache/
+out/
+broadcast/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
