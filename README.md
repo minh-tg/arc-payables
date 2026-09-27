@@ -1,4 +1,4 @@
-# Arc Canteen Hackathon Workspace
+# Tameion — Arc Canteen Hackathon Workspace
 
 Reproducible development workspace for building on **Arc** (Circle's L1 EVM blockchain where native gas is USDC) using **Canteen** tooling, Foundry smart contracts, Node.js, and Python agent integrations.
 

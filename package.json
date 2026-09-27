@@ -1,7 +1,7 @@
 {
-  "name": "arc-canteen-hackathon",
+  "name": "tameion",
   "version": "0.1.0",
-  "description": "Hackathon project on Arc with Canteen",
+  "description": "Tameion — Arc Canteen Hackathon project",
   "private": true,
   "scripts": {
     "build": "forge build",
