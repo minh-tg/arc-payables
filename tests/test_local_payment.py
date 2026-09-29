@@ -12,17 +12,17 @@ from pathlib import Path
 
 import pytest
 
-from tameion.currency import USDCOnlyConverter
-from tameion.domain import USDC_SCALE, WorkflowState
-from tameion.fake_circle import DEFAULT_POLICY_KEY, AnvilChain
-from tameion.local_payment import LocalKeyPaymentProvider, LocalPaymentError
-from tameion.mock_adapters import MockAccountingConnector
-from tameion.policy import DeterministicPolicy
-from tameion.seed import APPROVED_WALLET, seed_demo
-from tameion.security import EIP712PermitSigner
-from tameion.service import APWorkflow
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
+from arc_payables.currency import USDCOnlyConverter
+from arc_payables.domain import USDC_SCALE, WorkflowState
+from arc_payables.fake_circle import DEFAULT_POLICY_KEY, AnvilChain
+from arc_payables.local_payment import LocalKeyPaymentProvider, LocalPaymentError
+from arc_payables.mock_adapters import MockAccountingConnector
+from arc_payables.policy import DeterministicPolicy
+from arc_payables.seed import APPROVED_WALLET, seed_demo
+from arc_payables.security import EIP712PermitSigner
+from arc_payables.service import APWorkflow
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
 
 SUPPLIER = APPROVED_WALLET
 INVOICE_USDC = 250
@@ -141,7 +141,7 @@ def test_a_replayed_permit_is_refused_by_the_guard(tmp_path, chain):
 
 def test_an_expired_permit_is_refused_without_spending_gas(tmp_path, chain):
     """A permit past its expiry is refused from chain state, before any transaction is sent."""
-    from tameion.domain import ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC, PaymentPermit
+    from arc_payables.domain import ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC, PaymentPermit
 
     settings, store, provider, workflow, invoice_id = _workflow(tmp_path, chain)
     try:
@@ -209,8 +209,8 @@ def test_insufficient_balance_fails_before_broadcasting(tmp_path, chain):
         drained = chain.erc20_balance(chain.wallet.address)
         chain.transfer("0x00000000000000000000000000000000000000ff", drained)
         try:
-            from tameion.domain import PaymentPermit
-            from tameion.domain import ARC_TESTNET_USDC, ARC_TESTNET_CHAIN_ID
+            from arc_payables.domain import PaymentPermit
+            from arc_payables.domain import ARC_TESTNET_USDC, ARC_TESTNET_CHAIN_ID
 
             permit = PaymentPermit(
                 payer=chain.wallet.address,
@@ -268,7 +268,7 @@ def test_reported_budget_shrinks_after_a_payment(tmp_path, chain):
 def test_incomplete_local_configuration_fails_closed(tmp_path):
     from fastapi.testclient import TestClient
 
-    from tameion.api import DisabledPaymentProvider, create_app
+    from arc_payables.api import DisabledPaymentProvider, create_app
 
     settings = Settings(
         _env_file=None,

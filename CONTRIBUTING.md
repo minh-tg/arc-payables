@@ -21,7 +21,7 @@ uv sync                     # dependencies, pinned by uv.lock
 uv run pytest -q            # Python suite
 forge test                  # Solidity suite
 forge build && forge lint   # contracts must build and lint clean
-uv run tameion-verify-arc   # read-only Arc Testnet facts; needs no credentials
+uv run arc-payables-verify-arc   # read-only Arc Testnet facts; needs no credentials
 ```
 
 Trunk-based: branch from `main` with a short, descriptive name (`feat/operator-console`,

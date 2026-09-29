@@ -1,7 +1,7 @@
 {
-  "name": "tameion",
+  "name": "arc-payables",
   "version": "0.1.0",
-  "description": "Tameion — Arc Canteen Hackathon project",
+  "description": "Arc Payables — Arc Canteen Hackathon project",
   "private": true,
   "scripts": {
     "build": "forge build",

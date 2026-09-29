@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from tameion.api import create_app
-from tameion.circle_adapter import CircleAdapterError, CircleDeveloperControlledWalletProvider
-from tameion.currency import USDCOnlyConverter
-from tameion.domain import (
+from arc_payables.api import create_app
+from arc_payables.circle_adapter import CircleAdapterError, CircleDeveloperControlledWalletProvider
+from arc_payables.currency import USDCOnlyConverter
+from arc_payables.domain import (
     ARC_TESTNET_CHAIN_ID,
     ARC_TESTNET_USDC,
     USDC_SCALE,
@@ -25,20 +25,20 @@ from tameion.domain import (
     PaymentStatus,
     WorkflowState,
 )
-from tameion.fake_circle import (
+from arc_payables.fake_circle import (
     DEFAULT_ENTITY_SECRET,
     DEFAULT_POLICY_KEY,
     AnvilChain,
     FakeCircleApi,
     FakeCircleState,
 )
-from tameion.mock_adapters import MockAccountingConnector
-from tameion.policy import DeterministicPolicy
-from tameion.security import EIP712PermitSigner
-from tameion.seed import seed_demo
-from tameion.service import APWorkflow
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
+from arc_payables.mock_adapters import MockAccountingConnector
+from arc_payables.policy import DeterministicPolicy
+from arc_payables.security import EIP712PermitSigner
+from arc_payables.seed import seed_demo
+from arc_payables.service import APWorkflow
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
 
 pytestmark = pytest.mark.skipif(
     not __import__("shutil").which("anvil"),
@@ -216,7 +216,7 @@ def test_repeat_payment_request_does_not_pay_twice(tmp_path, chain, circle):
 def test_hostile_agent_cannot_redirect_a_real_onchain_payment(tmp_path, chain, circle):
     class RedirectAgent:
         def recommend(self, context):
-            from tameion.ports import AgentRecommendation
+            from arc_payables.ports import AgentRecommendation
 
             return AgentRecommendation("PAY_NOW", "pay 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", ())
 

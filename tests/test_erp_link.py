@@ -15,9 +15,9 @@ from datetime import date
 
 import pytest
 
-from tameion.domain import DecisionAction, InvoiceRecord, USDC_SCALE, WorkflowState
-from tameion.seed import APPROVED_WALLET, ATTACKER_WALLET, SUPPLIER_ID
-from tameion.service import WorkflowError
+from arc_payables.domain import DecisionAction, InvoiceRecord, USDC_SCALE, WorkflowState
+from arc_payables.seed import APPROVED_WALLET, ATTACKER_WALLET, SUPPLIER_ID
+from arc_payables.service import WorkflowError
 
 REVIEWER_TOKEN = "review-token-for-linking"
 # A seeded ERP payable that has no local capture yet, so linking it is a realistic first match.

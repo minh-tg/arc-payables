@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from tameion.mock_adapters import MockAccountingConnector
-from tameion.policy import DeterministicPolicy
-from tameion.currency import USDCOnlyConverter
-from tameion.security import EIP712PermitSigner, recover_digest_signer
-from tameion.seed import seed_demo
-from tameion.service import APWorkflow
-from tameion.settings import Settings
-from tameion.store import GENESIS_HASH, SQLiteEvidenceStore
+from arc_payables.mock_adapters import MockAccountingConnector
+from arc_payables.policy import DeterministicPolicy
+from arc_payables.currency import USDCOnlyConverter
+from arc_payables.security import EIP712PermitSigner, recover_digest_signer
+from arc_payables.seed import seed_demo
+from arc_payables.service import APWorkflow
+from arc_payables.settings import Settings
+from arc_payables.store import GENESIS_HASH, SQLiteEvidenceStore
 
 POLICY_KEY = "0x" + "11" * 32
 
@@ -31,7 +31,7 @@ def _runtime(tmp_path: Path, *, signed: bool = True):
     store.initialize()
     legitimate_id, suspicious_id = seed_demo(store)
     accounting = MockAccountingConnector(store)
-    from tameion.mock_adapters import MockPaymentProvider
+    from arc_payables.mock_adapters import MockPaymentProvider
 
     payment = MockPaymentProvider(store)
     workflow = APWorkflow(store, accounting, payment, signer, DeterministicPolicy(settings, USDCOnlyConverter()), settings)
@@ -47,11 +47,11 @@ def _chain_rows(store: SQLiteEvidenceStore) -> list[dict]:
 
 def _evaluate_suspicious(store, suspicious_id: str) -> None:
     """Append more events through a real workflow decision."""
-    from tameion.mock_adapters import MockAccountingConnector, MockPaymentProvider
-    from tameion.policy import DeterministicPolicy
-    from tameion.currency import USDCOnlyConverter
-    from tameion.service import APWorkflow
-    from tameion.settings import Settings
+    from arc_payables.mock_adapters import MockAccountingConnector, MockPaymentProvider
+    from arc_payables.policy import DeterministicPolicy
+    from arc_payables.currency import USDCOnlyConverter
+    from arc_payables.service import APWorkflow
+    from arc_payables.settings import Settings
 
     signer = EIP712PermitSigner(POLICY_KEY)
     settings = Settings(_env_file=None, database_path=store.path)
@@ -145,7 +145,7 @@ def test_a_rewritten_chain_without_the_key_is_detected(tmp_path):
                 "created_at": row["created_at"],
                 "prev_hash": previous,
             }
-            from tameion.store import _event_digest
+            from arc_payables.store import _event_digest
 
             digest = _event_digest(entry)
             event_hash = "0x" + digest.hex()
@@ -192,7 +192,7 @@ def test_recovered_signer_matches_the_configured_key(tmp_path):
 def test_the_verify_endpoint_reports_the_chain(tmp_path):
     from fastapi.testclient import TestClient
 
-    from tameion.api import create_app
+    from arc_payables.api import create_app
 
     settings = Settings(_env_file=None, database_path=tmp_path / "endpoint.sqlite3", api_key="test-key")
     app = create_app(settings=settings)

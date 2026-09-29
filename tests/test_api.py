@@ -5,10 +5,10 @@ from datetime import date
 
 from fastapi.testclient import TestClient
 
-from tameion.api import create_app
-from tameion.seed import seed_demo, SUPPLIER_ID
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
+from arc_payables.api import create_app
+from arc_payables.seed import seed_demo, SUPPLIER_ID
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
 
 
 def _client(tmp_path, settings):

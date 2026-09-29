@@ -26,7 +26,7 @@ PERMIT_TYPES = {
 def permit_typed_message(permit: PaymentPermit):
     return encode_typed_data(
         domain_data={
-            "name": "TameionPaymentGuard",
+            "name": "ArcPayables",
             "version": "1",
             "chainId": permit.chain_id,
             "verifyingContract": permit.guard_address,

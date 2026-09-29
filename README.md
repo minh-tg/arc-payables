@@ -1,4 +1,4 @@
-# Tameion — evidence-gated AP backend MVP
+# Arc Payables — evidence-gated AP backend MVP
 
 A backend-only AP workflow for reviewing supplier invoices and paying **USDC on Arc Testnet**. The invoice amount is evidence; the payment destination is always read from a trusted supplier record. A different invoice payee stops unattended payment and requires human review. The decision agent is a deterministic, read-only baseline; a separate deterministic policy, permit signer, payment provider, and approval gate control execution.
 
@@ -41,10 +41,10 @@ Requirements: Python 3.11+, `uv`, Foundry (`forge`).
 ```bash
 uv sync
 cp .env.example .env     # optional for defaults; never commit this local file
-uv run tameion-migrate
-uv run tameion-seed      # seeds mock records
-uv run uvicorn tameion.api:app --reload
-uv run tameion-verify-arc  # optional read-only check against live Arc Testnet
+uv run arc-payables-migrate
+uv run arc-payables-seed      # seeds mock records
+uv run uvicorn arc_payables.api:app --reload
+uv run arc-payables-verify-arc  # optional read-only check against live Arc Testnet
 ```
 
 The API defaults to `PAYMENT_PROVIDER=mock` and `ACCOUNTING_PROVIDER=mock`. No credentials are needed for evaluation or tests. The local demo thresholds are **1,000 USDC maximum unattended invoice** and **2,000 USDC minimum post-payment reserve**; these are examples, not business recommendations. The mock wallet starts with 5,000 USDC. All are configurable. Mock transaction hashes and ERP entry IDs are simulations, not actual integrations or payments.
@@ -109,16 +109,16 @@ API routes are listed in Swagger at `/docs`. Configure `API_KEY` before enabling
 
 ## Sending a real Arc Testnet payment
 
-`tameion-live-run` sends one payment, and refuses to guess. It checks the chain id from the
+`arc-payables-live-run` sends one payment, and refuses to guess. It checks the chain id from the
 node, the deployed guard's budgets, that the destination is a **human-verified** trusted
 Supplier wallet, that the invoice is linked to an acceptable accounting payable, and that the
 treasury covers the amount while preserving the reserve. Nothing is signed without `--confirm`,
 so the dry run is free:
 
 ```bash
-uv run tameion-verify-arc                        # read-only: is this deployment ready, and what is missing?
-uv run tameion-live-run --invoice <invoice-id>   # preflight only
-uv run tameion-live-run --invoice <invoice-id> --confirm
+uv run arc-payables-verify-arc                        # read-only: is this deployment ready, and what is missing?
+uv run arc-payables-live-run --invoice <invoice-id>   # preflight only
+uv run arc-payables-live-run --invoice <invoice-id> --confirm
 ```
 
 Setup, in order — the first three need your keys, which never leave your machine:
@@ -167,7 +167,7 @@ redesign.
 
 ## Operator console
 
-`uv run uvicorn tameion.api:app` then open <http://127.0.0.1:8000/console/> and paste the API key
+`uv run uvicorn arc_payables.api:app` then open <http://127.0.0.1:8000/console/> and paste the API key
 (and, for approvals, the approval token) into the header. It is served as static files with no build
 step, and it contains no data of its own — every call it makes is an authenticated API call, so the
 same work is available with curl.
@@ -188,7 +188,7 @@ error would otherwise produce a blank page that no server-side test would catch.
 
 ## Database and tests
 
-Migrations are in `migrations/`; the service applies them on startup. The DB defaults to `data/tameion.sqlite3` (`DATABASE_PATH` overrides it).
+Migrations are in `migrations/`; the service applies them on startup. The DB defaults to `data/arc_payables.sqlite3` (`DATABASE_PATH` overrides it).
 
 ```bash
 uv run pytest
@@ -204,7 +204,7 @@ Tests use isolated temporary databases, fake Circle/Frappe HTTP responses, and m
 0. Check the hardcoded Arc assumptions against live Arc Testnet before doing anything else. This is read-only, needs no credentials, and never signs or submits:
 
 ```bash
-uv run tameion-verify-arc
+uv run arc-payables-verify-arc
 ```
 
 It verifies the chain ID is `5042002`, that the documented USDC address has bytecode with `decimals() == 6` and `symbol() == USDC`, and — once configured — that the deployed guard's `policySigner()` and `paymentToken()` match your configuration and reports the Circle wallet's native and ERC-20 balances. It exits non-zero with an explicit `TODO` list while live payment is unconfigured.
@@ -263,7 +263,7 @@ Building a plan is read-only — it derives decisions from live evidence without
 
 `GET /forecast` answers the question a treasurer asks before either of the above: what is due, when, and where the balance stops covering it. Obligations are walked in **due-date order** against the balance, keeping the reserve intact, so the forecast and the payment plan cannot disagree about what is affordable. Two distinctions are deliberate: an invoice whose evidence is incomplete is still money owed — it is counted and flagged as *not payable by the agent*, with the reason — and the shortfall date is the first obligation the balance cannot cover, not the first invoice that happens to be urgent.
 
-`tameion-rescreen` (or `POST /monitoring/rescreen`) re-screens every counterparty with an open invoice and keeps a **history**, so a risk-profile change is a transition rather than a silently overwritten status. A change is written to the audit chain of every open invoice it affects, which means the payment record shows when the counterparty's risk moved under it.
+`arc-payables-rescreen` (or `POST /monitoring/rescreen`) re-screens every counterparty with an open invoice and keeps a **history**, so a risk-profile change is a transition rather than a silently overwritten status. A change is written to the audit chain of every open invoice it affects, which means the payment record shows when the counterparty's risk moved under it.
 
 Screening scales authority; it never grants it:
 

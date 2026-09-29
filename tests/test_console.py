@@ -16,10 +16,10 @@ import pytest
 
 from fastapi.testclient import TestClient
 
-from tameion.api import create_app
-from tameion.seed import seed_demo
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
+from arc_payables.api import create_app
+from arc_payables.seed import seed_demo
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
 
 
 def _client(tmp_path: Path) -> TestClient:
@@ -67,7 +67,7 @@ def test_unknown_console_paths_are_not_served(tmp_path):
     assert client.get("/console/does-not-exist.js").status_code == 404
 
 
-WEB_DIR = Path(__file__).resolve().parents[1] / "src" / "tameion" / "web"
+WEB_DIR = Path(__file__).resolve().parents[1] / "src" / "arc_payables" / "web"
 NODE = shutil.which("node")
 
 

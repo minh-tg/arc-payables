@@ -16,16 +16,16 @@ from pathlib import Path
 import httpx
 import pytest
 
-from tameion.currency import USDCOnlyConverter
-from tameion.deliberation import DeliberatingPlanner, build_order_planner
-from tameion.domain import DecisionAction, USDC_SCALE
-from tameion.mock_adapters import MockAccountingConnector, MockPaymentProvider
-from tameion.policy import DeterministicPolicy
-from tameion.prioritisation import EXCLUDED_BELOW_RESERVE, EXCLUDED_NOT_ELIGIBLE, PaymentPrioritiser, plan_digest
-from tameion.seed import seed_demo
-from tameion.service import APWorkflow
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
+from arc_payables.currency import USDCOnlyConverter
+from arc_payables.deliberation import DeliberatingPlanner, build_order_planner
+from arc_payables.domain import DecisionAction, USDC_SCALE
+from arc_payables.mock_adapters import MockAccountingConnector, MockPaymentProvider
+from arc_payables.policy import DeterministicPolicy
+from arc_payables.prioritisation import EXCLUDED_BELOW_RESERVE, EXCLUDED_NOT_ELIGIBLE, PaymentPrioritiser, plan_digest
+from arc_payables.seed import seed_demo
+from arc_payables.service import APWorkflow
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
 
 
 def _workspace(tmp_path: Path, *, balance_units: int = 2_500 * USDC_SCALE, reserve: Decimal = Decimal("2000"), **overrides):
@@ -52,7 +52,7 @@ def _add_invoice(workflow, store, *, amount: int, due_in_days: int, number: str,
     lines, the lines' amounts and the linked order/receipt references stay consistent and the
     policy's line-total and three-way-match checks still pass.
     """
-    from tameion.seed import _erp_payable, _replace_amount
+    from arc_payables.seed import _erp_payable, _replace_amount
 
     # The legitimate seed invoice: it carries the trusted payee and real order/receipt links.
     base = store.get_invoice("demo-invoice-legitimate")
@@ -311,7 +311,7 @@ def test_order_planner_is_only_built_when_deliberation_is_configured(tmp_path):
 def test_the_plan_endpoint_requires_a_key_and_reports_the_plan(tmp_path):
     from fastapi.testclient import TestClient
 
-    from tameion.api import create_app
+    from arc_payables.api import create_app
 
     settings = Settings(_env_file=None, database_path=tmp_path / "api-plan.sqlite3", api_key="k", min_reserve_usdc=Decimal("0"))
     app = create_app(settings=settings)

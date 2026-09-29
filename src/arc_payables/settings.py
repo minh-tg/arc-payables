@@ -12,12 +12,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore")
 
-    app_name: str = "Tameion AP Agent"
+    app_name: str = "Arc Payables AP Agent"
     environment: str = "local"
-    database_path: Path = Path("data/tameion.sqlite3")
+    database_path: Path = Path("data/arc_payables.sqlite3")
     payment_provider: Literal["mock", "circle", "local"] = "mock"
     accounting_provider: Literal["mock", "frappe"] = "mock"
-    policy_version: str = "tameion-ap-v1"
+    policy_version: str = "arc-payables-ap-v1"
     max_invoice_usdc: Decimal = Decimal("1000")
     min_reserve_usdc: Decimal = Decimal("2000")
     max_treasury_snapshot_age_seconds: int = 90

@@ -33,7 +33,7 @@ contract PaymentGuard {
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
     );
-    bytes32 private constant NAME_HASH = keccak256("TameionPaymentGuard");
+    bytes32 private constant NAME_HASH = keccak256("ArcPayables");
     bytes32 private constant VERSION_HASH = keccak256("1");
     bytes32 private constant PERMIT_TYPEHASH = keccak256(
         "Permit(address payer,address token,address recipient,uint256 amount,bytes32 evidenceHash,bytes32 paymentId,uint64 expiry)"

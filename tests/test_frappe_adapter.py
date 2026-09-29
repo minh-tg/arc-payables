@@ -8,11 +8,11 @@ from urllib.parse import unquote
 import httpx
 import pytest
 
-from tameion.accounting import AccountingMappingError, compute_payment_entry_amounts, payload_fields
-from tameion.domain import InvoiceRecord, USDC_SCALE
-from tameion.frappe_adapter import FrappeAccountingConnector, FrappeAdapterError
-from tameion.ports import PaymentMapping
-from tameion.settings import Settings
+from arc_payables.accounting import AccountingMappingError, compute_payment_entry_amounts, payload_fields
+from arc_payables.domain import InvoiceRecord, USDC_SCALE
+from arc_payables.frappe_adapter import FrappeAccountingConnector, FrappeAdapterError
+from arc_payables.ports import PaymentMapping
+from arc_payables.settings import Settings
 
 COMPANY = "Arc Demo Inc"
 SETTLEMENT_ACCOUNT = "USDC Wallet - AD"

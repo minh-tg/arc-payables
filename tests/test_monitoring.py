@@ -12,11 +12,11 @@ from decimal import Decimal
 
 from test_prioritisation import _add_invoice, _workspace
 
-from tameion.domain import ScreeningStatus, USDC_SCALE, WorkflowState
-from tameion.monitoring import rescreen_suppliers, supplier_risk_overview
-from tameion.screening import FixtureScreeningProvider
-from tameion.seed import APPROVED_WALLET, seed_demo
-from tameion.store import SQLiteEvidenceStore
+from arc_payables.domain import ScreeningStatus, USDC_SCALE, WorkflowState
+from arc_payables.monitoring import rescreen_suppliers, supplier_risk_overview
+from arc_payables.screening import FixtureScreeningProvider
+from arc_payables.seed import APPROVED_WALLET, seed_demo
+from arc_payables.store import SQLiteEvidenceStore
 
 SUPPLIER = "SUP-ACME-001"
 
@@ -182,8 +182,8 @@ def test_the_risk_overview_reports_tier_limit_and_open_exposure(tmp_path):
 def test_the_endpoints_require_a_key_and_report_risk(tmp_path):
     from fastapi.testclient import TestClient
 
-    from tameion.api import create_app
-    from tameion.settings import Settings
+    from arc_payables.api import create_app
+    from arc_payables.settings import Settings
 
     settings = Settings(
         _env_file=None, database_path=tmp_path / "api-risk.sqlite3", api_key="k", min_reserve_usdc=Decimal("0")

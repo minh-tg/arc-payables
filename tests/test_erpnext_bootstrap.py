@@ -14,7 +14,7 @@ from urllib.parse import unquote
 import httpx
 import pytest
 
-from tameion.erpnext_bootstrap import (
+from arc_payables.erpnext_bootstrap import (
     BootstrapError, FEE_ACCOUNT_NAME, FrappeClient, SEED_FIELD, SETTLEMENT_ACCOUNT_NAME,
     SUPPLIER_WALLET_FIELD, SUPPLIER_WALLET_VERIFIED_FIELD, TRANSACTION_TYPES, bootstrap, main,
 )
@@ -544,7 +544,7 @@ def test_document_names_are_encoded_as_path_segments():
 
 @pytest.mark.parametrize("apply", [False, True])
 def test_cli_requires_explicit_apply_and_never_prints_credentials(monkeypatch, capsys, apply):
-    import tameion.erpnext_bootstrap as module
+    import arc_payables.erpnext_bootstrap as module
     fake = FakeFrappe()
     factory = FrappeClient
     monkeypatch.setattr(module, "FrappeClient", lambda url, key, secret, **kw: factory(

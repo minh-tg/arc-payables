@@ -3,9 +3,9 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from tameion.domain import ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC
-from tameion.settings import Settings
-from tameion.verify_arc import (
+from arc_payables.domain import ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC
+from arc_payables.settings import Settings
+from arc_payables.verify_arc import (
     DECIMALS_SELECTOR,
     EPOCH_CAP_SELECTOR,
     EPOCH_LENGTH_SELECTOR,

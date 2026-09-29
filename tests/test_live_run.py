@@ -12,19 +12,19 @@ from pathlib import Path
 
 import pytest
 
-from tameion.currency import USDCOnlyConverter
-from tameion.domain import USDC_SCALE
-from tameion.fake_circle import DEFAULT_POLICY_KEY, AnvilChain
-from tameion.live_run import preflight
-from tameion.local_payment import LocalKeyPaymentProvider
-from tameion.mock_adapters import MockAccountingConnector
-from tameion.policy import DeterministicPolicy
-from tameion.seed import seed_demo
-from tameion.security import EIP712PermitSigner
-from tameion.service import APWorkflow
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
-from tameion.verify_arc import RpcClient, provider_view
+from arc_payables.currency import USDCOnlyConverter
+from arc_payables.domain import USDC_SCALE
+from arc_payables.fake_circle import DEFAULT_POLICY_KEY, AnvilChain
+from arc_payables.live_run import preflight
+from arc_payables.local_payment import LocalKeyPaymentProvider
+from arc_payables.mock_adapters import MockAccountingConnector
+from arc_payables.policy import DeterministicPolicy
+from arc_payables.seed import seed_demo
+from arc_payables.security import EIP712PermitSigner
+from arc_payables.service import APWorkflow
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
+from arc_payables.verify_arc import RpcClient, provider_view
 
 INVOICE_USDC = 250
 
@@ -158,7 +158,7 @@ def test_preflight_refuses_a_provider_that_is_not_live(tmp_path, chain):
 
 
 def test_a_dry_run_reports_without_sending(tmp_path, chain):
-    from tameion.live_run import run
+    from arc_payables.live_run import run
 
     settings, store, provider, workflow, invoice_id = _workspace(tmp_path, chain)
     try:

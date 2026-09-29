@@ -12,16 +12,16 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from tameion.agent import EvidenceDecisionAgent
-from tameion.currency import USDCOnlyConverter
-from tameion.domain import DecisionAction
-from tameion.mock_adapters import MockAccountingConnector, MockPaymentProvider
-from tameion.policy import DeterministicPolicy
-from tameion.security import SignerBackendUnavailable, build_permit_signer
-from tameion.seed import seed_demo
-from tameion.service import APWorkflow, WorkflowError
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
+from arc_payables.agent import EvidenceDecisionAgent
+from arc_payables.currency import USDCOnlyConverter
+from arc_payables.domain import DecisionAction
+from arc_payables.mock_adapters import MockAccountingConnector, MockPaymentProvider
+from arc_payables.policy import DeterministicPolicy
+from arc_payables.security import SignerBackendUnavailable, build_permit_signer
+from arc_payables.seed import seed_demo
+from arc_payables.service import APWorkflow, WorkflowError
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
 
 PERMIT_KEY = "0x" + "7a" * 32
 ENTITY_SECRET = "ab" * 32
@@ -32,7 +32,7 @@ class AlwaysPayAgent:
     """Claims every invoice is payable, with a confident reason."""
 
     def recommend(self, context: dict):
-        from tameion.ports import AgentRecommendation
+        from arc_payables.ports import AgentRecommendation
 
         return AgentRecommendation(
             DecisionAction.PAY_NOW.value,
@@ -45,7 +45,7 @@ class RedirectingAgent:
     """Tries to talk the system into a different destination."""
 
     def recommend(self, context: dict):
-        from tameion.ports import AgentRecommendation
+        from arc_payables.ports import AgentRecommendation
 
         return AgentRecommendation(
             DecisionAction.PAY_NOW.value,
@@ -156,7 +156,7 @@ def test_signer_backend_factory_uses_env_key_and_fails_closed_for_kms():
 def test_api_never_serializes_signing_or_vendor_credentials():
     from fastapi.testclient import TestClient
 
-    from tameion.api import create_app
+    from arc_payables.api import create_app
 
     runtime = _runtime(
         payment_provider="circle",

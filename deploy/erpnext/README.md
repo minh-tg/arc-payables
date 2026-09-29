@@ -44,12 +44,12 @@ so the policy's accepted status vocabulary now matches the real values (`Complet
 > password `admin` unless `MYSQL_ROOT_PASSWORD` is overridden. Database/Redis ports are not
 > published. Only ERPNext HTTP is published, on **127.0.0.1:8080**. Do not expose this stack
 > through a tunnel, public proxy, or LAN binding. Do not enter real supplier data or payment
-> credentials. The ERPNext UI here is the external ERP application, not a Tameion frontend.
+> credentials. The ERPNext UI here is the external ERP application, not a Arc Payables frontend.
 
 ## 1. Pull and start the services
 
 ```bash
-cd /home/minh/projects/hackathons/tameion/deploy/erpnext
+cd /home/minh/projects/hackathons/arc_payables/deploy/erpnext
 podman-compose --version
 podman-compose pull
 podman-compose up -d
@@ -180,7 +180,7 @@ retries. No real supplier, Circle entity secret, or signing key is needed.
 
 ```bash
 export FRAPPE_URL=http://127.0.0.1:8080
-uv run tameion-erpnext-bootstrap \
+uv run arc-payables-erpnext-bootstrap \
   --company 'Arc Demo Inc' \
   --wallet "$DEMO_SUPPLIER_WALLET" \
   --posting-date "$DEMO_POSTING_DATE" \

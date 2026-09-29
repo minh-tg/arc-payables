@@ -4,8 +4,8 @@ import time
 
 from eth_account import Account
 
-from tameion.domain import PaymentPermit
-from tameion.security import EIP712PermitSigner
+from arc_payables.domain import PaymentPermit
+from arc_payables.security import EIP712PermitSigner
 
 
 def _permit(**changes) -> PaymentPermit:

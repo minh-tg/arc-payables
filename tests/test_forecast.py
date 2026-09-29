@@ -12,9 +12,9 @@ from decimal import Decimal
 
 from test_prioritisation import _add_invoice, _workspace
 
-from tameion.domain import USDC_SCALE
-from tameion.forecast import build_forecast
-from tameion.settings import Settings
+from arc_payables.domain import USDC_SCALE
+from arc_payables.forecast import build_forecast
+from arc_payables.settings import Settings
 
 
 def _settle_seed(store):
@@ -137,7 +137,7 @@ def test_obligations_beyond_the_horizon_are_reported_not_hidden(tmp_path):
 def test_the_forecast_endpoint_requires_a_key_and_reports_coverage(tmp_path):
     from fastapi.testclient import TestClient
 
-    from tameion.api import create_app
+    from arc_payables.api import create_app
 
     settings = Settings(
         _env_file=None, database_path=tmp_path / "api-forecast.sqlite3", api_key="k", min_reserve_usdc=Decimal("0")

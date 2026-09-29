@@ -6,8 +6,8 @@
 // Everything derived from invoice text, supplier names or policy details is inserted as a text
 // node, never as markup: invoice content is untrusted input and this page renders it.
 
-const KEY_STORAGE = 'tameion.apiKey';
-const APPROVAL_STORAGE = 'tameion.approvalToken';
+const KEY_STORAGE = 'arc_payables.apiKey';
+const APPROVAL_STORAGE = 'arc_payables.approvalToken';
 
 export function apiKey() {
   return sessionStorage.getItem(KEY_STORAGE) || '';

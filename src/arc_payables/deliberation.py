@@ -5,7 +5,7 @@ them beyond the deterministic policy:
 
 * ``policy`` - no advisory layer at all. The deterministic checks are the only opinion, and
   the audit record says so.
-* ``heuristics`` (default) - the fast, explainable layer in :mod:`tameion.agent`.
+* ``heuristics`` (default) - the fast, explainable layer in :mod:`arc_payables.agent`.
 * ``dual_process`` - heuristics first, then a bounded deliberating planner for the cases that
   are genuinely trade-offs rather than missing facts.
 

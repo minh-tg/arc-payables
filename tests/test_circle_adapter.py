@@ -8,10 +8,10 @@ from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
 from Crypto.PublicKey import RSA
 
-from tameion.circle_adapter import CircleAdapterError, CircleDeveloperControlledWalletProvider
-from tameion.crypto_utils import encrypt_circle_entity_secret
-from tameion.security import EIP712PermitSigner
-from tameion.settings import Settings
+from arc_payables.circle_adapter import CircleAdapterError, CircleDeveloperControlledWalletProvider
+from arc_payables.crypto_utils import encrypt_circle_entity_secret
+from arc_payables.security import EIP712PermitSigner
+from arc_payables.settings import Settings
 
 
 def _provider(rpc_handler=None, api_handler=None):

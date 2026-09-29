@@ -1,5 +1,5 @@
 {
-  description = "Tameion — Arc Canteen Hackathon dev environment";
+  description = "Arc Payables — Arc Canteen Hackathon dev environment";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -29,7 +29,7 @@
               export PATH="$PWD/.venv/bin:$PATH"
             fi
             if [ -t 1 ]; then
-              echo "Tameion Dev Shell ready."
+              echo "Arc Payables Dev Shell ready."
               echo "• uv $(uv --version 2>/dev/null | awk '{print $2}')"
               echo "• node $(node --version 2>/dev/null)"
               echo "• forge $(forge --version 2>/dev/null | awk '{print $2}')"

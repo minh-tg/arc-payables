@@ -231,7 +231,7 @@ def _replace_amount(invoice: InvoiceRecord, amount_units: int, quantity: str) ->
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Seed local Tameion demo records")
+    parser = argparse.ArgumentParser(description="Seed local Arc Payables demo records")
     parser.add_argument("--db", default=None, help="Override local database path")
     args = parser.parse_args()
     settings = get_settings()

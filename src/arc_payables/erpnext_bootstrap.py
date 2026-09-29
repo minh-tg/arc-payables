@@ -30,7 +30,7 @@ SETTLEMENT_ACCOUNT_NAME = "USDC Wallet"
 FEE_ACCOUNT_NAME = "Network Fees"
 SUPPLIER_WALLET_FIELD = "custom_usdc_wallet_address"
 SUPPLIER_WALLET_VERIFIED_FIELD = "custom_usdc_wallet_verified"
-SEED_FIELD = "custom_tameion_seed_key"
+SEED_FIELD = "custom_arc_payables_seed_key"
 DEMO_SUPPLIER = "Tameion Demo Supplier"
 DEMO_ITEM = "TAMEION-DEMO-FILTER"
 TRANSACTION_TYPES = ("Purchase Order", "Purchase Receipt", "Purchase Invoice")
@@ -99,8 +99,8 @@ def server_message(payload: dict) -> str:
 
 
 def seed_key(doctype: str, company: str, reference: str) -> str:
-    identity = json.dumps(["tameion-demo-v1", doctype, company, reference], separators=(",", ":"))
-    return "tameion-demo:" + hashlib.sha256(identity.encode()).hexdigest()
+    identity = json.dumps(["arc-payables-demo-v1", doctype, company, reference], separators=(",", ":"))
+    return "arc-payables-demo:" + hashlib.sha256(identity.encode()).hexdigest()
 
 
 class FrappeClient:
@@ -315,7 +315,7 @@ def _ensure_field(client: FrappeClient, doctype: str, fieldname: str, label: str
                   *, unique: bool = False) -> None:
     payload = {"dt": doctype, "fieldname": fieldname, "label": label, "fieldtype": fieldtype,
                "insert_after": "supplier_name" if doctype == "Supplier" else "company",
-               "description": "Disposable Tameion sandbox setup; not agent-managed supplier verification."}
+               "description": "Disposable Arc Payables sandbox setup; not agent-managed supplier verification."}
     expected = {"dt": doctype, "fieldname": fieldname, "fieldtype": fieldtype}
     if unique:
         payload.update(unique=1, no_copy=1, read_only=1)
@@ -435,7 +435,7 @@ def bootstrap(client: FrappeClient, *, company: str | None, supplier_wallet: str
     _ensure_field(client, "Supplier", SUPPLIER_WALLET_FIELD, "USDC Wallet Address", "Data")
     _ensure_field(client, "Supplier", SUPPLIER_WALLET_VERIFIED_FIELD, "USDC Wallet Verified", "Check")
     for doctype in TRANSACTION_TYPES:
-        _ensure_field(client, doctype, SEED_FIELD, "Tameion Demo Seed Key", "Data", unique=True)
+        _ensure_field(client, doctype, SEED_FIELD, "Arc Payables Demo Seed Key", "Data", unique=True)
 
     supplier_name = f"{DEMO_SUPPLIER} - {abbr}"
     supplier_payload = {"supplier_name": supplier_name, "supplier_group": "All Supplier Groups",

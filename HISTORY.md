@@ -2,7 +2,7 @@
 
 ## Where this started
 
-Tameion began as an empty scaffold at the start of the event window: Canteen's Arc starter
+Arc Payables began as an empty scaffold at the start of the event window: Canteen's Arc starter
 workspace (`Counter.sol`, `foundry.toml`, `package.json`) and two commits. Everything else in this
 repository was built during the window, and the boundary is recorded here plainly because the work
 is judged on the delta rather than on a snapshot.

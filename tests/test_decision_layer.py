@@ -15,10 +15,10 @@ from pathlib import Path
 import httpx
 import pytest
 
-from tameion.agent import EvidenceDecisionAgent, JUDGEMENT_CODES
-from tameion.api import create_app
-from tameion.currency import USDCOnlyConverter
-from tameion.deliberation import (
+from arc_payables.agent import EvidenceDecisionAgent, JUDGEMENT_CODES
+from arc_payables.api import create_app
+from arc_payables.currency import USDCOnlyConverter
+from arc_payables.deliberation import (
     DeliberatingPlanner,
     DualProcessDecisionAgent,
     PolicyOnlyDecisionAgent,
@@ -26,13 +26,13 @@ from tameion.deliberation import (
     build_prompt,
     parse_recommendation,
 )
-from tameion.domain import DecisionAction, WorkflowState
-from tameion.mock_adapters import MockAccountingConnector, MockPaymentProvider
-from tameion.policy import DeterministicPolicy
-from tameion.seed import seed_demo
-from tameion.service import APWorkflow
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
+from arc_payables.domain import DecisionAction, WorkflowState
+from arc_payables.mock_adapters import MockAccountingConnector, MockPaymentProvider
+from arc_payables.policy import DeterministicPolicy
+from arc_payables.seed import seed_demo
+from arc_payables.service import APWorkflow
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
 
 
 def _workspace(tmp_path: Path, *, agent=None, **overrides):

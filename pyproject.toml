@@ -3,9 +3,9 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tameion"
+name = "arc-payables"
 version = "0.1.0"
-description = "Tameion — Arc Canteen Hackathon workspace"
+description = "Arc Payables — Arc Canteen Hackathon workspace"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,20 +21,20 @@ dependencies = [
 ]
 
 [project.scripts]
-tameion-seed = "tameion.seed:main"
-tameion-migrate = "tameion.migrate:main"
-tameion-verify-arc = "tameion.verify_arc:main"
-tameion-fake-circle = "tameion.fake_circle:main"
-tameion-erpnext-bootstrap = "tameion.erpnext_bootstrap:main"
-tameion-live-run = "tameion.live_run:main"
-tameion-rescreen = "tameion.monitoring_cli:main"
+arc-payables-seed = "arc_payables.seed:main"
+arc-payables-migrate = "arc_payables.migrate:main"
+arc-payables-verify-arc = "arc_payables.verify_arc:main"
+arc-payables-fake-circle = "arc_payables.fake_circle:main"
+arc-payables-erpnext-bootstrap = "arc_payables.erpnext_bootstrap:main"
+arc-payables-live-run = "arc_payables.live_run:main"
+arc-payables-rescreen = "arc_payables.monitoring_cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tameion"]
+packages = ["src/arc_payables"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"migrations" = "tameion/migrations"
-"src/tameion/web" = "tameion/web"
+"migrations" = "arc_payables/migrations"
+"src/arc_payables/web" = "arc_payables/web"
 
 [tool.uv]
 package = true

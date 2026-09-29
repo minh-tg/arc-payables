@@ -7,11 +7,11 @@ from tempfile import TemporaryDirectory
 import httpx
 import pytest
 
-from tameion.currency import USDCOnlyConverter
-from tameion.domain import DecisionAction, ScreeningStatus, SupplierRecord, WorkflowState
-from tameion.mock_adapters import MockAccountingConnector, MockPaymentProvider
-from tameion.policy import DeterministicPolicy
-from tameion.screening import (
+from arc_payables.currency import USDCOnlyConverter
+from arc_payables.domain import DecisionAction, ScreeningStatus, SupplierRecord, WorkflowState
+from arc_payables.mock_adapters import MockAccountingConnector, MockPaymentProvider
+from arc_payables.policy import DeterministicPolicy
+from arc_payables.screening import (
     ENTITY_QUERY_KEY,
     WALLET_QUERY_KEY,
     FixtureScreeningProvider,
@@ -20,10 +20,10 @@ from tameion.screening import (
     UnavailableScreeningProvider,
     build_screening_provider,
 )
-from tameion.seed import APPROVED_WALLET, seed_demo
-from tameion.service import APWorkflow, WorkflowError
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
+from arc_payables.seed import APPROVED_WALLET, seed_demo
+from arc_payables.service import APWorkflow, WorkflowError
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
 
 SUPPLIER = SupplierRecord(
     id="SUP-ACME-001",
@@ -219,7 +219,7 @@ def _workflow(tmp: str, screening: ScreeningResult, **settings_overrides):
 
 
 def _result(status: ScreeningStatus, reason: str = "test result") -> ScreeningResult:
-    from tameion.screening import ScreeningMatch
+    from arc_payables.screening import ScreeningMatch
 
     matches = ()
     if status == ScreeningStatus.FLAGGED:

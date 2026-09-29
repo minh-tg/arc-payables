@@ -5,18 +5,18 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from tameion.api import create_app
-from tameion.mock_adapters import MockAccountingConnector, MockPaymentProvider
-from tameion.policy import DeterministicPolicy
-from tameion.seed import seed_demo
-from tameion.settings import Settings
-from tameion.store import SQLiteEvidenceStore
-from tameion.currency import USDCOnlyConverter
+from arc_payables.api import create_app
+from arc_payables.mock_adapters import MockAccountingConnector, MockPaymentProvider
+from arc_payables.policy import DeterministicPolicy
+from arc_payables.seed import seed_demo
+from arc_payables.settings import Settings
+from arc_payables.store import SQLiteEvidenceStore
+from arc_payables.currency import USDCOnlyConverter
 
 
 @pytest.fixture
 def runtime(tmp_path: Path):
-    settings = Settings(_env_file=None, database_path=tmp_path / "tameion.sqlite3")
+    settings = Settings(_env_file=None, database_path=tmp_path / "arc_payables.sqlite3")
     store = SQLiteEvidenceStore(settings.database_path)
     store.initialize()
     legitimate_id, suspicious_id = seed_demo(store)
