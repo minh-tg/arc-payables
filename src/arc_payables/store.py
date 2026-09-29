@@ -420,7 +420,11 @@ class SQLiteEvidenceStore:
                     connection.rollback()
                     return False
                 record = json.loads(row["record_json"])
-                if record.get("erp_entry_id") or record.get("erp_status") == "RECORDED":
+                # A finished writeback is not re-claimable. An unfinished one is, even when the
+                # payment entry already exists: the network-fee expense is a second document, and a
+                # retry after that one failed must be allowed to finish the job. The state records
+                # whether the writeback is finished, so that is what this checks.
+                if row["state"] == WorkflowState.ERP_RECORDED.value or record.get("state") == WorkflowState.ERP_RECORDED.value:
                     connection.rollback()
                     return False
                 claimed_at = record.get("erp_claimed_at")

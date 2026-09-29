@@ -480,6 +480,14 @@ def test_concurrent_payment_requests_create_one_settlement_and_erp_entry(runtime
     assert runtime["store"].get_payment(runtime["legitimate_id"])["permit"]["recipient"] == APPROVED_WALLET
 
 
+def test_a_finished_writeback_cannot_be_claimed_again(runtime):
+    """The lease exists to order writers, so a completed writeback must be unclaimable."""
+    runtime["workflow"].evaluate(runtime["legitimate_id"])
+    runtime["workflow"].submit_payment(runtime["legitimate_id"])
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ERP_RECORDED.value
+    assert runtime["store"].claim_erp_writeback(runtime["legitimate_id"], lease_seconds=0) is False
+
+
 def test_erp_writeback_in_flight_is_reported_not_silently_succeeded(runtime):
     runtime["workflow"].evaluate(runtime["legitimate_id"])
     runtime["accounting"].fail_next_write = True
