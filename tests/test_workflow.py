@@ -360,10 +360,24 @@ def test_unverified_supplier_wallet_requires_human_review(runtime):
     runtime["store"].seed_fixture("supplier", SUPPLIER_ID, supplier)
     result = runtime["workflow"].evaluate(runtime["legitimate_id"])
     assert result["decision"]["action"] == DecisionAction.ESCALATE.value
-    check = next(item for item in result["decision"]["policy_checks"] if item["code"] == "wallet_verified")
+    check = next(item for item in result["decision"]["policy_checks"] if item["code"] == "wallet_unverified")
     assert check["requires_human"] and not check["passed"]
-    with __import__("pytest").raises(WorkflowError):
+    with pytest.raises(WorkflowError):
         runtime["workflow"].submit_payment(runtime["legitimate_id"])
+
+    # The acknowledgement must be the name the check reports, and it must actually work. It was
+    # once accepted by the approval gate under a different name and then ignored by the policy, so
+    # a reviewer could acknowledge an unverified wallet and watch nothing change.
+    approved = runtime["workflow"].approve(
+        runtime["legitimate_id"],
+        {
+            "reviewer": "ap",
+            "approved": True,
+            "note": "wallet confirmed with the supplier out of band",
+            "acknowledged_checks": ["wallet_unverified"],
+        },
+    )
+    assert approved["decision"]["action"] == DecisionAction.PAY_NOW.value
 
 
 def test_address_screening_unavailable_requires_review(runtime):

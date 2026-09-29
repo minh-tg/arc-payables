@@ -283,6 +283,20 @@ def test_ambiguous_and_unavailable_screening_require_review():
             assert check["requires_human"] and check["overridable"]
             with pytest.raises(WorkflowError):
                 workflow.submit_payment(invoice_id)
+
+            # And the acknowledgement for exactly that code must be honoured. An ambiguous result
+            # was reported as reviewable while being absent from the acknowledgement vocabulary, so
+            # the approval gate rejected the only name a reviewer could have used.
+            approved = workflow.approve(
+                invoice_id,
+                {
+                    "reviewer": "ap",
+                    "approved": True,
+                    "note": "screening checked out of band",
+                    "acknowledged_checks": [expected_code],
+                },
+            )
+            assert approved["decision"]["action"] == DecisionAction.PAY_NOW.value
             assert payment.submission_calls == 0
 
 

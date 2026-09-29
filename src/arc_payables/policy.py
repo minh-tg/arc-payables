@@ -38,15 +38,16 @@ OVERRIDABLE_CHECKS = {
     "wallet_unverified",
     "screening_unavailable",
     "screening_flagged",
+    "screening_ambiguous",
     "amount_limit",
     "cash_reserve",
     "missing_purchase_order",
     "missing_receipt",
-    "evidence_mismatch",
+
     "purchase_order_match",
     "receipt_match",
     "invoice_line_total",
-    "missing_discount_evidence",
+
 }
 
 # ERPNext reports a *submitted* Purchase Order with a business status, never the literal
@@ -248,7 +249,18 @@ class DeterministicPolicy:
             wallet_address_valid = is_evm_address(supplier.approved_wallet)
             wallet_ok = wallet_address_valid and supplier.wallet_verified
             wallet_human = wallet_address_valid and not supplier.wallet_verified
-            checks.append(PolicyCheck("wallet_verified", wallet_ok, "Approved supplier wallet is verified." if wallet_ok else "Approved supplier wallet is missing, invalid, or unverified.", (wallet_ref,), wallet_human or not wallet_address_valid, wallet_human))
+            wallet_acknowledged = wallet_human and _human_ack(current_approval, "wallet_unverified")
+            wallet_detail = (
+                "Approved supplier wallet is verified."
+                if wallet_ok
+                else (
+                    "A reviewer acknowledged that the supplier record's wallet is unverified; the destination"
+                    " is still that record's wallet and nothing else."
+                    if wallet_acknowledged
+                    else "Approved supplier wallet is missing, invalid, or unverified."
+                )
+            )
+            checks.append(PolicyCheck("wallet_unverified", wallet_ok or wallet_acknowledged, wallet_detail, (wallet_ref,), wallet_human or not wallet_address_valid, wallet_human))
             if not supplier.approved_wallet:
                 missing.append("Verified approved supplier wallet address.")
             elif not supplier.wallet_verified and not _human_ack(current_approval, "wallet_unverified"):
@@ -278,7 +290,8 @@ class DeterministicPolicy:
         invoice_lines_ref = ref(f"invoice:{invoice.id}:lines", "invoice_record", "line_items", str(len(invoice.lines)))
         lines_total = sum(line.amount_units for line in invoice.lines)
         line_total_match = bool(invoice.lines) and lines_total == invoice.amount_units
-        checks.append(PolicyCheck("invoice_line_total", line_total_match, "Invoice line amounts equal the invoice total." if line_total_match else "Invoice line amounts are missing or do not equal the invoice total.", (invoice_lines_ref, amount_ref), not line_total_match, not line_total_match))
+        line_total_waived = line_total_match or _human_ack(current_approval, "invoice_line_total")
+        checks.append(PolicyCheck("invoice_line_total", line_total_waived, "Invoice line amounts equal the invoice total." if line_total_match else ("A reviewer waived the invoice line totals; the billed amount is unchanged." if line_total_waived else "Invoice line amounts are missing or do not equal the invoice total."), (invoice_lines_ref, amount_ref), not line_total_match, not line_total_match))
         if not line_total_match:
             conflicts.append("Invoice line total does not equal the billed amount.")
             missing.append("Reconciled invoice line amounts.")
@@ -339,9 +352,11 @@ class DeterministicPolicy:
             po_ok = supplier_po_match and po_lines_match
             if not po_lines_match:
                 conflicts.append("Purchase Order line, item, or amount does not support the invoice.")
-            checks.append(PolicyCheck("purchase_order_match", po_ok, "Purchase Order supplier and line amounts match." if po_ok else "Purchase Order evidence is inconsistent or incomplete.", tuple(po_refs), not po_ok, not po_ok))
+            po_waived = po_ok or _human_ack(current_approval, "purchase_order_match")
+            checks.append(PolicyCheck("purchase_order_match", po_waived, "Purchase Order supplier and line amounts match." if po_ok else ("A reviewer waived the Purchase Order comparison; the destination and amount are unchanged." if po_waived else "Purchase Order evidence is inconsistent or incomplete."), tuple(po_refs), not po_ok, not po_ok))
         else:
-            checks.append(PolicyCheck("missing_purchase_order", False, "No Purchase Order evidence was found.", (), True, True))
+            po_missing_waived = _human_ack(current_approval, "missing_purchase_order")
+            checks.append(PolicyCheck("missing_purchase_order", po_missing_waived, "No Purchase Order evidence was found." if not po_missing_waived else "A reviewer waived the missing Purchase Order; the destination and amount are unchanged.", (), True, True))
             missing.append("Purchase Order evidence.")
 
         for receipt in accounting.receipts:
@@ -360,11 +375,13 @@ class DeterministicPolicy:
                 received.get(line.purchase_order_line_id or f"item:{line.item_code}", Decimal(0)) >= Decimal(line.quantity)
                 for line in invoice.lines
             )
-            checks.append(PolicyCheck("receipt_match", receipt_match, "Receipt quantities cover the invoiced lines." if receipt_match else "Receipt evidence is missing, incomplete, or conflicts with billed quantities.", tuple(receipt_refs), not receipt_match, not receipt_match))
+            receipt_waived = receipt_match or _human_ack(current_approval, "receipt_match")
+            checks.append(PolicyCheck("receipt_match", receipt_waived, "Receipt quantities cover the invoiced lines." if receipt_match else ("A reviewer waived the receipt comparison; the destination and amount are unchanged." if receipt_waived else "Receipt evidence is missing, incomplete, or conflicts with billed quantities."), tuple(receipt_refs), not receipt_match, not receipt_match))
             if not receipt_match:
                 conflicts.append("Receipt quantities do not cover all invoiced quantities.")
         else:
-            checks.append(PolicyCheck("missing_receipt", False, "No Purchase Receipt evidence was found.", (), True, True))
+            receipt_missing_waived = _human_ack(current_approval, "missing_receipt")
+            checks.append(PolicyCheck("missing_receipt", receipt_missing_waived, "No Purchase Receipt evidence was found." if not receipt_missing_waived else "A reviewer waived the missing Purchase Receipt; the destination and amount are unchanged.", (), True, True))
             missing.append("Purchase Receipt evidence.")
 
         currency_ok = self.converter.settlement_amount_usdc(invoice.amount_units, invoice.currency) is not None
