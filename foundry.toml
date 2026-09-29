@@ -10,6 +10,14 @@ optimizer_runs = 200
 [rpc_endpoints]
 arc_testnet = "${RPC_URL:-https://rpc.testnet.arc.io}"
 
+[invariant]
+# The guard's budget invariants are checked after every call in an arbitrary sequence of payments,
+# time movements, pauses and unpauses. Runs and depth are bounded to keep the suite quick while
+# still exploring sequences far longer than a unit test would.
+runs = 64
+depth = 64
+fail_on_revert = false
+
 [lint]
 # `reentrancy-events` is a stylistic heuristic that flags any event in a function that
 # also performs an external call, regardless of ordering or state effects. PaymentGuard

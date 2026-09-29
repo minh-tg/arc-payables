@@ -63,6 +63,11 @@ Two executors implement the same payment path: an exact `approve`, then the poli
 
 Both refuse to proceed on an unconfigured or incomplete setup, and neither can exceed the guard's on-chain budget.
 
+`forge test` includes an invariant suite that fuzzes arbitrary sequences of payments, time
+movements and pauses against those caps, and checks after every call that the epoch spend stayed
+within its cap, that the per-recipient figures still sum to the epoch figure, that budget consumed
+matches what actually settled, and that nothing settled while paused.
+
 The guard also has a pause control, held by an address given at deployment. It exists so an incident
 can be stopped without deploying a new guard. The pauser can only stop and resume payments: it cannot
 move tokens, redirect a payment, or raise a cap. Point it at a burn address if no pause authority is

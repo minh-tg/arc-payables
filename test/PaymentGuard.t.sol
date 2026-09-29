@@ -73,6 +73,8 @@ contract PaymentGuardTest {
         require(token.balanceOf(recipient) == permit.amount, "wrong recipient amount");
         require(token.balanceOf(address(this)) == 7_500_000, "wrong payer balance");
         require(guard.used(permit.paymentId), "payment id not consumed");
+        // The transfer goes from the payer to the recipient. The guard never holds funds.
+        require(token.balanceOf(address(guard)) == 0, "the guard retained tokens");
     }
 
     function test_replayIsRejected() public {
