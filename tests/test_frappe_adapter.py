@@ -18,6 +18,7 @@ COMPANY = "Arc Demo Inc"
 SETTLEMENT_ACCOUNT = "USDC Wallet - AD"
 PAYABLE_ACCOUNT = "Accounts Payable - AD"
 FEE_ACCOUNT = "Network Fees - AD"
+COST_CENTER = "Main - AD"
 
 
 def _mapping(**overrides) -> PaymentMapping:
@@ -33,6 +34,7 @@ def _mapping(**overrides) -> PaymentMapping:
         "source_exchange_rate": "1",
         "target_exchange_rate": "1",
         "fee_account": FEE_ACCOUNT,
+        "cost_center": COST_CENTER,
         "fee_currency": "USD",
     }
     values.update(overrides)
@@ -55,6 +57,7 @@ def _settings(**overrides) -> Settings:
         "frappe_source_exchange_rate": Decimal("1"),
         "frappe_target_exchange_rate": Decimal("1"),
         "frappe_fee_account": FEE_ACCOUNT,
+        "frappe_cost_center": COST_CENTER,
         "frappe_fee_currency": "USD",
     }
     values.update(overrides)
@@ -170,10 +173,10 @@ def test_payload_omits_deductions_when_there_is_no_fee():
         250 * USDC_SCALE, 0, source_currency="USDC", target_currency="USD",
         company_currency="USD", source_exchange_rate="1", target_exchange_rate="1",
     )
-    payload = payload_fields(amounts, "PINV-1", FEE_ACCOUNT)
+    payload = payload_fields(amounts, "PINV-1", FEE_ACCOUNT, COST_CENTER)
     assert "deductions" not in payload
-    assert payload["paid_amount"] == "250"
-    assert payload["references"][0]["allocated_amount"] == "250"
+    assert payload["paid_amount"] == 250
+    assert payload["references"][0]["allocated_amount"] == 250
 
 
 # --------------------------------------------------------------------------------------
@@ -280,6 +283,7 @@ def _payment_handler(
     counters: dict[str, int],
     *,
     timeout_after_create: bool = False,
+    smallest_currency_fraction: float = 0.01,
     settlement_account_currency: str = "USDC",
     payable_account_currency: str = "USD",
     fee_account_currency: str = "USD",
@@ -300,6 +304,13 @@ def _payment_handler(
             return httpx.Response(200, json={"data": entries[path.rsplit("/", 1)[-1]]})
         if path == "/api/resource/Purchase Invoice/PINV-1":
             return httpx.Response(200, json={"data": {"name": "PINV-1", "currency": "USD"}})
+        if path.startswith("/api/resource/Cost Center/"):
+            return httpx.Response(200, json={"data": {"name": path.rsplit("/", 1)[-1], "company": COMPANY, "is_group": 0}})
+        if path.startswith("/api/resource/Currency/"):
+            return httpx.Response(200, json={"data": {
+                "name": path.rsplit("/", 1)[-1],
+                "smallest_currency_fraction_value": smallest_currency_fraction,
+            }})
         if path.startswith("/api/resource/Account/"):
             name = path.rsplit("/", 1)[-1]
             return httpx.Response(200, json={"data": {
@@ -350,9 +361,9 @@ def test_submit_sends_the_full_document_and_requires_confirmation():
     submitted = seen[0]
     assert submitted["doctype"] == "Payment Entry"
     assert submitted["name"] == "PE-1"
-    assert submitted["paid_amount"] == "250.01"
-    assert submitted["deductions"] == [{"account": FEE_ACCOUNT, "amount": "0.01"}]
-    assert submitted["references"][0]["allocated_amount"] == "250"
+    assert submitted["paid_amount"] == 250.01
+    assert submitted["deductions"] == [{"account": FEE_ACCOUNT, "cost_center": COST_CENTER, "amount": 0.01}]
+    assert submitted["references"][0]["allocated_amount"] == 250
     assert submitted["modified"]                      # concurrency timestamp is required
 
 
@@ -385,10 +396,10 @@ def test_payment_entry_absorbs_the_fee_and_settles_the_invoice_in_full():
     assert counters == {"create": 1, "submit": 1}
 
     payload = entries["PE-1"]
-    assert payload["paid_amount"] == "250.01"       # wallet outflow, fee included
-    assert payload["received_amount"] == "250"      # party amount
-    assert payload["references"][0]["allocated_amount"] == "250"   # invoice settled fully
-    assert payload["deductions"] == [{"account": FEE_ACCOUNT, "amount": "0.01"}]
+    assert payload["paid_amount"] == 250.01         # wallet outflow, fee included, as a number
+    assert payload["received_amount"] == 250        # party amount
+    assert payload["references"][0]["allocated_amount"] == 250      # a number: ERPNext sums this row as-is
+    assert payload["deductions"] == [{"account": FEE_ACCOUNT, "cost_center": COST_CENTER, "amount": 0.01}]
     assert payload["source_exchange_rate"] == "1"
     assert payload["target_exchange_rate"] == "1"
 

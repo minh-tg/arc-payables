@@ -493,6 +493,7 @@ def bootstrap(client: FrappeClient, *, company: str | None, supplier_wallet: str
             "purchase_receipt": pr["name"], "purchase_invoice": pi["name"],
             "env": {"FRAPPE_COMPANY": company_name, "FRAPPE_PAID_FROM_ACCOUNT": settlement_account,
                     "FRAPPE_PAID_TO_ACCOUNT": payable_name, "FRAPPE_FEE_ACCOUNT": fee_account,
+                    "FRAPPE_COST_CENTER": cost_center,
                     "FRAPPE_COMPANY_CURRENCY": "USD", "FRAPPE_INVOICE_CURRENCY": "USD",
                     "FRAPPE_FEE_CURRENCY": "USD", "FRAPPE_SETTLEMENT_CURRENCY": "USDC",
                     "FRAPPE_SOURCE_EXCHANGE_RATE": "1", "FRAPPE_TARGET_EXCHANGE_RATE": "1",

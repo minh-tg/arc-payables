@@ -493,6 +493,7 @@ class APWorkflow:
                 target_exchange_rate=str(self.settings.frappe_target_exchange_rate),
                 fee_account=self.settings.frappe_fee_account or "",
                 fee_currency=self.settings.frappe_fee_currency or "",
+                cost_center=self.settings.frappe_cost_center or "",
             )
         # Mock accounting mirrors the same shape so the fee logic is exercised identically.
         return PaymentMapping(
@@ -508,6 +509,7 @@ class APWorkflow:
             target_exchange_rate="1",
             fee_account="Network Fees - Demo",
             fee_currency="USD",
+            cost_center="Main - Demo",
         )
 
     def get_invoice(self, invoice_id: str) -> dict[str, Any]:

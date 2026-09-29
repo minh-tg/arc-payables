@@ -71,6 +71,15 @@ def _plain(value: Decimal) -> str:
     return format(value.quantize(CENT).normalize(), "f")
 
 
+def _number(value: Decimal) -> float:
+    """A JSON number for the ERPNext REST API.
+
+    `float` is Frappe's own currency representation, so this is where exactness is handed over
+    rather than lost: every check that matters has already run on the Decimal value.
+    """
+    return float(value.quantize(CENT).normalize())
+
+
 def _decimal(value: object, field: str) -> Decimal:
     try:
         parsed = Decimal(str(value))
@@ -179,21 +188,31 @@ def compute_payment_entry_amounts(
     )
 
 
-def payload_fields(amounts: PaymentEntryAmounts, reference_name: str, fee_account: str) -> dict:
+def payload_fields(amounts: PaymentEntryAmounts, reference_name: str, fee_account: str, cost_center: str) -> dict:
     """Map computed amounts onto ERPNext REST field names."""
+    # Every amount is sent as a number. Fixed-point strings looked safer, but ERPNext runs bare
+    # arithmetic over these fields before any `flt()`: `sum(d.allocated_amount for d in references)`
+    # and `abs(paid_amount)` both raise TypeError on a string, which the REST API reports as a 500
+    # and a client can only treat as an uncertain write. Frappe models currency as a float, so the
+    # boundary follows Frappe; the exact arithmetic stays here, in compute_payment_entry_amounts,
+    # where it is checked before anything is sent.
     payload: dict = {
-        "paid_amount": _plain(amounts.paid_amount),
-        "received_amount": _plain(amounts.received_amount),
+        "paid_amount": _number(amounts.paid_amount),
+        "received_amount": _number(amounts.received_amount),
         "references": [
             {
                 "reference_doctype": "Purchase Invoice",
                 "reference_name": reference_name,
-                "allocated_amount": _plain(amounts.allocated_amount),
+                "allocated_amount": _number(amounts.allocated_amount),
             }
         ],
     }
     if amounts.total_deductions > 0:
         payload["deductions"] = [
-            {"account": fee_account, "amount": _plain(amounts.total_deductions)},
+            {
+                "account": fee_account,
+                "cost_center": cost_center,
+                "amount": _number(amounts.total_deductions),
+            }
         ]
     return payload

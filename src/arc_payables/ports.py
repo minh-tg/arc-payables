@@ -49,6 +49,12 @@ class PaymentMapping:
     fee_account: str
     """Network-fee expense account. Must be in the company currency."""
 
+    cost_center: str
+    """Cost centre the network fee is booked against.
+
+    ERPNext requires one on a deduction row, and it refuses to guess, so it is configured and
+    verified like every other accounting value rather than left to a default."""
+
     fee_currency: str
     """Expected currency of the network-fee account. Must equal ``company_currency``."""
 

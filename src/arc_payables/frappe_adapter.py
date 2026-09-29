@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import quote
 
@@ -257,6 +257,8 @@ class FrappeAccountingConnector:
         self._verify_account_mapping(invoice, mapping)
 
         amount_usdc = Decimal(invoice.amount_units) / Decimal(USDC_SCALE)
+        measured_fee_units = fee_units
+        fee_units = self._bookable_fee_units(fee_units, mapping)
         try:
             amounts = compute_payment_entry_amounts(
                 invoice.amount_units,
@@ -286,8 +288,12 @@ class FrappeAccountingConnector:
             "target_exchange_rate": mapping.target_exchange_rate,
             "reference_no": reference,
             "reference_date": date.today().isoformat(),
-            **payload_fields(amounts, invoice.purchase_invoice_id or "", mapping.fee_account),
+            **payload_fields(amounts, invoice.purchase_invoice_id or "", mapping.fee_account, mapping.cost_center),
         }
+        note = self._fee_note(measured_fee_units, fee_units, mapping, amount_usdc)
+        if note:
+            # Recorded on the document, because a rounded booking is a fact an accountant needs.
+            payload["remarks"] = note
         try:
             created = self._request("POST", "/api/resource/Payment%20Entry", json_body=payload).get("data", {})
         except FrappeAdapterError:
@@ -299,6 +305,43 @@ class FrappeAccountingConnector:
             raise FrappeAdapterError(None, "Payment Entry create response missing record name", uncertain=True)
         self._submit_payment_entry(created)
         return ERPWriteResult(name, 1)
+
+    def _bookable_fee_units(self, fee_units: int, mapping: PaymentMapping) -> int:
+        """Round the fee up to the smallest amount the company currency can represent.
+
+        ERPNext books the deduction in the company currency, so a fee below that currency's smallest
+        unit cannot be booked at all. Rounding up keeps the entry balanced and never understates our
+        own cost, and the supplier's amount is untouched either way. A company whose base currency is
+        the settlement asset needs no rounding.
+        """
+        if fee_units <= 0:
+            return 0
+        unit = self._currency_smallest_unit(mapping.company_currency)
+        if unit <= 0:
+            return fee_units
+        fee = Decimal(fee_units) / Decimal(USDC_SCALE)
+        rounded = (fee / unit).to_integral_value(rounding=ROUND_CEILING) * unit
+        return int((rounded * Decimal(USDC_SCALE)).to_integral_value())
+
+    def _currency_smallest_unit(self, currency: str) -> Decimal:
+        document = self.get_document("Currency", currency)
+        try:
+            return Decimal(str(document.get("smallest_currency_fraction_value") or "0"))
+        except (InvalidOperation, TypeError):
+            return Decimal(0)
+
+    @staticmethod
+    def _fee_note(measured_units: int, booked_units: int, mapping: PaymentMapping, supplier_amount: Decimal) -> str | None:
+        if measured_units == booked_units:
+            return None
+        measured = Decimal(measured_units) / Decimal(USDC_SCALE)
+        booked = Decimal(booked_units) / Decimal(USDC_SCALE)
+        return (
+            f"Network fee measured {measured.normalize()} {mapping.source_currency} on chain and booked as "
+            f"{booked.normalize()} {mapping.company_currency}, rounded up to the smallest unit the company "
+            "currency can represent. The supplier received exactly "
+            f"{supplier_amount.normalize()} {mapping.source_currency}; the difference is absorbed by us."
+        )
 
     def _submit_payment_entry(self, doc: dict) -> None:
         """Submit using the whole document, never a bare name.
@@ -355,12 +398,12 @@ class FrappeAccountingConnector:
             )
         except AccountingMappingError as exc:
             raise FrappeAdapterError(None, f"accounting mapping is invalid: {exc}") from exc
-        expected = payload_fields(amounts, invoice.purchase_invoice_id or "", mapping.fee_account)
-        if Decimal(str(reference.get("allocated_amount", "0"))) != Decimal(expected["references"][0]["allocated_amount"]):
+        expected = payload_fields(amounts, invoice.purchase_invoice_id or "", mapping.fee_account, mapping.cost_center)
+        if Decimal(str(reference.get("allocated_amount", "0"))) != Decimal(str(expected["references"][0]["allocated_amount"])):
             raise FrappeAdapterError(None, "existing Payment Entry reference conflicts with the invoice amount")
-        if Decimal(str(row.get("paid_amount", "0"))) != Decimal(expected["paid_amount"]):
+        if Decimal(str(row.get("paid_amount", "0"))) != Decimal(str(expected["paid_amount"])):
             raise FrappeAdapterError(None, "existing Payment Entry conflicts with the expected outflow")
-        if Decimal(str(row.get("received_amount", "0"))) != Decimal(expected["received_amount"]):
+        if Decimal(str(row.get("received_amount", "0"))) != Decimal(str(expected["received_amount"])):
             raise FrappeAdapterError(None, "existing Payment Entry conflicts with the expected party amount")
         deductions = row.get("deductions") or []
         expected_deductions = expected.get("deductions", [])
@@ -369,7 +412,7 @@ class FrappeAccountingConnector:
         for actual_row, expected_row in zip(deductions, expected_deductions):
             if actual_row.get("account") != expected_row["account"]:
                 raise FrappeAdapterError(None, "existing Payment Entry conflicts with the network-fee account")
-            if Decimal(str(actual_row.get("amount", "0"))) != Decimal(expected_row["amount"]):
+            if Decimal(str(actual_row.get("amount", "0"))) != Decimal(str(expected_row["amount"])):
                 raise FrappeAdapterError(None, "existing Payment Entry conflicts with the network-fee amount")
 
     def _supplier(self, supplier_id: str) -> SupplierRecord:
@@ -439,6 +482,13 @@ class FrappeAccountingConnector:
                 )
             if account.get("is_group") in (True, 1, "1"):
                 raise FrappeAdapterError(None, f"the {role} account must be a ledger account")
+        if not mapping.cost_center:
+            raise FrappeAdapterError(None, "the cost centre for the network fee is not configured")
+        cost_center = self.get_document("Cost Center", mapping.cost_center)
+        if str(cost_center.get("company") or "") != mapping.company:
+            raise FrappeAdapterError(None, "the cost centre belongs to a different company")
+        if cost_center.get("is_group") in (True, 1, "1"):
+            raise FrappeAdapterError(None, "the cost centre must be a leaf")
         if mapping.fee_currency.upper() != mapping.company_currency.upper():
             # ERPNext refuses a deduction whose account currency is not the company currency.
             raise FrappeAdapterError(None, "the network-fee account must be in the company currency")

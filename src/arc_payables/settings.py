@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     frappe_source_exchange_rate: Decimal | None = None
     frappe_target_exchange_rate: Decimal | None = None
     frappe_fee_account: str | None = None
+    frappe_cost_center: str | None = None
     frappe_fee_currency: str | None = None
 
     @property
@@ -169,6 +170,7 @@ class Settings(BaseSettings):
             self.frappe_target_exchange_rate,
             self.frappe_fee_account,
             self.frappe_fee_currency,
+            self.frappe_cost_center,
         )
         if not all(value is not None and value != "" for value in required):
             return False
