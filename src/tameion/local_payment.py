@@ -253,6 +253,22 @@ class LocalKeyPaymentProvider:
             return "GUARD_EPOCH_BUDGET_EXCEEDED"
         return None
 
+    def guard_limits(self) -> dict[str, int] | None:
+        """The deployed guard's budgets, read from the chain; None if it cannot be read.
+
+        Exposed publicly so a preflight can refuse a payment the contract would reject, rather
+        than spending gas to discover it.
+        """
+        try:
+            return {
+                "per_payment_cap": self._read_uint("perPaymentCap()"),
+                "epoch_cap": self._read_uint("epochCap()"),
+                "recipient_epoch_cap": self._read_uint("recipientEpochCap()"),
+                "epoch_length": self._read_uint("epochLength()"),
+            }
+        except LocalPaymentError:
+            return None
+
     def _read_address(self, signature: str) -> str:
         result = self._eth_call(self.guard_address, "0x" + selector(signature).hex())
         return to_checksum_address("0x" + result[-40:])

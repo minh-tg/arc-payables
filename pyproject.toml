@@ -26,6 +26,7 @@ tameion-migrate = "tameion.migrate:main"
 tameion-verify-arc = "tameion.verify_arc:main"
 tameion-fake-circle = "tameion.fake_circle:main"
 tameion-erpnext-bootstrap = "tameion.erpnext_bootstrap:main"
+tameion-live-run = "tameion.live_run:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tameion"]

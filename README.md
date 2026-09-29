@@ -107,6 +107,64 @@ curl -s -X POST http://127.0.0.1:8000/invoices \
 
 API routes are listed in Swagger at `/docs`. Configure `API_KEY` before enabling Circle or Frappe adapters; write endpoints reject external-adapter operation without API auth. Human approval also requires a separate `APPROVAL_TOKEN`, and a reviewer may only acknowledge the listed exceptions — never choose a destination address. Do not put secrets in chat, command history, source control, logs, or model context.
 
+## Sending a real Arc Testnet payment
+
+`tameion-live-run` sends one payment, and refuses to guess. It checks the chain id from the
+node, the deployed guard's budgets, that the destination is a **human-verified** trusted
+Supplier wallet, that the invoice is linked to an acceptable accounting payable, and that the
+treasury covers the amount while preserving the reserve. Nothing is signed without `--confirm`,
+so the dry run is free:
+
+```bash
+uv run tameion-verify-arc                        # read-only: is this deployment ready, and what is missing?
+uv run tameion-live-run --invoice <invoice-id>   # preflight only
+uv run tameion-live-run --invoice <invoice-id> --confirm
+```
+
+Setup, in order — the first three need your keys, which never leave your machine:
+
+```bash
+arc-canteen login                                # a funded Arc Testnet wallet and an RPC URL
+export RPC=$(arc-canteen rpc-url)
+cast wallet new                                  # the supplier destination you control
+cast wallet new                                  # the policy signer; must differ from the deployer
+
+export DEPLOYER_PRIVATE_KEY=<arc-canteen wallet key>
+export PERMIT_SIGNING_PRIVATE_KEY=<policy signer key>
+export PAYMENT_GUARD_PER_PAYMENT_CAP=20000000    # 20 USDC per payment, in 6-decimal units
+export PAYMENT_GUARD_EPOCH_CAP=100000000
+export PAYMENT_GUARD_RECIPIENT_EPOCH_CAP=50000000
+export PAYMENT_GUARD_EPOCH_LENGTH_SECONDS=86400
+forge script script/DeployPaymentGuard.s.sol --rpc-url $RPC --broadcast
+
+export PAYMENT_PROVIDER=local
+export LOCAL_PAYMENT_PRIVATE_KEY=<treasury payer key>
+export LOCAL_PAYMENT_GUARD_ADDRESS=<guard from the deploy>
+export LOCAL_PAYMENT_RPC_URL=$RPC
+```
+
+Then set `custom_usdc_wallet_address` on the demo Supplier to the supplier address and tick
+`custom_usdc_wallet_verified` **in ERPNext**, by hand. That is deliberately the one step the tooling
+will not do: changing a trusted payment destination is a privileged human act, and every payment
+is refused until it has happened.
+
+The demo thresholds matter here. The default reserve floor is 2,000 USDC, so either lower
+`MIN_RESERVE_USDC`/`MAX_INVOICE_USDC` for a small run or fund the wallet properly; a preflight
+failure says exactly which limit was hit.
+
+## Circle platform usage
+
+Used today: **Developer-Controlled Wallets** (the production-shaped payer, in `circle_adapter.py`),
+**USDC** on Arc, and **Contracts** in the sense that the budget is enforced by an on-chain guard
+rather than by configuration.
+
+Not yet used, each of which needs a Circle account and credentials that only the operator can
+create: **Paymaster** (sponsoring gas instead of the payer holding it), **App Kit** (Send,
+Unified Balance), **CCTP** and **Gateway** (moving USDC between chains as one balance), **USYC**
+(a yield-bearing reserve) and **EURC** (paying a euro-denominated vendor). The ports already
+exist for the payment and accounting sides, so each is an adapter plus tests rather than a
+redesign.
+
 ## Database and tests
 
 Migrations are in `migrations/`; the service applies them on startup. The DB defaults to `data/tameion.sqlite3` (`DATABASE_PATH` overrides it).
