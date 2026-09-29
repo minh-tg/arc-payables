@@ -1,8 +1,25 @@
-# Arc Payables — evidence-gated AP backend MVP
+# Arc Payables
 
-A backend-only AP workflow for reviewing supplier invoices and paying **USDC on Arc Testnet**. The invoice amount is evidence; the payment destination is always read from a trusted supplier record. A different invoice payee stops unattended payment and requires human review. The decision agent is a deterministic, read-only baseline; a separate deterministic policy, permit signer, payment provider, and approval gate control execution.
+Accounts payable on Arc, where an agent can recommend a payment but cannot authorize one, and the budget it spends under is enforced by a contract it cannot argue with.
 
-This repository began as the Arc Canteen Python/Foundry starter. There is no frontend.
+An invoice is captured and matched against the accounting system. A deterministic policy re-derives every condition from raw evidence and records what it saw, so a decision can be explained rather than asserted. The payment destination can only ever be the **human-verified wallet on the trusted supplier record** — never a payee printed on an invoice. The transfer settles only if a policy-signed permit matches the exact recipient, amount, evidence hash and payment id inside an on-chain guard whose budget caps are immutable, and the result lands in ERPNext as a balanced Payment Entry with the network fee absorbed and expensed separately, so the supplier receives exactly the authorized amount.
+
+**Why that shape.** Every agent-payment guardrail in this space is a service-side policy engine with an audit trail: if the process is compromised or simply wrong, the money still moves. Here the limit lives somewhere the agent cannot reach — a contract — and the system produces the accounting record rather than only gating a spend. That is also the hackathon's own recommended answer to "how much autonomy should the agent have": *a contract that enforces the budget rather than a prompt that requests it, a threshold above which a human signs, and a complete record it must produce afterwards.*
+
+At a glance:
+
+| | |
+| --- | --- |
+| **Decides** | A fast explainable layer over the evidence, plus an optional bounded planner consulted only for genuine trade-offs; the deterministic policy is authoritative and a planner can never redirect, resize or authorize |
+| **Authorizes** | An EIP-712 permit bound to the recipient, amount, evidence hash, payment id, expiry, chain and guard |
+| **Enforces** | `PaymentGuard`, deployed only to Arc Testnet, with per-payment, per-epoch and per-recipient caps fixed at deployment |
+| **Proves** | A hash-linked, signed audit chain per invoice, verifiable with `GET /audit/verify` |
+| **Insists** | The destination comes from the trusted supplier record; an ERP-linked payable is mandatory; an uncertain submission is reconciled, never retried blindly |
+| **Also does** | Pays the first invoice when the balance cannot cover them all (`GET /plan`), forecasts where the money runs out (`GET /forecast`), and re-screens counterparties on an interval so a risk change blocks future payments (`GET /suppliers`) |
+
+There is an operator console at `/console` that shows all of this without you in the room.
+
+**Not in scope:** mainnet, real funds, or a production deployment. What has and has not been verified against live systems is stated in [Security and integration limitations](#security-and-integration-limitations), and [HISTORY.md](HISTORY.md) records where this started.
 
 ## What is implemented
 
