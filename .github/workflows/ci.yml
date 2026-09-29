@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# The suites are hermetic: the Python tests run against a local EVM and mocked adapters, and
+# never need credentials, a funded wallet or a live third party.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run tests
+        run: uv run pytest -q
+
+  contracts:
+    name: Solidity suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Build
+        run: forge build --sizes
+      - name: Test
+        run: forge test -vv
+      - name: Lint
+        run: forge lint
