@@ -112,6 +112,7 @@ export FRAPPE_URL=http://127.0.0.1:8080
 export FRAPPE_API_KEY=<scoped API user>
 export FRAPPE_API_SECRET=<scoped API secret>
 # plus the FRAPPE_COMPANY, FRAPPE_PAID_FROM_ACCOUNT, FRAPPE_PAID_TO_ACCOUNT, FRAPPE_FEE_ACCOUNT,
+# FRAPPE_COST_CENTER,
 # FRAPPE_MODE_OF_PAYMENT and currency values printed by the bootstrap
 
 curl -s -X POST localhost:8000/invoices/<invoice-id>/payment/erp-writeback -H "X-API-Key: $API_KEY"

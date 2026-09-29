@@ -228,12 +228,49 @@ the demo item, and the submitted `PUR-ORD-2026-00011` / `MAT-PRE-2026-00001` /
 One ERPNext behaviour to expect rather than "fix": this company has **perpetual inventory
 enabled**, so ERPNext books each invoice line to the interim `Stock Received But Not Billed - ADI`
 account instead of the company expense account, overriding whatever is sent. The bootstrap
-therefore neither sends nor asserts that field. The network-fee account used by the
-payment-entry deduction is a different account and is unaffected.
+therefore neither sends nor asserts that field. The network-fee account is a different account and
+is unaffected.
 
-Next step is **not** live Circle/Arc money. It is a separate, narrowly scoped runtime user plus
-verification of the connector's own Payment Entry writeback against this sandbox, using the mock
-payment provider. Only then does the Arc Testnet credential work make sense.
+The payment mapping this run prints is `FRAPPE_COMPANY`, `FRAPPE_PAID_FROM_ACCOUNT`,
+`FRAPPE_PAID_TO_ACCOUNT`, `FRAPPE_FEE_ACCOUNT`, `FRAPPE_COST_CENTER`, the company, invoice, fee and
+settlement currencies, both exchange rates and the mode of payment. Every one of them is verified
+before a write, and the writeback stays disabled while any is missing.
+
+The bootstrap is an operator-only provisioning tool and creates no payment. It now also has nothing
+to enable for multi-currency: the network-fee journal entry declares `multi_currency` on itself,
+which is where ERPNext checks it.
+
+### Writeback verification on this sandbox
+
+The connector's own writeback has been run end to end against this sandbox, paying a freshly
+seeded unpaid invoice (`ARC-PAYABLES-DEMO-002`, 250 USD) with the local-key provider on a
+throwaway chain, then writing the result back through the live connector. What it produced:
+
+| Document | Content |
+| --- | --- |
+| `ACC-PAY-2026-00007` | Payment Entry, submitted, `paid_amount` 250, `received_amount` 250, no deductions |
+| `ACC-JV-2026-00001` | Journal Entry, submitted, Dr `Network Fees - ADI` 0.01, Cr `USDC Wallet - ADI` 0.01 |
+| `ACC-PINV-2026-00008` | now `Paid`, `outstanding_amount` 0 |
+| GL | Dr `Creditors - ADI` 250 / Cr `USDC Wallet - ADI` 250, plus Dr `Network Fees - ADI` 0.01 / Cr `USDC Wallet - ADI` 0.01 |
+
+The measured fee was one micro-USDC, booked as 0.01 because a USD ledger cannot represent less; the
+entry's remark records both figures. Document names appear here because this sandbox is disposable
+and was created for this purpose.
+
+Three requirements surfaced only by running it, each of which fails a mocked test:
+
+* ERPNext sums amount fields with bare arithmetic before any `flt()`, so amounts cross the boundary
+  as JSON numbers. Fixed-point strings raise `TypeError` inside validation, which the REST API
+  reports as a 500 and a client can only read as an uncertain write.
+* A deduction row demands a cost centre, and a journal entry that spans currencies must declare
+  `multi_currency` and carry a reference date whenever it carries a reference number.
+* A response can be lost after the remote commit. One early attempt left a draft Payment Entry
+  behind exactly that way, which is why retries search by the Arc transaction reference before
+  inserting anything.
+
+Next step is **not** live Circle/Arc money. It is a narrowly scoped runtime user plus the same
+verification over a real Circle credential path. Only then does the Arc Testnet credential work
+make sense.
 
 ## Troubleshooting
 
