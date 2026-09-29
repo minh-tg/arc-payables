@@ -165,6 +165,27 @@ Unified Balance), **CCTP** and **Gateway** (moving USDC between chains as one ba
 exist for the payment and accounting sides, so each is an adapter plus tests rather than a
 redesign.
 
+## Operator console
+
+`uv run uvicorn tameion.api:app` then open <http://127.0.0.1:8000/console/> and paste the API key
+(and, for approvals, the approval token) into the header. It is served as static files with no build
+step, and it contains no data of its own — every call it makes is an authenticated API call, so the
+same work is available with curl.
+
+| View | What it shows |
+| --- | --- |
+| **Queue** | The plan's ordering with the reason for each position and the balance after each payment, the invoices that are not payable with their policy outcome, and every invoice's state with a re-evaluate action |
+| **Invoice** | Evidence checks with their result and whether a human may override them, which layer decided with its rationale and confidence, the model/prompt/response hashes when a deliberating layer was used, missing evidence and conflicts, the audit chain with a verification button, and the actions: link, approve, pay |
+| **Treasury & risk** | Forward coverage with the shortfall date, obligations in due-date order, and each counterparty's tier, latest screening, resulting automatic limit and open exposure, with a re-screen action |
+
+Two things the console is deliberate about. It shows the **trusted destination** from the supplier
+record beside the invoice's own payee field, marked untrusted, so the distinction the system rests
+on is visible rather than implied. And it states the exact amount and destination in the payment
+confirmation, because that is the moment a human is accountable for.
+
+The console is shipped code, so its modules are syntax-checked in the test suite: a JavaScript
+error would otherwise produce a blank page that no server-side test would catch.
+
 ## Database and tests
 
 Migrations are in `migrations/`; the service applies them on startup. The DB defaults to `data/tameion.sqlite3` (`DATABASE_PATH` overrides it).
