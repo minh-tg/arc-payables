@@ -28,6 +28,11 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
       - name: Install dependencies
         run: uv sync --frozen
+      # The Python suite drives the real guard bytecode from out/, so the contracts must be built
+      # first. Without this the executor tests fail on a fresh checkout, which is how CI differs
+      # from a developer machine that has already run forge build.
+      - name: Build the contracts the Python suite loads
+        run: forge build
       - name: Run tests
         run: uv run pytest -q
 
