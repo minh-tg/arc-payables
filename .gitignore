@@ -1,8 +1,15 @@
 # Environment and secrets
 .env
-.env.local
+.env.*
+!.env.example
 *.key
 *.pem
+*-recovery-file.json
+recovery/
+
+# Local workflow data may contain invoice and audit information
+data/
+*.sqlite3
 
 # Direnv & Nix
 .direnv/
