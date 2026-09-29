@@ -49,7 +49,7 @@ so the policy's accepted status vocabulary now matches the real values (`Complet
 ## 1. Pull and start the services
 
 ```bash
-cd /home/minh/projects/hackathons/arc_payables/deploy/erpnext
+cd deploy/erpnext   # from the repository root
 podman-compose --version
 podman-compose pull
 podman-compose up -d
