@@ -22,7 +22,7 @@ from arc_payables.erpnext_bootstrap import (
 COMPANY = "Arc Demo Inc"
 ABBR = "ADI"
 WALLET = "0x1111111111111111111111111111111111111111"
-REFERENCE = "TAMEION-DEMO-001"
+REFERENCE = "ARC-PAYABLES-DEMO-001"
 # Deliberately in the past: a fixed date must not be "tomorrow" for the fake site time zone.
 POSTING_DATE = "2026-01-15"
 
@@ -272,7 +272,7 @@ def test_lost_committed_response_reconciles_without_duplicate_documents_or_submi
 
 def test_seed_fields_are_unique_and_unrelated_orders_are_not_reused():
     fake = FakeFrappe()
-    unrelated = fake.add("Purchase Order", "REAL-ORDER", supplier=f"Tameion Demo Supplier - {ABBR}",
+    unrelated = fake.add("Purchase Order", "REAL-ORDER", supplier=f"Arc Payables Demo Supplier - {ABBR}",
                          company=COMPANY, docstatus=0, items=[{"item_code": "DIFFERENT"}])
     snapshot = deepcopy(unrelated)
     result = run(fake)
@@ -284,7 +284,7 @@ def test_seed_fields_are_unique_and_unrelated_orders_are_not_reused():
 
 def test_legacy_duplicate_invoice_reference_is_rejected_not_adopted():
     fake = FakeFrappe()
-    fake.add("Purchase Invoice", "LEGACY", company=COMPANY, supplier=f"Tameion Demo Supplier - {ABBR}",
+    fake.add("Purchase Invoice", "LEGACY", company=COMPANY, supplier=f"Arc Payables Demo Supplier - {ABBR}",
              bill_no=REFERENCE, docstatus=1)
     with pytest.raises(BootstrapError, match="unrelated payable"):
         run(fake)
@@ -356,7 +356,7 @@ def test_submission_must_be_confirmed_by_readback_before_next_document():
 def test_a_second_reference_creates_its_own_chain_without_reusing_the_first():
     fake = FakeFrappe()
     first = run(fake)
-    second = run(fake, invoice_reference="TAMEION-DEMO-002", quantity="2", rate="17.43")
+    second = run(fake, invoice_reference="ARC-PAYABLES-DEMO-002", quantity="2", rate="17.43")
     for key in ("purchase_order", "purchase_receipt", "purchase_invoice"):
         assert first[key] != second[key]
     invoice = fake.docs["Purchase Invoice"][second["purchase_invoice"]]

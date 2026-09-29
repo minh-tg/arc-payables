@@ -31,8 +31,8 @@ FEE_ACCOUNT_NAME = "Network Fees"
 SUPPLIER_WALLET_FIELD = "custom_usdc_wallet_address"
 SUPPLIER_WALLET_VERIFIED_FIELD = "custom_usdc_wallet_verified"
 SEED_FIELD = "custom_arc_payables_seed_key"
-DEMO_SUPPLIER = "Tameion Demo Supplier"
-DEMO_ITEM = "TAMEION-DEMO-FILTER"
+DEMO_SUPPLIER = "Arc Payables Demo Supplier"
+DEMO_ITEM = "ARC-PAYABLES-DEMO-FILTER"
 TRANSACTION_TYPES = ("Purchase Order", "Purchase Receipt", "Purchase Invoice")
 
 
@@ -506,7 +506,7 @@ def main() -> None:
     parser.add_argument("--url", help="Defaults to FRAPPE_URL; HTTP allowed only on localhost")
     parser.add_argument("--company", required=True, help="Exact existing USD Company name")
     parser.add_argument("--wallet", required=True, help="Demo recipient address; not automatically verified")
-    parser.add_argument("--invoice-reference", default="TAMEION-DEMO-001", help="Stable retry identity; reuse after errors")
+    parser.add_argument("--invoice-reference", default="ARC-PAYABLES-DEMO-001", help="Stable retry identity; reuse after errors")
     parser.add_argument("--quantity", default="10")
     parser.add_argument("--rate", default="25.00")
     parser.add_argument("--posting-date", default=None, help="YYYY-MM-DD; defaults to today on the ERPNext site; keep unchanged on retries")

@@ -184,7 +184,7 @@ uv run arc-payables-erpnext-bootstrap \
   --company 'Arc Demo Inc' \
   --wallet "$DEMO_SUPPLIER_WALLET" \
   --posting-date "$DEMO_POSTING_DATE" \
-  --invoice-reference TAMEION-DEMO-001 \
+  --invoice-reference ARC-PAYABLES-DEMO-001 \
   --dry-run
 ```
 
