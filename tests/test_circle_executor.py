@@ -322,6 +322,22 @@ def test_on_chain_budget_cannot_be_exceeded_by_the_backend(tmp_path):
             api.stop()
 
 
+def test_an_abandoned_chain_does_not_leave_an_evm_behind():
+    """A killed or errored run cannot use a context manager, so stopping must not depend on one."""
+    import gc
+
+    abandoned = AnvilChain()
+    abandoned.start()
+    process = abandoned.process
+    assert process is not None and process.poll() is None
+
+    del abandoned
+    gc.collect()
+
+    process.wait(timeout=10)
+    assert process.poll() is not None, "the local EVM outlived the chain that started it"
+
+
 def test_lost_submission_response_never_double_pays_and_reconciles(tmp_path, chain, circle):
     circle.state.lose_first_submission_response = True
     settings, store, provider, workflow, invoice_id, _ = _workflow(tmp_path, chain, api=circle)

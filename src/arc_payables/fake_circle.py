@@ -140,6 +140,18 @@ class AnvilChain:
     def __exit__(self, *exc) -> None:
         self.stop()
 
+    def __del__(self) -> None:
+        """Safety net for runs that never reach teardown.
+
+        Normal use goes through the context manager. This covers the cases where teardown is
+        skipped entirely - a fixture erroring during setup, or the test process being killed -
+        so an abandoned chain cannot leave an anvil process holding a port.
+        """
+        try:
+            self.stop()
+        except Exception:  # pragma: no cover - defensive, never raise from a finalizer
+            pass
+
     # -- JSON-RPC ----------------------------------------------------------------------
     def rpc(self, method: str, params: list) -> Any:
         self._request_id += 1
