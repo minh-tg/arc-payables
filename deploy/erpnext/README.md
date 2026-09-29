@@ -20,7 +20,7 @@ and USD company, and the bootstrap has since been run against that live instance
 | `ACC-PINV-2026-00007` | **submitted**, *Unpaid*, 250.00, columns linked to the PO and PR lines |
 | GL entries | Dr *Stock Received But Not Billed* 250.00 / Cr *Creditors* 250.00 |
 | Supplier wallet | stored, `custom_usdc_wallet_verified = 0` (still unverified) |
-| Payment Entry | none — provisioning never pays |
+| Payment Entry | none, because provisioning never pays |
 | Repeat run | no creates or submissions; fully idempotent |
 
 Two live-integration defects were found and fixed as a result of this run:
@@ -35,7 +35,7 @@ Two live-integration defects were found and fixed as a result of this run:
   refuses to report a completed writeback unless ERPNext confirms it.
 
 A third gap was found in the deterministic policy: ERPNext reports a *submitted* Purchase Order
-and Receipt as `Completed`, `To Bill` or `To Receive and Bill` — never the literal `Submitted` —
+and Receipt as `Completed`, `To Bill` or `To Receive and Bill`, never the literal `Submitted`,
 so the policy's accepted status vocabulary now matches the real values (`Completed`, `Closed`,
 `To Bill`, `To Receive`, `To Receive and Bill`, `Submitted`), while `Draft`, `On Hold`,
 `Cancelled`, `Return Issued` and `Returned` still block payment.

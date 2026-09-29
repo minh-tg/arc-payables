@@ -1,25 +1,48 @@
 # Arc Payables
 
-Accounts payable on Arc, where an agent can recommend a payment but cannot authorize one, and the budget it spends under is enforced by a contract it cannot argue with.
+An accounts payable agent for Arc Testnet. It reads supplier invoices, checks them against the
+accounting system, and pays them in USDC.
 
-An invoice is captured and matched against the accounting system. A deterministic policy re-derives every condition from raw evidence and records what it saw, so a decision can be explained rather than asserted. The payment destination can only ever be the **human-verified wallet on the trusted supplier record** — never a payee printed on an invoice. The transfer settles only if a policy-signed permit matches the exact recipient, amount, evidence hash and payment id inside an on-chain guard whose budget caps are immutable, and the result lands in ERPNext as a balanced Payment Entry with the network fee absorbed and expensed separately, so the supplier receives exactly the authorized amount.
+Three rules shape the code:
 
-**Why that shape.** Every agent-payment guardrail in this space is a service-side policy engine with an audit trail: if the process is compromised or simply wrong, the money still moves. Here the limit lives somewhere the agent cannot reach — a contract — and the system produces the accounting record rather than only gating a spend. That is also the hackathon's own recommended answer to "how much autonomy should the agent have": *a contract that enforces the budget rather than a prompt that requests it, a threshold above which a human signs, and a complete record it must produce afterwards.*
+1. **The destination comes from the supplier record.** A payee address printed on the invoice is
+   evidence. It is never used as a payment destination, and no approval can substitute another
+   address.
+2. **The amount is bounded by a contract.** Transfers go through `PaymentGuard`, deployed with
+   spending caps fixed at deployment. A bug in this service, or a compromised process, cannot spend
+   past them.
+3. **The record is append-only.** Each decision is appended to a per-invoice hash chain and signed,
+   so the history can be checked later instead of trusted.
 
-At a glance:
+The agent proposes a payment. It cannot authorize one: the permit it needs is signed by a separate
+key held only by the payment service, and the guard executes only the transfer that permit
+describes.
 
-| | |
-| --- | --- |
-| **Decides** | A fast explainable layer over the evidence, plus an optional bounded planner consulted only for genuine trade-offs; the deterministic policy is authoritative and a planner can never redirect, resize or authorize |
-| **Authorizes** | An EIP-712 permit bound to the recipient, amount, evidence hash, payment id, expiry, chain and guard |
-| **Enforces** | `PaymentGuard`, deployed only to Arc Testnet, with per-payment, per-epoch and per-recipient caps fixed at deployment |
-| **Proves** | A hash-linked, signed audit chain per invoice, verifiable with `GET /audit/verify` |
-| **Insists** | The destination comes from the trusted supplier record; an ERP-linked payable is mandatory; an uncertain submission is reconciled, never retried blindly |
-| **Also does** | Pays the first invoice when the balance cannot cover them all (`GET /plan`), forecasts where the money runs out (`GET /forecast`), and re-screens counterparties on an interval so a risk change blocks future payments (`GET /suppliers`) |
+Most agent payment projects keep the spending limit in the service that calls the wallet API. Move
+it into a contract and the failure mode changes, because the worst a bad decision can then do is
+spend what the contract already permitted.
 
-There is an operator console at `/console` that shows all of this without you in the room.
+## What it does
 
-**Not in scope:** mainnet, real funds, or a production deployment. What has and has not been verified against live systems is stated in [Security and integration limitations](#security-and-integration-limitations), and [HISTORY.md](HISTORY.md) records where this started.
+Given a Purchase Invoice in ERPNext, it:
+
+- imports the invoice and matches amount, currency, supplier, line items and links against the payable
+- checks the purchase order and receipt behind it, plus duplicates, screening, due date, amount limit
+  and treasury reserve
+- pays if every check passes, or escalates to a human with the reason
+- writes the result back as a Payment Entry, expensing the network fee separately so the supplier
+  receives the authorized amount exactly
+
+It also orders the queue when the balance cannot cover every invoice (`GET /plan`), reports where the
+balance stops covering what is due (`GET /forecast`), and re-screens counterparties on a schedule so
+a change in risk blocks later payments (`GET /suppliers`).
+
+A console at `/console` reads all of it. No screen is available only in the browser; each one calls
+the documented API.
+
+**Scope:** Arc Testnet, USDC only, no mainnet. What has been verified against live systems, and what
+has not, is in [Security and integration limitations](#security-and-integration-limitations).
+[HISTORY.md](HISTORY.md) records where the project started.
 
 ## What is implemented
 
@@ -33,7 +56,7 @@ There is an operator console at `/console` that shows all of this without you in
 
 ## Arc/Circle path and security
 
-Two executors implement the same payment path — an exact `approve`, then the policy-signed `PaymentGuard.pay` — so the flow can be exercised either way and the authorization rules do not depend on which one runs:
+Two executors implement the same payment path: an exact `approve`, then the policy-signed `PaymentGuard.pay`. The flow can be exercised either way, and the authorization rules do not depend on which one runs:
 
 * **Circle Developer-Controlled Wallets** (`PAYMENT_PROVIDER=circle`) keeps the payer key at Circle. This is the production-shaped option.
 * **Local key** (`PAYMENT_PROVIDER=local`) holds the payer key in the environment. It is Arc Testnet only, asserted from the node's `eth_chainId`, and exists so the path can be run and developed without Circle credentials. The guard's budget caps and exact-allowance behavior are identical.
@@ -122,7 +145,7 @@ curl -s -X POST http://127.0.0.1:8000/invoices \
   }'
 ```
 
-API routes are listed in Swagger at `/docs`. Configure `API_KEY` before enabling Circle or Frappe adapters; write endpoints reject external-adapter operation without API auth. Human approval also requires a separate `APPROVAL_TOKEN`, and a reviewer may only acknowledge the listed exceptions — never choose a destination address. Do not put secrets in chat, command history, source control, logs, or model context.
+API routes are listed in Swagger at `/docs`. Configure `API_KEY` before enabling Circle or Frappe adapters; write endpoints reject external-adapter operation without API auth. Human approval also requires a separate `APPROVAL_TOKEN`, and a reviewer may only acknowledge the listed exceptions, never choose a destination address. Do not put secrets in chat, command history, source control, logs, or model context.
 
 ## Sending a real Arc Testnet payment
 
@@ -138,7 +161,7 @@ uv run arc-payables-live-run --invoice <invoice-id>   # preflight only
 uv run arc-payables-live-run --invoice <invoice-id> --confirm
 ```
 
-Setup, in order — the first three need your keys, which never leave your machine:
+Setup, in order. The first three need your keys, which never leave your machine:
 
 ```bash
 arc-canteen login                                # a funded Arc Testnet wallet and an RPC URL
@@ -186,7 +209,7 @@ redesign.
 
 `uv run uvicorn arc_payables.api:app` then open <http://127.0.0.1:8000/console/> and paste the API key
 (and, for approvals, the approval token) into the header. It is served as static files with no build
-step, and it contains no data of its own — every call it makes is an authenticated API call, so the
+step, and it contains no data of its own. Every call it makes is an authenticated API call, so the
 same work is available with curl.
 
 | View | What it shows |
@@ -224,7 +247,7 @@ Tests use isolated temporary databases, fake Circle/Frappe HTTP responses, and m
 uv run arc-payables-verify-arc
 ```
 
-It verifies the chain ID is `5042002`, that the documented USDC address has bytecode with `decimals() == 6` and `symbol() == USDC`, and — once configured — that the deployed guard's `policySigner()` and `paymentToken()` match your configuration and reports the Circle wallet's native and ERC-20 balances. It exits non-zero with an explicit `TODO` list while live payment is unconfigured.
+It verifies the chain ID is `5042002`, that the documented USDC address has bytecode with `decimals() == 6` and `symbol() == USDC`, and, once configured, that the deployed guard's `policySigner()` and `paymentToken()` match your configuration and reports the Circle wallet's native and ERC-20 balances. It exits non-zero with an explicit `TODO` list while live payment is unconfigured.
 
 1. In Circle Console, generate and register a **test** entity secret yourself; store the entity secret and recovery material outside this repo. Create a **Developer-Controlled SCA** on `ARC-TESTNET`; record its wallet ID and address. The Arc testnet faucet is at [faucet.circle.com](https://faucet.circle.com/).
 2. Configure the local environment with `PAYMENT_PROVIDER=circle`, a test Circle API key/entity secret, wallet ID/address, `CIRCLE_GUARD_ADDRESS`, `PERMIT_SIGNING_PRIVATE_KEY`, and `CIRCLE_RPC_URL=https://rpc.testnet.arc.io`. `PERMIT_SIGNING_PRIVATE_KEY` is the policy signer corresponding to the guard's `policySigner`; it is separate from Circle's wallet credential. Do not place either secret in model context.
@@ -256,12 +279,12 @@ The advisory layer is optional and selectable; the deterministic policy is alway
 
 What the planner may and may not do:
 
-* It is asked only about trade-offs — amount against the automatic limit, treasury reserve, payment timing. A missing fact is never sent to it, because reasoning cannot supply evidence that does not exist.
+* It is asked only about trade-offs: the amount against the automatic limit, the treasury reserve, payment timing. A missing fact is never sent to it, because reasoning cannot supply evidence that does not exist.
 * It may choose only from the actions the caller permits, and its reply is validated strictly. Anything malformed, slow, unavailable or off-list is rejected, and the fast layer's answer stands unchanged.
 * It cannot change the destination, the amount, or whether approval is required. A planner that says `PAY_NOW` where the policy disagrees changes nothing: the disagreement is recorded and surfaces as an escalation.
 * Its answers are recorded in the audit chain with model identity, prompt hash, response hash, latency and outcome, so "which layer decided, and on what basis" stays answerable long afterwards.
 
-Captured free text (for example OCR output) reaches the planner only in an explicitly-labelled, bounded field, and the system prompt instructs the model to treat all evidence as data. An adversarial test drives a model that has "complied" with an injected instruction and asserts that nothing about the payment — destination, amount, authorization — changes.
+Captured free text (for example OCR output) reaches the planner only in an explicitly-labelled, bounded field, and the system prompt instructs the model to treat all evidence as data. An adversarial test drives a model that has "complied" with an injected instruction and asserts that nothing about the payment changes: not the destination, not the amount, not the authorization.
 
 ## Which payable to pay first
 
@@ -269,16 +292,16 @@ Individual evaluation answers "may this invoice be paid?". `GET /plan` answers t
 
 The split between advice and money is deliberate:
 
-* **Ordering is advisory.** The heuristic order is expiring discount first, then lateness, then imminent due dates, then the smaller obligation — a tuple of business facts rather than weights, so each position has a readable reason. With `DECISION_LAYER=dual_process` a planner may reorder the queue.
+* **Ordering is advisory.** The heuristic order is expiring discount first, then lateness, then imminent due dates, then the smaller obligation. The sort key is a tuple of business facts, not weights, so each position has a readable reason. With `DECISION_LAYER=dual_process` a planner may reorder the queue.
 * **Spending is deterministic.** The allocation applies the reserve floor and the balance in code, by walking the order and stopping when the next invoice would breach the reserve. A planner may reorder; it may never decide how much leaves.
 
 So the worst a confused planner can do is sequence the same payments differently. Validation requires exactly the offered invoices, each once, each with a reason: an added, omitted, duplicated or unexplained invoice rejects the whole answer and the deterministic order stands.
 
-Building a plan is read-only — it derives decisions from live evidence without recording them — and every invoice it ranks must still pass its own policy checks and settle through the same guarded payment path. Invoices that are not payable appear in the plan with the reason, so the queue stays visible in full rather than silently filtered.
+Building a plan is read-only: it derives its decisions from live evidence without recording them. Every invoice it ranks must still pass its own policy checks and settle through the same guarded payment path. Invoices that are not payable appear in the plan with the reason, so the queue stays visible in full instead of being filtered away.
 
 ## Treasury visibility and counterparty monitoring
 
-`GET /forecast` answers the question a treasurer asks before either of the above: what is due, when, and where the balance stops covering it. Obligations are walked in **due-date order** against the balance, keeping the reserve intact, so the forecast and the payment plan cannot disagree about what is affordable. Two distinctions are deliberate: an invoice whose evidence is incomplete is still money owed — it is counted and flagged as *not payable by the agent*, with the reason — and the shortfall date is the first obligation the balance cannot cover, not the first invoice that happens to be urgent.
+`GET /forecast` answers the question a treasurer asks before either of the above: what is due, when, and where the balance stops covering it. Obligations are walked in **due-date order** against the balance, keeping the reserve intact, so the forecast and the payment plan cannot disagree about what is affordable. Two things are kept apart. An invoice whose evidence is incomplete is still money owed, so it is counted and flagged as *not payable by the agent*, with the reason. And the shortfall date is the first obligation the balance cannot cover, not the first invoice that happens to be urgent.
 
 `arc-payables-rescreen` (or `POST /monitoring/rescreen`) re-screens every counterparty with an open invoice and keeps a **history**, so a risk-profile change is a transition rather than a silently overwritten status. A change is written to the audit chain of every open invoice it affects, which means the payment record shows when the counterparty's risk moved under it.
 
@@ -297,7 +320,7 @@ Screening scales authority; it never grants it:
 
 `FAILED` and `NEEDS_RECONCILIATION` are terminal/manual-resolution paths. Database unique constraints serialize duplicate invoice/payment creation. A timeout after a transaction submission never starts a second payment blindly. ERP writeback retry is a separate `/invoices/{id}/payment/erp-writeback` request and cannot resubmit funds; while a writeback lease is held it returns `409 erp_writeback_in_progress` rather than reporting success. Human review is invoice-scoped, requires an authenticated reviewer token and explicit acknowledgement of each exception, and does not permit choosing a new destination address. Even after approval, the permit recipient is copied only from the Supplier record.
 
-The authorization is bound to the evidence hash of the evaluated snapshot, which includes the treasury balance. If any material evidence changes between evaluation and payment — another payment moves the balance, the supplier record is edited, the ERP invoice amount is restated — payment returns `409 evidence_changed_after_evaluation`, records the fresh decision, and requires a new evaluation. A reviewer approval is likewise invalidated when the evidence it acknowledged changes. In the demo this means each invoice is an evaluate-then-pay cycle.
+The authorization is bound to the evidence hash of the evaluated snapshot, which includes the treasury balance. If any material evidence changes between evaluation and payment (another payment moves the balance, the supplier record is edited, the ERP invoice amount is restated), payment returns `409 evidence_changed_after_evaluation`, records the fresh decision, and requires a new evaluation. A reviewer approval is likewise invalidated when the evidence it acknowledged changes. In the demo this means each invoice is an evaluate-then-pay cycle.
 
 ## Security and integration limitations
 
@@ -310,7 +333,7 @@ The authorization is bound to the evidence hash of the evaluated snapshot, which
 - Address screening's OpenSanctions provider is implemented behind its interface with deterministic evidence and fail-closed behavior, but no live call has been made (no API key configured), so a real deployment still relies on human review until it is exercised.
 - The Circle response's exact network-fee representation must be verified live. Live writeback accepts only an explicitly identified ERC-20 USDC fee with 6-decimal precision; a scalar fee or Arc native-USDC fee (18 decimals) is treated as unknown, so the confirmed payment remains `ERP_PENDING` and cannot be written to ERPNext.
 
-**Deferred by design, not by accident:** the console is a static page over the documented API rather than a product UI, there is no mainnet route, only USDC settlement (currency support is extensible but unimplemented), and there is no KMS signer implementation — `SIGNER_BACKEND=kms` fails closed rather than pretending to sign.
+**Not built, on purpose:** the console is a static page over the documented API instead of a product UI, there is no mainnet route, only USDC settlement (currency support is extensible but unimplemented), and there is no KMS signer implementation: `SIGNER_BACKEND=kms` fails closed instead of pretending to sign.
 
 **Operational prerequisites left to the operator:** replace and human-verify the demo supplier wallet (currently an unverified placeholder), create a narrowly scoped runtime ERPNext user, and decide address-screening vendor/keys.
 
