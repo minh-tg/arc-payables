@@ -9,7 +9,6 @@ interface VmDeploy {
     function addr(uint256 privateKey) external returns (address);
     function startBroadcast(uint256 privateKey) external;
     function stopBroadcast() external;
-    function chainId() external view returns (uint256);
 }
 
 /// @notice Deploys the guard with a budget that must be stated explicitly.
@@ -22,7 +21,9 @@ contract DeployPaymentGuard {
     address private constant ARC_TESTNET_USDC = 0x3600000000000000000000000000000000000000;
 
     function run() external returns (PaymentGuard guard) {
-        require(vm.chainId() == ARC_TESTNET_CHAIN_ID, "Arc Testnet only");
+        // `block.chainid` rather than a cheatcode: the EVM answers this itself, and the guard's
+        // Arc-only guarantee must not depend on which forge build is running the script.
+        require(block.chainid == ARC_TESTNET_CHAIN_ID, "Arc Testnet only");
 
         // Amounts are ERC-20 USDC units (6 decimals); the epoch length is in seconds.
         uint256 perPaymentCap = vm.envUint("PAYMENT_GUARD_PER_PAYMENT_CAP");
