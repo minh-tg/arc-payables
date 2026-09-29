@@ -22,9 +22,9 @@ Deploy the guard with an explicit budget. Amounts are ERC-20 USDC units at six d
 ```bash
 export DEPLOYER_PRIVATE_KEY=<arc-canteen wallet key>
 export PERMIT_SIGNING_PRIVATE_KEY=<policy signer key>
-export PAYMENT_GUARD_PER_PAYMENT_CAP=20000000        # 20 USDC per payment
-export PAYMENT_GUARD_EPOCH_CAP=100000000             # 100 USDC per epoch
-export PAYMENT_GUARD_RECIPIENT_EPOCH_CAP=50000000    # 50 USDC per supplier per epoch
+export PAYMENT_GUARD_PER_PAYMENT_CAP=50000          # 0.05 USDC per payment
+export PAYMENT_GUARD_EPOCH_CAP=200000               # 0.20 USDC per epoch
+export PAYMENT_GUARD_RECIPIENT_EPOCH_CAP=50000      # 0.05 USDC per supplier per epoch
 export PAYMENT_GUARD_EPOCH_LENGTH_SECONDS=86400
 export PAYMENT_GUARD_PAUSER=<an operator address that may pause payments>
 forge script script/DeployPaymentGuard.s.sol --rpc-url $RPC --broadcast
@@ -43,23 +43,44 @@ export APPROVAL_TOKEN=local-demo-token
 
 ## Choose the amounts
 
-The demo policy has a 2,000 USDC reserve floor and a 1,000 USDC automatic limit. Those numbers are
-examples, not recommendations, and a $5 testnet wallet cannot satisfy them.
+**Pay tiny invoices.** A $5 testnet wallet is not there to be spent: it is there to prove the path.
+Every step below costs gas, and the amounts are yours to choose, so the cheapest honest demo uses
+amounts of a cent or less. The caps above are 0.05 USDC for that reason.
 
-Small run, which works with the free testnet balance. The balance has to cover the invoice
-plus the reserve, so a 2 USDC invoice against a 5 USDC wallet leaves 3 USDC above a 1 USDC floor.
+What each step actually costs on Arc Testnet, measured from real receipts:
+
+| Step | Cost |
+| --- | --- |
+| deploying the guard | ~0.038 USDC |
+| the exact-allowance approval before a payment | ~0.0012 USDC |
+| the payment itself | ~0.0031 USDC |
+| a plain USDC transfer | ~0.0012 USDC |
+
+So a 0.01 USDC invoice costs about 0.014 USDC end to end, and the gas is 31% of the amount paid.
+That ratio is the point of paying small: at AP scale the fee is noise, and at nano scale it is the
+loudest number on the receipt.
+
+The demo policy's own defaults are a 2,000 USDC reserve floor and a 1,000 USDC automatic limit.
+Those are examples, not recommendations, and they must be lowered for a small wallet: the balance
+has to cover the invoice plus the reserve.
 
 ```bash
-export MIN_RESERVE_USDC=1
-export MAX_INVOICE_USDC=20
+export MIN_RESERVE_USDC=0.10
+export MAX_INVOICE_USDC=0.01
 uv run arc-payables-erpnext-bootstrap --company 'Arc Demo Inc' \
-  --wallet "$DEMO_SUPPLIER_WALLET" --quantity 1 --rate 2.00 \
-  --invoice-reference DEMO-SMALL-001 --apply
+  --wallet "$DEMO_SUPPLIER_WALLET" --quantity 1 --rate 0.01 \
+  --invoice-reference DEMO-NANO-001 --apply
 ```
 
-Realistic run, if you want a 250 USDC invoice: leave the thresholds alone and fund the wallet from
-[testmint.myproceeds.xyz](https://testmint.myproceeds.xyz/). Then the guard caps must also cover the
-amount, so set `PAYMENT_GUARD_PER_PAYMENT_CAP` above it at deploy time.
+Two things to expect at that size. The guard's caps are maxima, so a small payment passes a large
+cap; the caps only have to cover the amount. And ERPNext books a fee in the company currency, where
+the smallest representable amount is 0.01 USD, so a measured 0.003 USDC fee is booked rounded up to
+0.01 and the fee line can equal or exceed a nano payment. That is a property of a USD ledger, not of
+the payment: the supplier still receives exactly the invoiced amount.
+
+Pay a larger invoice only if you fund the wallet from
+[testmint.myproceeds.xyz](https://testmint.myproceeds.xyz/), and then the guard caps must cover the
+amount as well, because they are fixed when the guard is deployed.
 
 ## The flow
 

@@ -181,9 +181,9 @@ cast wallet new                                  # the policy signer; must diffe
 
 export DEPLOYER_PRIVATE_KEY=<arc-canteen wallet key>
 export PERMIT_SIGNING_PRIVATE_KEY=<policy signer key>
-export PAYMENT_GUARD_PER_PAYMENT_CAP=20000000    # 20 USDC per payment, in 6-decimal units
-export PAYMENT_GUARD_EPOCH_CAP=100000000
-export PAYMENT_GUARD_RECIPIENT_EPOCH_CAP=50000000
+export PAYMENT_GUARD_PER_PAYMENT_CAP=50000       # 0.05 USDC per payment, in 6-decimal units
+export PAYMENT_GUARD_EPOCH_CAP=200000
+export PAYMENT_GUARD_RECIPIENT_EPOCH_CAP=50000
 export PAYMENT_GUARD_EPOCH_LENGTH_SECONDS=86400
 export PAYMENT_GUARD_PAUSER=<an operator address that may pause payments>
 forge script script/DeployPaymentGuard.s.sol --rpc-url $RPC --broadcast
