@@ -10,7 +10,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore")
+    # `extra="forbid"`: a settings name that does not exist must fail, not be dropped. The unit
+    # values (`max_invoice_units`, `min_reserve_units`) are derived properties, so passing them as
+    # fields looks plausible and would otherwise leave the real limit untouched while reporting the
+    # intended one. A live run discovered this while believing its reserve was 1 USDC.
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="forbid"
+    )
 
     app_name: str = "Arc Payables AP Agent"
     environment: str = "local"
