@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     app_name: str = "Tameion AP Agent"
     environment: str = "local"
     database_path: Path = Path("data/tameion.sqlite3")
-    payment_provider: Literal["mock", "circle"] = "mock"
+    payment_provider: Literal["mock", "circle", "local"] = "mock"
     accounting_provider: Literal["mock", "frappe"] = "mock"
     policy_version: str = "tameion-ap-v1"
     max_invoice_usdc: Decimal = Decimal("1000")
@@ -55,6 +55,18 @@ class Settings(BaseSettings):
     permit_signing_private_key: str | None = Field(default=None, repr=False)
     circle_poll_interval_seconds: float = 2.0
     circle_confirmation_timeout_seconds: int = 90
+
+    # Local-key (EOA) executor: an alternative to Circle's Developer-Controlled Wallets for
+    # Arc Testnet. Here the payer key is held locally, which makes it suitable for testnet
+    # runs and for developing without Circle credentials. It is deliberately Arc Testnet
+    # only, and the guard's on-chain budget limits apply exactly as they do for Circle.
+    local_payment_private_key: str | None = Field(default=None, repr=False)
+    local_payment_address: str | None = None
+    local_payment_rpc_url: str = "https://rpc.testnet.arc.io"
+    local_payment_guard_address: str | None = None
+    local_payment_timeout_seconds: float = 20.0
+    local_payment_receipt_timeout_seconds: float = 90.0
+    local_payment_log_lookback_blocks: int = 20_000
 
     # Frappe API v1. Live writeback is disabled unless every accounting mapping value below
     # is explicitly configured and verified against the sandbox chart of accounts.
@@ -106,6 +118,15 @@ class Settings(BaseSettings):
             self.permit_signing_private_key,
         )
         return all(value and value.strip() for value in required)
+
+    @property
+    def local_payment_ready(self) -> bool:
+        required = (
+            self.local_payment_private_key,
+            self.local_payment_guard_address,
+            self.local_payment_rpc_url,
+        )
+        return all(value and str(value).strip() for value in required)
 
     @property
     def frappe_accounting_ready(self) -> bool:

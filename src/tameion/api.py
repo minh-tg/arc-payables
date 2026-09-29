@@ -17,6 +17,7 @@ from .circle_adapter import CircleDeveloperControlledWalletProvider
 from .currency import USDCOnlyConverter
 from .domain import InvoiceLine, InvoiceRecord, ScreeningStatus, WorkflowState, usdc_to_units
 from .frappe_adapter import FrappeAccountingConnector
+from .local_payment import LocalKeyPaymentProvider
 from .mock_adapters import MockAccountingConnector, MockPaymentProvider
 from .policy import DeterministicPolicy
 from .screening import build_screening_provider
@@ -146,6 +147,12 @@ def create_app(
                 payment_provider = CircleDeveloperControlledWalletProvider(settings, signer)
             else:
                 payment_provider = DisabledPaymentProvider()
+        elif settings.payment_provider == "local":
+            if settings.local_payment_ready:
+                signer = signer or build_permit_signer(settings)
+                payment_provider = LocalKeyPaymentProvider(settings, signer)
+            else:
+                payment_provider = DisabledPaymentProvider()
         else:
             payment_provider = MockPaymentProvider(store)
     if signer is None:
@@ -217,7 +224,9 @@ def create_app(
             db_ready = store.health()
         except Exception:
             pass
-        provider_configured = settings.payment_provider == "mock" or bool(settings.circle_ready)
+        provider_configured = settings.payment_provider == "mock" or (
+            bool(settings.circle_ready) if settings.payment_provider == "circle" else bool(settings.local_payment_ready)
+        )
         frappe_configured = settings.accounting_provider != "frappe" or bool(getattr(accounting, "configured", False))
         ready_value = db_ready and provider_configured and frappe_configured
         response = {
@@ -226,7 +235,7 @@ def create_app(
             "payment_provider_configured": provider_configured,
             "accounting_connector_configured": frappe_configured,
             "live_erp_writeback_enabled": bool(settings.accounting_provider == "frappe" and settings.frappe_accounting_ready),
-            "chain_id": 5042002 if settings.payment_provider == "circle" else None,
+            "chain_id": 5042002 if settings.payment_provider in {"circle", "local"} else None,
         }
         if not ready_value:
             raise HTTPException(status_code=503, detail=response)

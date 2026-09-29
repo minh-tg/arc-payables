@@ -16,6 +16,13 @@ This repository began as the Arc Canteen Python/Foundry starter. There is no fro
 
 ## Arc/Circle path and security
 
+Two executors implement the same payment path — an exact `approve`, then the policy-signed `PaymentGuard.pay` — so the flow can be exercised either way and the authorization rules do not depend on which one runs:
+
+* **Circle Developer-Controlled Wallets** (`PAYMENT_PROVIDER=circle`) keeps the payer key at Circle. This is the production-shaped option.
+* **Local key** (`PAYMENT_PROVIDER=local`) holds the payer key in the environment. It is Arc Testnet only, asserted from the node's `eth_chainId`, and exists so the path can be run and developed without Circle credentials. The guard's budget caps and exact-allowance behavior are identical.
+
+Both refuse to proceed on an unconfigured or incomplete setup, and neither can exceed the guard's on-chain budget.
+
 Arc Canteen context and current official docs were checked before choosing the adapter:
 
 - Arc Testnet chain ID: `5042002`; RPC: `https://rpc.testnet.arc.io`; testnet-only deployment.
