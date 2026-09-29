@@ -120,6 +120,13 @@ class SupplierRecord:
     wallet_version: str
     screening: ScreeningStatus = ScreeningStatus.UNAVAILABLE
     erp_supplier_id: str | None = None
+    payment_blocked: bool = False
+    """True when the accounting system itself blocks this supplier.
+
+    A supplier on hold or disabled in the ERP is a decision a finance team already made, so it is
+    read as evidence and never as something this system or a reviewer can override.
+    """
+    blocked_reason: str | None = None
 
 
 @dataclass(frozen=True)

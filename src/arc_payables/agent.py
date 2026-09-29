@@ -121,6 +121,12 @@ class EvidenceDecisionAgent:
             blocker("missing_receipt", "receipt evidence is missing", "No receipt covers the invoiced lines.")
         if evidence.supplier and not evidence.supplier.approved_wallet:
             blocker("wallet_missing", "trusted supplier wallet is missing", "The supplier record carries no approved wallet address.")
+        if evidence.supplier and evidence.supplier.payment_blocked:
+            blocker(
+                "supplier_blocked",
+                "supplier is on hold or disabled in the accounting system",
+                evidence.supplier.blocked_reason or "The accounting system blocks this supplier.",
+            )
         if evidence.supplier and not evidence.supplier.wallet_verified:
             blocker("wallet_unverified", "supplier wallet is unverified", "A human has not verified the supplier's wallet address.")
         if evidence.supplier and invoice.invoice_payee_address and evidence.supplier.approved_wallet:

@@ -91,6 +91,8 @@ class MockAccountingConnector:
                 wallet_version=str(raw_supplier.get("wallet_version", "1")),
                 screening=ScreeningStatus(raw_supplier.get("screening", "UNAVAILABLE")),
                 erp_supplier_id=raw_supplier.get("erp_supplier_id", raw_supplier["id"]),
+                payment_blocked=bool(raw_supplier.get("payment_blocked", False)),
+                blocked_reason=raw_supplier.get("blocked_reason"),
             )
         orders = tuple(self._order(item) for item in self.store.get_order_fixtures(invoice.purchase_order_ids))
         receipts = tuple(self._receipt(item) for item in self.store.get_receipt_fixtures(invoice.receipt_ids))

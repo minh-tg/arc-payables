@@ -131,6 +131,23 @@ def test_preflight_refuses_a_payment_the_guard_would_reject(tmp_path):
         bounded.stop()
 
 
+def test_preflight_refuses_a_supplier_the_accounting_system_blocked(tmp_path, chain):
+    """The policy holds it, and the preflight refuses it independently of that."""
+    settings, store, provider, workflow, invoice_id = _workspace(tmp_path, chain)
+    try:
+        fixture = store.get_supplier_fixture("SUP-ACME-001")
+        store.seed_fixture(
+            "supplier",
+            "SUP-ACME-001",
+            {**fixture, "payment_blocked": True, "blocked_reason": "the supplier is on hold"},
+        )
+        result = preflight(workflow, settings, invoice_id, rpc=RpcClient(chain.url))
+        assert result.ok is False
+        assert any("accounting system blocks this supplier" in line for line in result.findings)
+    finally:
+        provider.close()
+
+
 def test_preflight_refuses_an_unlinked_invoice(tmp_path, chain):
     settings, store, provider, workflow, invoice_id = _workspace(tmp_path, chain)
     try:

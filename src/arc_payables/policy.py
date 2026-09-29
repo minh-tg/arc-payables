@@ -231,6 +231,19 @@ class DeterministicPolicy:
             supplier_ref = ref(f"supplier:{supplier.id}", "trusted_supplier_record", "supplier_id", supplier.id)
             wallet_ref = ref(f"supplier:{supplier.id}:wallet", "trusted_supplier_record", "approved_wallet", supplier.approved_wallet)
             checks.append(PolicyCheck("supplier_record", True, "Trusted supplier record was retrieved.", (supplier_ref,)))
+            if supplier.payment_blocked:
+                # Non-overridable on purpose. A supplier the accounting system has blocked is a
+                # decision a finance team already took, and this system should not be able to
+                # second-guess it, least of all through an approval form.
+                checks.append(PolicyCheck(
+                    "supplier_blocked",
+                    False,
+                    f"Payment is blocked by the accounting system: {supplier.blocked_reason or 'the supplier is on hold or disabled'}.",
+                    (supplier_ref,),
+                    False,
+                    False,
+                ))
+                missing.append("Clear the supplier's hold or disabled state in the accounting system.")
             recipient = supplier.approved_wallet
             wallet_address_valid = is_evm_address(supplier.approved_wallet)
             wallet_ok = wallet_address_valid and supplier.wallet_verified
@@ -537,6 +550,7 @@ class DeterministicPolicy:
                 "confidence": recommendation.confidence,
                 "rationale": recommendation.rationale,
                 "material_claims": list(recommendation.material_claims),
+                "observation_codes": list(recommendation.observation_codes),
                 "evidence_used": list(recommendation.evidence_used),
                 "deliberations": [dict(item) for item in recommendation.deliberations],
             },

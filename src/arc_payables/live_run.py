@@ -86,6 +86,8 @@ def preflight(workflow, settings: Settings, invoice_id: str, *, rpc: RpcClient |
         return result
     result.recipient = supplier.approved_wallet
     result.amount_usdc = units_to_usdc(invoice.amount_units)
+    if supplier.payment_blocked:
+        result.fail(f"the accounting system blocks this supplier: {supplier.blocked_reason or 'on hold or disabled'}")
     if not supplier.wallet_verified:
         result.fail(
             "the trusted Supplier wallet is not verified; a human must verify it in the accounting system first"

@@ -377,6 +377,7 @@ class FrappeAccountingConnector:
         wallet = raw.get(self.settings.frappe_supplier_wallet_field)
         verified = raw.get(self.settings.frappe_supplier_wallet_verified_field) in (True, 1, "1")
         modified = str(raw.get("modified") or "unknown")
+        blocked_reason = self._supplier_block_reason(raw)
         return SupplierRecord(
             id=str(raw.get("name") or supplier_id),
             name=str(raw.get("supplier_name") or raw.get("name") or supplier_id),
@@ -385,7 +386,23 @@ class FrappeAccountingConnector:
             wallet_version=modified,
             screening=ScreeningStatus.UNAVAILABLE,
             erp_supplier_id=str(raw.get("name") or supplier_id),
+            payment_blocked=blocked_reason is not None,
+            blocked_reason=blocked_reason,
         )
+
+    @staticmethod
+    def _supplier_block_reason(raw: dict) -> str | None:
+        """Whether the accounting system itself refuses this supplier.
+
+        Both fields are read because they mean different things and either one stops payment:
+        `disabled` marks the record as retired, `on_hold` marks the relationship as suspended.
+        """
+        reasons = []
+        if raw.get("disabled") in (True, 1, "1"):
+            reasons.append("the supplier record is disabled")
+        if raw.get("on_hold") in (True, 1, "1"):
+            reasons.append("the supplier is on hold")
+        return " and ".join(reasons) if reasons else None
 
     def _verify_account_mapping(self, invoice: InvoiceRecord, mapping: PaymentMapping) -> None:
         if invoice.currency.upper() != mapping.source_currency.upper():
