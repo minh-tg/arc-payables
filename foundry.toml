@@ -8,7 +8,16 @@ optimizer = true
 optimizer_runs = 200
 
 [rpc_endpoints]
-arc_testnet = "${RPC_URL:-https://testnet-rpc.arc.network}"
+arc_testnet = "${RPC_URL:-https://rpc.testnet.arc.io}"
+
+[lint]
+# `reentrancy-events` is a stylistic heuristic that flags any event in a function that
+# also performs an external call, regardless of ordering or state effects. PaymentGuard
+# uses strict checks-effects-interactions: the payment ID is consumed before the exact
+# transferFrom, and a reverted transfer rolls back the whole transaction, so a consumed
+# ID can never be observed without a settled transfer and no log can be fabricated by a
+# reverting path. Reviewed manually rather than reordered to satisfy the heuristic.
+exclude_lints = ["reentrancy-events"]
 
 [etherscan]
 arc_testnet = { key = "${ETHERSCAN_API_KEY:-arc}", url = "https://testnet.arcscan.app/api" }
