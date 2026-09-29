@@ -9,6 +9,7 @@ from typing import Any
 
 from eth_account import Account
 
+from .accounting import CENT, bookable_fee_amount
 from .domain import (
     AccountingEvidence,
     ERPWriteResult,
@@ -58,7 +59,9 @@ class MockAccountingConnector:
     ):
         self.store = store
         self.entries: dict[str, dict[str, Any]] = {}
+        self.fee_entries: dict[str, dict[str, Any]] = {}
         self.fail_next_write = False
+        self.fail_next_fee_write = False
         self.invoice_currency = (invoice_currency or "USD").upper()
         self.settlement_currency = (settlement_currency or "USDC").upper()
         self.rate = Decimal(str(settlement_to_invoice_rate))
@@ -170,7 +173,6 @@ class MockAccountingConnector:
         self,
         invoice: InvoiceRecord,
         tx_hash: str,
-        fee_units: int,
         mapping: PaymentMapping,
     ) -> ERPWriteResult:
         existing = self.entries.get(tx_hash)
@@ -184,12 +186,43 @@ class MockAccountingConnector:
             "name": entry_id,
             "invoice_id": invoice.id,
             "docstatus": 1,
-            "fee_units": fee_units,
             "mapping": mapping.__dict__,
         }
         if self.fail_next_write:
             self.fail_next_write = False
             raise TimeoutError("Mock ERPNext timeout after its idempotent write committed")
+        return ERPWriteResult(entry_id, 1, already_existed=False)
+
+    def create_fee_expense(
+        self,
+        invoice: InvoiceRecord,
+        tx_hash: str,
+        fee_units: int,
+        mapping: PaymentMapping,
+    ) -> ERPWriteResult | None:
+        """Book the network fee as its own expense entry, exactly as the live connector does."""
+        if fee_units <= 0:
+            return None
+        existing = self.fee_entries.get(tx_hash)
+        if existing:
+            if existing["invoice_id"] != invoice.id:
+                raise ValueError("fee reference already belongs to a different invoice")
+            existing["docstatus"] = 1
+            return ERPWriteResult(existing["name"], 1, already_existed=True)
+        entry_id = f"JV-MOCK-{len(self.fee_entries) + 1:05d}"
+        self.fee_entries[tx_hash] = {
+            "name": entry_id,
+            "invoice_id": invoice.id,
+            "docstatus": 1,
+            "fee_units": fee_units,
+            "fee_amount": bookable_fee_amount(fee_units, smallest_unit=CENT),
+            "account": mapping.fee_account,
+            "settlement_account": mapping.paid_from,
+            "cost_center": mapping.cost_center,
+        }
+        if self.fail_next_fee_write:
+            self.fail_next_fee_write = False
+            raise TimeoutError("Mock ERPNext timeout after its idempotent fee write committed")
         return ERPWriteResult(entry_id, 1, already_existed=False)
 
     @staticmethod
@@ -222,6 +255,7 @@ class MockPaymentProvider:
         guard_address: str = "0x0000000000000000000000000000000000000002",
         failure_mode: str | None = None,
         balance_units: int = 5_000 * USDC_SCALE,
+        fee_units: int = 0,
     ):
         self.store = store
         self.signer = signer or EIP712PermitSigner(Account.create().key)
@@ -233,6 +267,7 @@ class MockPaymentProvider:
         self._payments_by_key: dict[str, PaymentSubmission] = {}
         self._lock = threading.Lock()
         self.submission_calls = 0
+        self.fee_units = fee_units
 
     def get_balance(self) -> TreasurySnapshot:
         return TreasurySnapshot(self._balance_units, utcnow(), "treasury:mock:wallet-balance", "mock_arc_wallet_balance")
@@ -308,7 +343,7 @@ class MockPaymentProvider:
             PaymentStatus.CONFIRMED,
             transaction_hash="0x" + (payment_id.removeprefix("0x") * 2)[:64],
             provider_transaction_id=f"mock-{idempotency_key}",
-            fee_units=0,
+            fee_units=self.fee_units,
         )
         self._payments_by_id[payment_id] = result
         self._payments_by_key[idempotency_key] = result

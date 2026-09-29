@@ -637,5 +637,56 @@ def test_event_history_includes_decision_permit_settlement_and_erp(runtime):
     runtime["workflow"].evaluate(runtime["legitimate_id"])
     result = runtime["workflow"].submit_payment(runtime["legitimate_id"])
     event_types = {event["type"] for event in runtime["workflow"].events(runtime["legitimate_id"])}
-    assert {"DECISION_RECORDED", "PAYMENT_AUTHORIZED", "PAYMENT_SUBMITTED", "PAYMENT_CONFIRMED", "ERP_PAYMENT_ENTRY_RECORDED"}.issubset(event_types)
+    assert {"DECISION_RECORDED", "PAYMENT_AUTHORIZED", "PAYMENT_SUBMITTED", "PAYMENT_CONFIRMED", "ERP_WRITEBACK_RECORDED"}.issubset(event_types)
     assert result["payment"]["permit_id"].startswith("0x")
+    # One writeback, two documents: the supplier's payment, and a fee expense when there is a fee.
+    assert result["payment"]["erp_status"] == "RECORDED"
+    assert result["payment"]["erp_entry_id"].startswith("PE-MOCK-")
+    if result["payment"]["fee_units"]:
+        assert result["payment"]["erp_fee_status"] == "RECORDED"
+        assert result["payment"]["erp_fee_entry_id"].startswith("JV-MOCK-")
+    else:
+        assert result["payment"]["erp_fee_status"] == "NOT_APPLICABLE"
+
+
+def test_network_fee_is_booked_as_its_own_expense_entry(runtime):
+    runtime["payment"].fee_units = 10_000  # 0.01 USDC, absorbed by us
+    runtime["workflow"].evaluate(runtime["legitimate_id"])
+    result = runtime["workflow"].submit_payment(runtime["legitimate_id"])
+    payment = result["payment"]
+    assert payment["erp_status"] == "RECORDED"
+    assert payment["erp_fee_status"] == "RECORDED"
+    assert payment["erp_fee_entry_id"].startswith("JV-MOCK-")
+
+    tx_hash = payment["transaction_hash"]
+    # The payment entry is not the fee's business: it carries no fee and no deduction.
+    payment_entry = runtime["accounting"].entries[tx_hash]
+    assert "fee_units" not in payment_entry
+    fee_entry = runtime["accounting"].fee_entries[tx_hash]
+    assert fee_entry["fee_units"] == 10_000
+    assert fee_entry["account"] == "Network Fees - Demo"
+    assert fee_entry["settlement_account"] == "USDC Wallet - Demo"
+
+
+def test_a_failed_fee_expense_leaves_the_payment_recorded_and_retryable(runtime):
+    """The payment is in the ledger; only our own cost booking failed, so retry just that."""
+    runtime["payment"].fee_units = 10_000
+    runtime["accounting"].fail_next_fee_write = True
+    runtime["workflow"].evaluate(runtime["legitimate_id"])
+    result = runtime["workflow"].submit_payment(runtime["legitimate_id"])
+    payment = result["payment"]
+    assert payment["erp_status"] == "RECORDED"
+    assert payment["erp_entry_id"].startswith("PE-MOCK-")
+    assert payment["erp_fee_status"] == "FAILED"
+    assert payment["erp_fee_entry_id"] is None
+    # Not ERP_RECORDED: the writeback is not finished, so the invoice still needs attention.
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ERP_PENDING.value
+
+    runtime["workflow"].retry_erp_writeback(runtime["legitimate_id"])
+    retried = runtime["workflow"].get_invoice(runtime["legitimate_id"])["payment"]
+    assert retried["erp_fee_status"] == "RECORDED"
+    assert retried["erp_fee_entry_id"].startswith("JV-MOCK-")
+    # The payment entry was reused, not written twice.
+    assert len(runtime["accounting"].entries) == 1
+    assert len(runtime["accounting"].fee_entries) == 1
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ERP_RECORDED.value

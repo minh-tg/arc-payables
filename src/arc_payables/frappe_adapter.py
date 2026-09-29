@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import ROUND_CEILING, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 
-from .accounting import AccountingMappingError, compute_payment_entry_amounts, payload_fields
+from .accounting import (
+    AccountingMappingError,
+    bookable_fee_amount,
+    compute_fee_expense,
+    compute_payment_entry_amounts,
+    journal_entry_fields,
+    payload_fields,
+)
 from .domain import (
     AccountingEvidence,
     ERPWriteResult,
@@ -24,6 +31,13 @@ from .domain import (
 )
 from .ports import PaymentMapping
 from .settings import Settings
+
+
+PAYMENT_REFERENCE = "ARC-TESTNET:{tx_hash}"
+"""Reference number on the Payment Entry: the Arc transaction that settled it."""
+
+FEE_REFERENCE = "ARC-TESTNET-FEE:{tx_hash}"
+"""Reference number on the network-fee Journal Entry for the same transaction."""
 
 
 class FrappeAdapterError(RuntimeError):
@@ -238,17 +252,16 @@ class FrappeAccountingConnector:
         self,
         invoice: InvoiceRecord,
         tx_hash: str,
-        fee_units: int,
         mapping: PaymentMapping,
     ) -> ERPWriteResult:
-        reference = f"ARC-TESTNET:{tx_hash}"
+        reference = PAYMENT_REFERENCE.format(tx_hash=tx_hash)
         existing = self.find_payment_entry(reference)
         if existing:
-            self._verify_existing_entry(existing, invoice, fee_units, mapping)
+            self._verify_existing_entry(existing, invoice, mapping)
             name = str(existing["name"])
             if int(existing.get("docstatus") or 0) == 1:
                 return ERPWriteResult(name, 1, already_existed=True)
-            self._submit_payment_entry(existing)
+            self._submit_document(existing, "Payment Entry")
             return ERPWriteResult(name, 1, already_existed=True)
         if not invoice.purchase_invoice_id:
             raise FrappeAdapterError(None, "Purchase Invoice link is required for Payment Entry")
@@ -257,12 +270,9 @@ class FrappeAccountingConnector:
         self._verify_account_mapping(invoice, mapping)
 
         amount_usdc = Decimal(invoice.amount_units) / Decimal(USDC_SCALE)
-        measured_fee_units = fee_units
-        fee_units = self._bookable_fee_units(fee_units, mapping)
         try:
             amounts = compute_payment_entry_amounts(
                 invoice.amount_units,
-                fee_units,
                 source_currency=mapping.source_currency,
                 target_currency=mapping.target_currency,
                 company_currency=mapping.company_currency,
@@ -271,7 +281,7 @@ class FrappeAccountingConnector:
             )
         except AccountingMappingError as exc:
             raise FrappeAdapterError(None, f"accounting mapping is invalid: {exc}") from exc
-        if amounts.supplier_amount != amount_usdc:  # defensive: the fee is never netted off
+        if amounts.supplier_amount != amount_usdc:  # defensive: the supplier amount is never adjusted
             raise FrappeAdapterError(None, "computed supplier amount differs from the authorized invoice amount")
 
         payload: dict[str, Any] = {
@@ -288,12 +298,8 @@ class FrappeAccountingConnector:
             "target_exchange_rate": mapping.target_exchange_rate,
             "reference_no": reference,
             "reference_date": date.today().isoformat(),
-            **payload_fields(amounts, invoice.purchase_invoice_id or "", mapping.fee_account, mapping.cost_center),
+            **payload_fields(amounts, invoice.purchase_invoice_id or ""),
         }
-        note = self._fee_note(measured_fee_units, fee_units, mapping, amount_usdc)
-        if note:
-            # Recorded on the document, because a rounded booking is a fact an accountant needs.
-            payload["remarks"] = note
         try:
             created = self._request("POST", "/api/resource/Payment%20Entry", json_body=payload).get("data", {})
         except FrappeAdapterError:
@@ -303,25 +309,95 @@ class FrappeAccountingConnector:
         name = str(created.get("name") or "")
         if not name:
             raise FrappeAdapterError(None, "Payment Entry create response missing record name", uncertain=True)
-        self._submit_payment_entry(created)
+        self._submit_document(created, "Payment Entry")
         return ERPWriteResult(name, 1)
 
-    def _bookable_fee_units(self, fee_units: int, mapping: PaymentMapping) -> int:
-        """Round the fee up to the smallest amount the company currency can represent.
+    def create_fee_expense(
+        self,
+        invoice: InvoiceRecord,
+        tx_hash: str,
+        fee_units: int,
+        mapping: PaymentMapping,
+    ) -> ERPWriteResult | None:
+        """Book the Arc network fee as our own expense, keyed to the transaction.
 
-        ERPNext books the deduction in the company currency, so a fee below that currency's smallest
-        unit cannot be booked at all. Rounding up keeps the entry balanced and never understates our
-        own cost, and the supplier's amount is untouched either way. A company whose base currency is
-        the settlement asset needs no rounding.
+        The fee is deliberately not part of the Payment Entry: ERPNext subtracts a deduction from what
+        the party receives, and attributes any gap between the outflow and the party amount to exchange
+        gain/loss, so a fee we absorb has no place in that document.
         """
         if fee_units <= 0:
-            return 0
-        unit = self._currency_smallest_unit(mapping.company_currency)
-        if unit <= 0:
-            return fee_units
-        fee = Decimal(fee_units) / Decimal(USDC_SCALE)
-        rounded = (fee / unit).to_integral_value(rounding=ROUND_CEILING) * unit
-        return int((rounded * Decimal(USDC_SCALE)).to_integral_value())
+            return None
+        reference = FEE_REFERENCE.format(tx_hash=tx_hash)
+        existing = self.find_fee_expense(reference)
+        if existing:
+            self._verify_existing_fee_entry(existing, fee_units, mapping)
+            name = str(existing["name"])
+            if int(existing.get("docstatus") or 0) == 1:
+                return ERPWriteResult(name, 1, already_existed=True)
+            self._submit_document(existing, "Journal Entry")
+            return ERPWriteResult(name, 1, already_existed=True)
+        if not self.settings.frappe_accounting_ready:
+            raise FrappeAdapterError(None, "account/currency/exchange-rate/fee mapping is incomplete")
+        self._verify_account_mapping(invoice, mapping)
+
+        try:
+            amounts = compute_fee_expense(
+                fee_units,
+                company_currency=mapping.company_currency,
+                source_currency=mapping.source_currency,
+                smallest_unit=self._currency_smallest_unit(mapping.company_currency),
+                tx_hash=tx_hash,
+                supplier_amount_units=invoice.amount_units,
+            )
+        except AccountingMappingError as exc:
+            raise FrappeAdapterError(None, f"network-fee expense is invalid: {exc}") from exc
+        payload = journal_entry_fields(
+            amounts,
+            company=mapping.company,
+            fee_account=mapping.fee_account,
+            settlement_account=mapping.paid_from,
+            cost_center=mapping.cost_center,
+            reference=reference,
+            posting_date=date.today().isoformat(),
+            settlement_exchange_rate=mapping.source_exchange_rate,
+            multi_currency=self._account_currency(mapping.paid_from).upper() != mapping.company_currency.upper(),
+        )
+        created = self._request("POST", "/api/resource/Journal%20Entry", json_body=payload).get("data", {})
+        name = str(created.get("name") or "")
+        if not name:
+            raise FrappeAdapterError(None, "Journal Entry create response missing record name", uncertain=True)
+        self._submit_document(created, "Journal Entry")
+        return ERPWriteResult(name, 1)
+
+    def find_fee_expense(self, reference: str) -> dict | None:
+        rows = self.list_documents(
+            "Journal Entry",
+            [["cheque_no", "=", reference]],
+            ["name", "cheque_no", "company", "docstatus"],
+            limit=3,
+        )
+        if len(rows) > 1:
+            raise FrappeAdapterError(None, "duplicate network-fee Journal Entry; reconciliation required")
+        return self.get_document("Journal Entry", str(rows[0]["name"])) if rows else None
+
+    def _verify_existing_fee_entry(self, row: dict, fee_units: int, mapping: PaymentMapping) -> None:
+        if row.get("company") != mapping.company:
+            raise FrappeAdapterError(None, "existing network-fee Journal Entry belongs to another company")
+        try:
+            booked = bookable_fee_amount(
+                fee_units, smallest_unit=self._currency_smallest_unit(mapping.company_currency)
+            )
+        except AccountingMappingError as exc:
+            raise FrappeAdapterError(None, f"network-fee expense is invalid: {exc}") from exc
+        lines = row.get("accounts") or []
+        debits = [line for line in lines if line.get("account") == mapping.fee_account]
+        credits = [line for line in lines if line.get("account") == mapping.paid_from]
+        if len(debits) != 1 or len(credits) != 1:
+            raise FrappeAdapterError(None, "existing network-fee Journal Entry conflicts with the fee account")
+        if Decimal(str(debits[0].get("debit_in_account_currency", "0"))) != booked:
+            raise FrappeAdapterError(None, "existing network-fee Journal Entry conflicts with the booked fee")
+        if Decimal(str(credits[0].get("credit_in_account_currency", "0"))) != booked:
+            raise FrappeAdapterError(None, "existing network-fee Journal Entry does not credit the settlement account")
 
     def _currency_smallest_unit(self, currency: str) -> Decimal:
         document = self.get_document("Currency", currency)
@@ -330,20 +406,7 @@ class FrappeAccountingConnector:
         except (InvalidOperation, TypeError):
             return Decimal(0)
 
-    @staticmethod
-    def _fee_note(measured_units: int, booked_units: int, mapping: PaymentMapping, supplier_amount: Decimal) -> str | None:
-        if measured_units == booked_units:
-            return None
-        measured = Decimal(measured_units) / Decimal(USDC_SCALE)
-        booked = Decimal(booked_units) / Decimal(USDC_SCALE)
-        return (
-            f"Network fee measured {measured.normalize()} {mapping.source_currency} on chain and booked as "
-            f"{booked.normalize()} {mapping.company_currency}, rounded up to the smallest unit the company "
-            "currency can represent. The supplier received exactly "
-            f"{supplier_amount.normalize()} {mapping.source_currency}; the difference is absorbed by us."
-        )
-
-    def _submit_payment_entry(self, doc: dict) -> None:
+    def _submit_document(self, doc: dict, doctype: str) -> None:
         """Submit using the whole document, never a bare name.
 
         Frappe v15's ``frappe.client.submit`` reinstantiates whatever it receives
@@ -353,21 +416,21 @@ class FrappeAccountingConnector:
         """
         name = str(doc.get("name") or "")
         if not name:
-            raise FrappeAdapterError(None, "Payment Entry has no record name", uncertain=True)
+            raise FrappeAdapterError(None, f"{doctype} has no record name", uncertain=True)
         result = self._request(
             "POST",
             "/api/method/frappe.client.submit",
-            json_body={"doc": {**doc, "doctype": "Payment Entry"}},
+            json_body={"doc": {**doc, "doctype": doctype}},
         )
         submitted = result.get("message") if isinstance(result.get("message"), dict) else result.get("data")
         if isinstance(submitted, dict):
             if submitted.get("name") not in (None, name):
-                raise FrappeAdapterError(None, "submitted Payment Entry response names a different record", uncertain=True)
+                raise FrappeAdapterError(None, f"submitted {doctype} response names a different record", uncertain=True)
             # Do not report a completed writeback unless ERPNext confirms the submission.
             if str(submitted.get("docstatus")) not in {"1", "1.0"}:
-                raise FrappeAdapterError(None, "ERPNext did not confirm the Payment Entry submission", uncertain=True)
+                raise FrappeAdapterError(None, f"ERPNext did not confirm the {doctype} submission", uncertain=True)
 
-    def _verify_existing_entry(self, row: dict, invoice: InvoiceRecord, fee_units: int, mapping: PaymentMapping) -> None:
+    def _verify_existing_entry(self, row: dict, invoice: InvoiceRecord, mapping: PaymentMapping) -> None:
         if row.get("party_type") != "Supplier" or row.get("party") != invoice.supplier_id:
             raise FrappeAdapterError(None, "existing Payment Entry reference conflicts with supplier")
         if (
@@ -389,7 +452,6 @@ class FrappeAccountingConnector:
         try:
             amounts = compute_payment_entry_amounts(
                 invoice.amount_units,
-                fee_units,
                 source_currency=mapping.source_currency,
                 target_currency=mapping.target_currency,
                 company_currency=mapping.company_currency,
@@ -398,22 +460,17 @@ class FrappeAccountingConnector:
             )
         except AccountingMappingError as exc:
             raise FrappeAdapterError(None, f"accounting mapping is invalid: {exc}") from exc
-        expected = payload_fields(amounts, invoice.purchase_invoice_id or "", mapping.fee_account, mapping.cost_center)
+        expected = payload_fields(amounts, invoice.purchase_invoice_id or "")
         if Decimal(str(reference.get("allocated_amount", "0"))) != Decimal(str(expected["references"][0]["allocated_amount"])):
             raise FrappeAdapterError(None, "existing Payment Entry reference conflicts with the invoice amount")
         if Decimal(str(row.get("paid_amount", "0"))) != Decimal(str(expected["paid_amount"])):
             raise FrappeAdapterError(None, "existing Payment Entry conflicts with the expected outflow")
         if Decimal(str(row.get("received_amount", "0"))) != Decimal(str(expected["received_amount"])):
             raise FrappeAdapterError(None, "existing Payment Entry conflicts with the expected party amount")
-        deductions = row.get("deductions") or []
-        expected_deductions = expected.get("deductions", [])
-        if len(deductions) != len(expected_deductions):
-            raise FrappeAdapterError(None, "existing Payment Entry conflicts with network-fee deductions")
-        for actual_row, expected_row in zip(deductions, expected_deductions):
-            if actual_row.get("account") != expected_row["account"]:
-                raise FrappeAdapterError(None, "existing Payment Entry conflicts with the network-fee account")
-            if Decimal(str(actual_row.get("amount", "0"))) != Decimal(str(expected_row["amount"])):
-                raise FrappeAdapterError(None, "existing Payment Entry conflicts with the network-fee amount")
+        # The network fee is never a deduction on this document, so any deduction is a conflict: it
+        # would mean something had been subtracted from the supplier's amount.
+        if row.get("deductions"):
+            raise FrappeAdapterError(None, "existing Payment Entry carries a deduction; the supplier amount may be reduced")
 
     def _supplier(self, supplier_id: str) -> SupplierRecord:
         raw = self.get_document("Supplier", supplier_id)
@@ -446,6 +503,11 @@ class FrappeAccountingConnector:
         if raw.get("on_hold") in (True, 1, "1"):
             reasons.append("the supplier is on hold")
         return " and ".join(reasons) if reasons else None
+
+    def _account_currency(self, account: str) -> str:
+        if not account:
+            return ""
+        return str(self.get_document("Account", account).get("account_currency") or "")
 
     def _verify_account_mapping(self, invoice: InvoiceRecord, mapping: PaymentMapping) -> None:
         if invoice.currency.upper() != mapping.source_currency.upper():

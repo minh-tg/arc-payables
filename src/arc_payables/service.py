@@ -341,6 +341,8 @@ class APWorkflow:
             "confirmation_status": "NOT_SUBMITTED",
             "fee_units": None,
             "erp_entry_id": None,
+            "erp_fee_status": None,
+            "erp_fee_entry_id": None,
             "erp_status": "PENDING",
             "decision_evidence_hash": fresh_decision.evidence_hash,
         }
@@ -443,8 +445,17 @@ class APWorkflow:
         return self.get_invoice(invoice_id)
 
     def _record_erp(self, invoice: InvoiceRecord, payment: dict) -> str:
-        if payment.get("erp_entry_id"):
-            self.store.update_payment(invoice.id, {"erp_status": "RECORDED"}, WorkflowState.ERP_RECORDED.value, "ERP_WRITEBACK_ALREADY_RECORDED", {"payment_entry_id": payment["erp_entry_id"]})
+        """Write the settlement into the accounting system: the payment, then the fee we absorbed.
+
+        Two documents, one writeback. The Payment Entry carries exactly the supplier's amount, and the
+        network fee is a separate expense entry keyed to the same transaction. If the second write
+        fails, the first is remembered, so a retry books only what is missing rather than resubmitting
+        the payment.
+        """
+        fee_units = int(payment.get("fee_units") or 0)
+        fee_outstanding = fee_units > 0 and payment.get("erp_fee_status") != "RECORDED"
+        if payment.get("erp_entry_id") and not fee_outstanding:
+            self.store.update_payment(invoice.id, {"erp_status": "RECORDED", "erp_claimed_at": None}, WorkflowState.ERP_RECORDED.value, "ERP_WRITEBACK_ALREADY_RECORDED", {"payment_entry_id": payment["erp_entry_id"]})
             return "ALREADY_RECORDED"
         is_frappe = self.settings.accounting_provider == "frappe"
         if is_frappe and not self.settings.frappe_accounting_ready:
@@ -455,28 +466,65 @@ class APWorkflow:
             return "DISABLED"
         if not self.store.claim_erp_writeback(invoice.id):
             return "IN_PROGRESS"
-        fee_units = payment.get("fee_units")
-        if fee_units is None:
-            fee_units = 0
         mapping = self._payment_mapping()
-        try:
-            result = self.accounting.create_payment_entry(invoice, payment["transaction_hash"], int(fee_units), mapping)
-        except Exception as exc:
-            error_code = getattr(exc, "status_code", None) or getattr(exc, "code", None) or type(exc).__name__
-            uncertain = bool(getattr(exc, "uncertain", False))
-            updates = {"erp_status": "UNKNOWN" if uncertain else "PENDING", "erp_error_code": str(error_code)}
-            if not uncertain:
-                updates["erp_claimed_at"] = None
-            self.store.update_payment(invoice.id, updates, WorkflowState.ERP_PENDING.value, "ERP_WRITEBACK_UNCERTAIN" if uncertain else "ERP_WRITEBACK_FAILED", {"error_type": type(exc).__name__, "error_code": str(error_code), "uncertain": uncertain})
-            return "UNCERTAIN" if uncertain else "FAILED"
+
+        payment_entry_id = payment.get("erp_entry_id")
+        already_existed = False
+        if not payment_entry_id:
+            try:
+                result = self.accounting.create_payment_entry(invoice, payment["transaction_hash"], mapping)
+            except Exception as exc:
+                return self._record_erp_failure(invoice, exc, "erp_status")
+            payment_entry_id = result.payment_entry_id
+            already_existed = result.already_existed
+
+        fee_entry_id = payment.get("erp_fee_entry_id")
+        if fee_outstanding:
+            try:
+                fee_result = self.accounting.create_fee_expense(invoice, payment["transaction_hash"], fee_units, mapping)
+            except Exception as exc:
+                # The payment is in the ledger; only the fee expense is missing. Record the payment
+                # entry so the retry cannot book it twice, and leave the invoice short of ERP_RECORDED.
+                updates = {
+                    "erp_status": "RECORDED",
+                    "erp_entry_id": payment_entry_id,
+                    "erp_claimed_at": None,
+                    "erp_fee_status": "UNKNOWN" if getattr(exc, "uncertain", False) else "FAILED",
+                    "erp_fee_error_code": str(getattr(exc, "status_code", None) or getattr(exc, "code", None) or type(exc).__name__),
+                }
+                self.store.update_payment(invoice.id, updates, WorkflowState.ERP_PENDING.value, "ERP_FEE_EXPENSE_FAILED", {"payment_entry_id": payment_entry_id, "error_type": type(exc).__name__})
+                return "FEE_FAILED"
+            fee_entry_id = fee_result.payment_entry_id if fee_result else None
+
+        updates = {
+            "erp_status": "RECORDED",
+            "erp_entry_id": payment_entry_id,
+            "erp_claimed_at": None,
+            "erp_fee_status": "RECORDED" if fee_units > 0 else "NOT_APPLICABLE",
+            "erp_fee_entry_id": fee_entry_id,
+        }
         self.store.update_payment(
             invoice.id,
-            {"erp_status": "RECORDED", "erp_entry_id": result.payment_entry_id, "erp_claimed_at": None},
+            updates,
             WorkflowState.ERP_RECORDED.value,
-            "ERP_PAYMENT_ENTRY_RECORDED",
-            {"payment_entry_id": result.payment_entry_id, "already_existed": result.already_existed},
+            "ERP_WRITEBACK_RECORDED",
+            {
+                "payment_entry_id": payment_entry_id,
+                "already_existed": already_existed,
+                "fee_entry_id": fee_entry_id,
+                "fee_units": fee_units,
+            },
         )
         return "RECORDED"
+
+    def _record_erp_failure(self, invoice: InvoiceRecord, exc: Exception, status_field: str) -> str:
+        error_code = getattr(exc, "status_code", None) or getattr(exc, "code", None) or type(exc).__name__
+        uncertain = bool(getattr(exc, "uncertain", False))
+        updates = {status_field: "UNKNOWN" if uncertain else "PENDING", "erp_error_code": str(error_code)}
+        if not uncertain:
+            updates["erp_claimed_at"] = None
+        self.store.update_payment(invoice.id, updates, WorkflowState.ERP_PENDING.value, "ERP_WRITEBACK_UNCERTAIN" if uncertain else "ERP_WRITEBACK_FAILED", {"error_type": type(exc).__name__, "error_code": str(error_code), "uncertain": uncertain})
+        return "UNCERTAIN" if uncertain else "FAILED"
 
     def _payment_mapping(self) -> PaymentMapping:
         if self.settings.accounting_provider == "frappe":
@@ -799,6 +847,8 @@ class APWorkflow:
                 "fee_units",
                 "erp_status",
                 "erp_entry_id",
+                "erp_fee_status",
+                "erp_fee_entry_id",
                 "failure_code",
             )
             if key in payment

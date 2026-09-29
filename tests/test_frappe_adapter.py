@@ -8,7 +8,12 @@ from urllib.parse import unquote
 import httpx
 import pytest
 
-from arc_payables.accounting import AccountingMappingError, compute_payment_entry_amounts, payload_fields
+from arc_payables.accounting import (
+    AccountingMappingError,
+    compute_fee_expense,
+    compute_payment_entry_amounts,
+    payload_fields,
+)
 from arc_payables.domain import InvoiceRecord, USDC_SCALE
 from arc_payables.frappe_adapter import FrappeAccountingConnector, FrappeAdapterError
 from arc_payables.ports import PaymentMapping
@@ -90,10 +95,9 @@ def _path(request: httpx.Request) -> str:
 # --------------------------------------------------------------------------------------
 
 
-def test_supplier_receives_exactly_the_authorized_amount_and_fee_is_separate():
+def test_payment_entry_settles_the_invoice_in_full():
     amounts = compute_payment_entry_amounts(
         1_000 * USDC_SCALE,
-        10_000,  # 0.01 USDC network fee
         source_currency="USDC",
         target_currency="USD",
         company_currency="USD",
@@ -101,48 +105,43 @@ def test_supplier_receives_exactly_the_authorized_amount_and_fee_is_separate():
         target_exchange_rate="1",
     )
     assert amounts.supplier_amount == Decimal(1000)
-    assert amounts.fee_amount == Decimal("0.01")
-    # The wallet outflow includes the fee; the allocated invoice amount does not.
-    assert amounts.paid_amount == Decimal("1000.01")
+    assert amounts.paid_amount == Decimal(1000)
     assert amounts.allocated_amount == Decimal(1000)
     assert amounts.received_amount == Decimal(1000)
-    assert amounts.total_deductions == Decimal("0.01")
     assert amounts.difference_amount == 0
     assert amounts.unallocated_amount == 0
 
 
-def test_fee_is_never_deducted_from_the_supplier_payment():
+def test_no_network_fee_appears_in_the_payment_entry_arithmetic():
+    """The fee is not a parameter here at all: it cannot reach the supplier's amount."""
     without_fee = compute_payment_entry_amounts(
-        250 * USDC_SCALE, 0, source_currency="USDC", target_currency="USD",
+        250 * USDC_SCALE, source_currency="USDC", target_currency="USD",
         company_currency="USD", source_exchange_rate="1", target_exchange_rate="1",
     )
-    with_fee = compute_payment_entry_amounts(
-        250 * USDC_SCALE, 5_000_000, source_currency="USDC", target_currency="USD",
-        company_currency="USD", source_exchange_rate="1", target_exchange_rate="1",
-    )
-    # A 5 USDC network fee must not reduce what the supplier is allocated.
-    assert with_fee.supplier_amount == without_fee.supplier_amount == Decimal(250)
-    assert with_fee.allocated_amount == without_fee.allocated_amount == Decimal(250)
-    assert with_fee.paid_amount == Decimal(255)
-    assert with_fee.difference_amount == 0
+    # Even a 5 USDC fee leaves every figure on this document unchanged; it is booked elsewhere.
+    assert without_fee.supplier_amount == Decimal(250)
+    assert without_fee.allocated_amount == Decimal(250)
+    assert without_fee.paid_amount == Decimal(250)
+    assert without_fee.difference_amount == 0
 
 
-def test_conversion_applies_to_both_invoice_and_fee_and_still_balances():
+def test_conversion_applies_to_the_invoice_and_still_balances():
     amounts = compute_payment_entry_amounts(
-        100 * USDC_SCALE, 1_000_000, source_currency="USDC", target_currency="USD",
+        100 * USDC_SCALE, source_currency="USDC", target_currency="USD",
         company_currency="USD", source_exchange_rate="2", target_exchange_rate="1",
     )
     assert amounts.supplier_amount == Decimal(100)
     assert amounts.allocated_amount == Decimal(200)
-    assert amounts.total_deductions == Decimal(2)
-    assert amounts.paid_amount == Decimal(101)
+    assert amounts.paid_amount == Decimal(100)
+    assert amounts.base_paid_amount == Decimal(200)
+    assert amounts.base_received_amount == Decimal(200)
     assert amounts.difference_amount == 0
 
 
-def test_mapping_rejects_a_fee_account_outside_the_company_currency():
+def test_mapping_rejects_a_payable_account_outside_the_company_currency():
     with pytest.raises(AccountingMappingError, match="must equal the company currency"):
         compute_payment_entry_amounts(
-            100 * USDC_SCALE, 1_000_000, source_currency="USDC", target_currency="USDC",
+            100 * USDC_SCALE, source_currency="USDC", target_currency="USDC",
             company_currency="USD", source_exchange_rate="1", target_exchange_rate="1",
         )
 
@@ -152,11 +151,12 @@ def test_mapping_rejects_non_positive_rates_and_amounts():
         ({"source_exchange_rate": "0"}, "positive"),
         ({"target_exchange_rate": "-1"}, "positive"),
         ({"amount_units": 0}, "positive"),
-        ({"fee_units": -1}, "negative"),
+        # A rate on a payable account that is already in the company currency manufactures an
+        # exchange gain/loss row, because ERPNext books base_paid - base_received as one.
+        ({"target_exchange_rate": "2"}, "target rate of 1"),
     ):
         call = {
             "amount_units": 100 * USDC_SCALE,
-            "fee_units": 1_000_000,
             "source_currency": "USDC",
             "target_currency": "USD",
             "company_currency": "USD",
@@ -168,15 +168,42 @@ def test_mapping_rejects_non_positive_rates_and_amounts():
             compute_payment_entry_amounts(**call)
 
 
-def test_payload_omits_deductions_when_there_is_no_fee():
+def test_payload_never_carries_deductions():
+    """ERPNext subtracts a deduction from what the party receives, so this document has none."""
     amounts = compute_payment_entry_amounts(
-        250 * USDC_SCALE, 0, source_currency="USDC", target_currency="USD",
+        250 * USDC_SCALE, source_currency="USDC", target_currency="USD",
         company_currency="USD", source_exchange_rate="1", target_exchange_rate="1",
     )
-    payload = payload_fields(amounts, "PINV-1", FEE_ACCOUNT, COST_CENTER)
+    payload = payload_fields(amounts, "PINV-1")
     assert "deductions" not in payload
     assert payload["paid_amount"] == 250
+    assert payload["received_amount"] == 250
     assert payload["references"][0]["allocated_amount"] == 250
+
+
+def test_fee_expense_rounds_up_to_the_smallest_bookable_unit():
+    """A sub-unit fee cannot be written down, so it is booked up and the difference is stated."""
+    amounts = compute_fee_expense(
+        1,  # one micro-USDC, a thousandth of a cent
+        company_currency="USD",
+        source_currency="USDC",
+        smallest_unit=Decimal("0.01"),
+        tx_hash="0x" + "ab" * 32,
+        supplier_amount_units=250 * USDC_SCALE,
+    )
+    assert amounts.measured_amount == Decimal("0.000001")
+    assert amounts.booked_amount == Decimal("0.01")
+    assert "rounded up" in amounts.remark
+    assert "0.000001" in amounts.remark and "0.01" in amounts.remark
+    assert "250" in amounts.remark
+    assert "0x" + "ab" * 32 in amounts.remark
+    # Never rounded down, whatever the fee.
+    exact = compute_fee_expense(
+        5_000_000, company_currency="USD", source_currency="USDC", smallest_unit=Decimal("0.01"),
+        tx_hash="0x" + "ab" * 32, supplier_amount_units=250 * USDC_SCALE,
+    )
+    assert exact.booked_amount == Decimal("5")
+    assert "rounded up" not in exact.remark
 
 
 # --------------------------------------------------------------------------------------
@@ -282,12 +309,14 @@ def _payment_handler(
     entries: dict[str, dict],
     counters: dict[str, int],
     *,
+    fee_entries: dict[str, dict] | None = None,
     timeout_after_create: bool = False,
     smallest_currency_fraction: float = 0.01,
     settlement_account_currency: str = "USDC",
     payable_account_currency: str = "USD",
     fee_account_currency: str = "USD",
 ):
+    fee_entries = fee_entries if fee_entries is not None else {}
     account_currencies = {
         SETTLEMENT_ACCOUNT: settlement_account_currency,
         PAYABLE_ACCOUNT: payable_account_currency,
@@ -300,6 +329,10 @@ def _payment_handler(
             return httpx.Response(200, json={"message": "ap-agent@example.test"})
         if request.method == "GET" and path == "/api/resource/Payment Entry":
             return httpx.Response(200, json={"data": [{"name": name} for name in entries]})
+        if request.method == "GET" and path == "/api/resource/Journal Entry":
+            return httpx.Response(200, json={"data": [{"name": name} for name in fee_entries]})
+        if path.startswith("/api/resource/Journal Entry/"):
+            return httpx.Response(200, json={"data": fee_entries[path.rsplit("/", 1)[-1]]})
         if path.startswith("/api/resource/Payment Entry/"):
             return httpx.Response(200, json={"data": entries[path.rsplit("/", 1)[-1]]})
         if path == "/api/resource/Purchase Invoice/PINV-1":
@@ -328,15 +361,25 @@ def _payment_handler(
                 raise httpx.ReadTimeout("response lost after commit", request=request)
             # Real Frappe returns the stored document, not just its name.
             return httpx.Response(200, json={"data": entries["PE-1"]})
+        if request.method == "POST" and path == "/api/resource/Journal Entry":
+            counters["fee_create"] += 1
+            payload = json.loads(request.content)
+            fee_entries["JV-1"] = {**payload, "name": "JV-1", "docstatus": 0,
+                                   "modified": "2026-01-15 10:05:00.000000"}
+            if timeout_after_create and counters["fee_create"] == 1:
+                raise httpx.ReadTimeout("response lost after fee commit", request=request)
+            return httpx.Response(200, json={"data": fee_entries["JV-1"]})
         if request.method == "POST" and path == "/api/method/frappe.client.submit":
             counters["submit"] += 1
             body = json.loads(request.content)["doc"]
             # Mirror the live v15 contract: a name-only payload reinstantiates an empty document
             # and submits nothing, so it must be rejected.
-            if not body.get("paid_amount") or not body.get("modified") or not body.get("references"):
+            required = ("accounts", "user_remark") if body.get("doctype") == "Journal Entry" else ("paid_amount", "references")
+            if not body.get("modified") or any(not body.get(field) for field in required):
                 return httpx.Response(417, json={"_server_messages": json.dumps([json.dumps({"message": "A full document is required to submit"})])})
-            entries["PE-1"]["docstatus"] = 1
-            return httpx.Response(200, json={"message": entries["PE-1"]})
+            target = fee_entries["JV-1"] if body.get("doctype") == "Journal Entry" else entries["PE-1"]
+            target["docstatus"] = 1
+            return httpx.Response(200, json={"message": target})
         raise AssertionError(f"unexpected request {request.method} {request.url}")
 
     return handler
@@ -346,7 +389,7 @@ def test_submit_sends_the_full_document_and_requires_confirmation():
     """A name-only submit silently does nothing in Frappe v15; the whole document must be sent."""
     seen: list[dict] = []
     entries: dict[str, dict] = {}
-    counters = {"create": 0, "submit": 0}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
     base = _payment_handler(entries, counters)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -356,20 +399,20 @@ def test_submit_sends_the_full_document_and_requires_confirmation():
         return response
 
     connector = FrappeAccountingConnector(_settings(), httpx.Client(transport=httpx.MockTransport(handler)))
-    connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
+    connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, _mapping())
     assert len(seen) == 1
     submitted = seen[0]
     assert submitted["doctype"] == "Payment Entry"
     assert submitted["name"] == "PE-1"
-    assert submitted["paid_amount"] == 250.01
-    assert submitted["deductions"] == [{"account": FEE_ACCOUNT, "cost_center": COST_CENTER, "amount": 0.01}]
+    assert submitted["paid_amount"] == 250            # exactly the supplier amount
+    assert "deductions" not in submitted
     assert submitted["references"][0]["allocated_amount"] == 250
     assert submitted["modified"]                      # concurrency timestamp is required
 
 
 def test_unconfirmed_submission_is_not_reported_as_completed_writeback():
     entries: dict[str, dict] = {}
-    counters = {"create": 0, "submit": 0}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
     base = _payment_handler(entries, counters)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -381,87 +424,150 @@ def test_unconfirmed_submission_is_not_reported_as_completed_writeback():
 
     connector = FrappeAccountingConnector(_settings(), httpx.Client(transport=httpx.MockTransport(handler)))
     with pytest.raises(FrappeAdapterError):
-        connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
+        connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, _mapping())
 
 
-def test_payment_entry_absorbs_the_fee_and_settles_the_invoice_in_full():
+def test_payment_entry_carries_exactly_the_supplier_amount():
     entries: dict[str, dict] = {}
-    counters = {"create": 0, "submit": 0}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
     connector = FrappeAccountingConnector(
         _settings(), httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters)))
     )
-    result = connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
+    result = connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, _mapping())
     assert result.payment_entry_id == "PE-1"
     assert result.already_existed is False
-    assert counters == {"create": 1, "submit": 1}
+    assert counters == {"create": 1, "submit": 1, "fee_create": 0}
 
     payload = entries["PE-1"]
-    assert payload["paid_amount"] == 250.01         # wallet outflow, fee included, as a number
+    assert payload["paid_amount"] == 250            # a number: ERPNext sums this field as-is
     assert payload["received_amount"] == 250        # party amount
-    assert payload["references"][0]["allocated_amount"] == 250      # a number: ERPNext sums this row as-is
-    assert payload["deductions"] == [{"account": FEE_ACCOUNT, "cost_center": COST_CENTER, "amount": 0.01}]
+    assert payload["references"][0]["allocated_amount"] == 250
+    assert "deductions" not in payload
     assert payload["source_exchange_rate"] == "1"
     assert payload["target_exchange_rate"] == "1"
 
-    reused = connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
+    reused = connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, _mapping())
     assert reused.already_existed is True
-    assert counters == {"create": 1, "submit": 1}
+    assert counters == {"create": 1, "submit": 1, "fee_create": 0}
+
+
+def test_network_fee_is_booked_as_its_own_expense_entry():
+    entries: dict[str, dict] = {}
+    fee_entries: dict[str, dict] = {}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
+    connector = FrappeAccountingConnector(
+        _settings(),
+        httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters, fee_entries=fee_entries))),
+    )
+    result = connector.create_fee_expense(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
+    assert result is not None and result.payment_entry_id == "JV-1"
+    assert counters == {"create": 0, "submit": 1, "fee_create": 1}
+
+    je = fee_entries["JV-1"]
+    assert je["cheque_no"] == "ARC-TESTNET-FEE:" + "0x" + "ab" * 32
+    assert je["voucher_type"] == "Journal Entry"
+    assert je["company"] == COMPANY
+    assert je["multi_currency"] == 1          # a USD fee account against a USDC wallet
+    debit, credit = je["accounts"]
+    assert debit["account"] == FEE_ACCOUNT
+    assert debit["debit_in_account_currency"] == 0.01
+    assert debit["cost_center"] == COST_CENTER      # ERPNext demands one on an expense row
+    assert credit["account"] == SETTLEMENT_ACCOUNT
+    assert credit["credit_in_account_currency"] == 0.01
+    assert credit["exchange_rate"] == "1"       # the wallet is not in the company currency
+    assert "0x" + "ab" * 32 in je["user_remark"]
+
+    reused = connector.create_fee_expense(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
+    assert reused is not None and reused.already_existed is True
+    assert counters == {"create": 0, "submit": 1, "fee_create": 1}
+
+
+def test_no_fee_means_no_expense_entry():
+    entries: dict[str, dict] = {}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
+    connector = FrappeAccountingConnector(
+        _settings(), httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters)))
+    )
+    assert connector.create_fee_expense(_invoice(), "0x" + "ab" * 32, 0, _mapping()) is None
+    assert counters == {"create": 0, "submit": 0, "fee_create": 0}
+
+
+def test_an_existing_fee_entry_for_another_amount_is_a_conflict():
+    entries: dict[str, dict] = {}
+    fee_entries = {
+        "JV-1": {
+            "name": "JV-1", "docstatus": 1, "company": COMPANY,
+            "cheque_no": "ARC-TESTNET-FEE:" + "0x" + "ab" * 32,
+            "accounts": [
+                {"account": FEE_ACCOUNT, "debit_in_account_currency": 0.02},
+                {"account": SETTLEMENT_ACCOUNT, "credit_in_account_currency": 0.02},
+            ],
+        }
+    }
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
+    connector = FrappeAccountingConnector(
+        _settings(),
+        httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters, fee_entries=fee_entries))),
+    )
+    with pytest.raises(FrappeAdapterError, match="booked fee"):
+        connector.create_fee_expense(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
+    assert counters["fee_create"] == 0
 
 
 def test_payment_entry_timeout_after_remote_commit_reuses_existing_draft():
     entries: dict[str, dict] = {}
-    counters = {"create": 0, "submit": 0}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
     connector = FrappeAccountingConnector(
         _settings(),
         httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters, timeout_after_create=True))),
     )
-    args = (_invoice(), "0x" + "cd" * 32, 10_000, _mapping())
+    args = (_invoice(), "0x" + "cd" * 32, _mapping())
     with pytest.raises(FrappeAdapterError) as error:
         connector.create_payment_entry(*args)
     assert error.value.uncertain
     result = connector.create_payment_entry(*args)
     assert result.payment_entry_id == "PE-1"
     assert result.already_existed is True
-    assert counters == {"create": 1, "submit": 1}
+    assert counters == {"create": 1, "submit": 1, "fee_create": 0}
 
 
 def test_payment_entry_refuses_a_settlement_account_in_the_wrong_currency():
     entries: dict[str, dict] = {}
-    counters = {"create": 0, "submit": 0}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
     connector = FrappeAccountingConnector(
         _settings(),
         httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters, settlement_account_currency="EUR"))),
     )
     with pytest.raises(FrappeAdapterError, match="settlement account currency"):
-        connector.create_payment_entry(_invoice(), "0x" + "ef" * 32, 0, _mapping())
+        connector.create_payment_entry(_invoice(), "0x" + "ef" * 32, _mapping())
     assert counters["create"] == 0
 
 
 def test_payment_entry_refuses_a_payable_account_outside_the_company_currency():
     entries: dict[str, dict] = {}
-    counters = {"create": 0, "submit": 0}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
     connector = FrappeAccountingConnector(
         _settings(),
         httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters, payable_account_currency="USDC"))),
     )
     with pytest.raises(FrappeAdapterError, match="payable account currency"):
-        connector.create_payment_entry(_invoice(), "0x" + "ef" * 32, 0, _mapping())
+        connector.create_payment_entry(_invoice(), "0x" + "ef" * 32, _mapping())
     assert counters["create"] == 0
 
 
-def test_payment_entry_refuses_a_fee_account_outside_the_company_currency():
-    # ERPNext itself rejects a deduction whose account is not in the company currency, so the
-    # mapping is refused both by settings and by the adapter's account check.
+def test_fee_expense_refuses_a_fee_account_outside_the_company_currency():
+    # A journal entry against an account in another currency needs a currency and an exchange rate,
+    # which this mapping deliberately does not carry, so it is refused by settings and by the check.
     assert not _settings(frappe_fee_currency="USDC").frappe_accounting_ready
     entries: dict[str, dict] = {}
-    counters = {"create": 0, "submit": 0}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
     connector = FrappeAccountingConnector(
         _settings(),
         httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters, fee_account_currency="USDC"))),
     )
     with pytest.raises(FrappeAdapterError, match="network-fee account currency"):
-        connector.create_payment_entry(_invoice(), "0x" + "77" * 32, 10_000, _mapping())
-    assert counters["create"] == 0
+        connector.create_fee_expense(_invoice(), "0x" + "77" * 32, 10_000, _mapping())
+    assert counters["fee_create"] == 0
 
 
 def test_live_payment_entry_requires_every_mapping_value():
@@ -505,3 +611,29 @@ def test_invoice_without_linked_purchase_invoice_cannot_claim_payable_state():
     evidence = connector.get_invoice_evidence(unlinked)
     assert evidence.invoice_status == "UNVERIFIED"
     assert evidence.source_invoice_id is None
+
+
+def test_fee_expense_declares_multi_currency_only_when_the_accounts_differ_in_currency():
+    """ERPNext refuses a journal entry that spans currencies unless the entry says it does."""
+    entries: dict[str, dict] = {}
+    fee_entries: dict[str, dict] = {}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
+    connector = FrappeAccountingConnector(
+        _settings(),
+        httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters, fee_entries=fee_entries))),
+    )
+    connector.create_fee_expense(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
+    assert fee_entries["JV-1"]["multi_currency"] == 1
+    assert fee_entries["JV-1"]["cheque_date"]            # a reference number needs its date
+
+    # A company settling in its own currency has nothing to declare.
+    same_currency = _mapping(source_currency="USD")
+    entries.clear(); fee_entries.clear()
+    connector = FrappeAccountingConnector(
+        _settings(frappe_settlement_currency="USD"),
+        httpx.Client(transport=httpx.MockTransport(
+            _payment_handler(entries, counters, fee_entries=fee_entries, settlement_account_currency="USD")
+        )),
+    )
+    connector.create_fee_expense(_invoice(currency="USD"), "0x" + "cd" * 32, 10_000, same_currency)
+    assert "multi_currency" not in fee_entries["JV-1"]

@@ -407,6 +407,7 @@ def bootstrap(client: FrappeClient, *, company: str | None, supplier_wallet: str
     # The UOM only has to exist and be enabled; the demo quantity is validated as a whole number
     # by this script, so requiring must_be_whole_number would be a spurious blocker (it defaults to 0).
     check(client.require("UOM", "Nos"), {"enabled": 1}, "UOM")
+    # Every preflight above has passed; the writes start here.
     asset_parent = _root_account(client, company_name, "Asset")
     fee_parent = _root_account(client, company_name, "Expense")
     currency = {"currency_name": "USDC", "enabled": 1, "fraction": "Micro USDC", "fraction_units": 1_000_000,
