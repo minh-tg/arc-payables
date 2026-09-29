@@ -1,0 +1,153 @@
+# Disposable, self-hosted ERPNext for local development and the end-to-end demo.
+#
+# This is a throwaway sandbox, NOT a deployment. It uses upstream images without any fork or
+# modification of ERPNext. Data lives in named volumes so `docker compose down -v` destroys
+# the whole environment, which is the intended way to reset it.
+#
+# Quick start (see ./README.md for the full runbook):
+#   podman-compose pull
+#   podman-compose up -d
+#   (then create the site manually as described in README.md)
+#
+# Ports are bound to 127.0.0.1 only.
+name: tameion-erpnext-sandbox
+
+x-erpnext-common: &erpnext-common
+  image: docker.io/frappe/erpnext:v15.121.5
+  restart: unless-stopped
+  volumes: &erpnext-volumes
+    - sites:/home/frappe/frappe-bench/sites
+    - logs:/home/frappe/frappe-bench/logs
+
+services:
+  configurator:
+    <<: *erpnext-common
+    restart: "no"
+    entrypoint:
+      - bash
+      - -ec
+    command:
+      - >
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host "$$DB_HOST";
+        bench set-config -gp db_port "$$DB_PORT";
+        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
+        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
+        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
+        bench set-config -gp socketio_port "$$SOCKETIO_PORT";
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: "9000"
+
+  backend:
+    <<: *erpnext-common
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: "9000"
+    healthcheck:
+      # This becomes healthy after the manual `bench new-site` step.
+      test: ["CMD", "curl", "-fSs", "-H", "Host: tameion.localhost", "http://localhost:8000/api/method/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  frontend:
+    <<: *erpnext-common
+    depends_on: [backend, websocket]
+    command: ["nginx-entrypoint.sh"]
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      FRAPPE_SITE_NAME_HEADER: tameion.localhost
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: "120"
+      CLIENT_MAX_BODY_SIZE: 50m
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  websocket:
+    <<: *erpnext-common
+    depends_on: [backend]
+    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    environment:
+      REDIS_QUEUE: redis-queue:6379
+
+  queue-short:
+    <<: *erpnext-common
+    depends_on: [backend]
+    command: ["bench", "worker", "--queue", "short,default"]
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+
+  queue-long:
+    <<: *erpnext-common
+    depends_on: [backend]
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+
+  scheduler:
+    <<: *erpnext-common
+    depends_on: [backend]
+    command: ["bench", "schedule"]
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+
+  db:
+    image: docker.io/mariadb:10.6
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-admin}
+    volumes:
+      - db-data:/var/lib/mysql
+
+  redis-cache:
+    image: docker.io/redis:6.2-alpine
+    restart: unless-stopped
+
+  redis-queue:
+    image: docker.io/redis:6.2-alpine
+    restart: unless-stopped
+
+volumes:
+  sites:
+  logs:
+  db-data:
