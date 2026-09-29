@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+# Build output and local state are never committed; keep diffs honest if they ever are.
+out/ linguist-generated=true
+cache/ linguist-generated=true
