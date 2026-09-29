@@ -339,15 +339,36 @@ The authorization is bound to the evidence hash of the evaluated snapshot, which
 
 ## Security and integration limitations
 
-**Verified against live systems:** the ERPNext read/import path and the operator bootstrap (company `Arc Demo Inc`, submitted PO/PR/PI, balanced GL entries, idempotent re-run), and Arc Testnet *read-only* facts (chain ID `5042002`, USDC bytecode, `decimals() == 6`, `symbol() == USDC`).
+**Verified against live systems:** the whole path, on Arc Testnet and against a live ERPNext.
+
+*Arc Testnet, real funds.* `PaymentGuard` is deployed at
+`0x79f4735b5cfb604bb7e3039b48e0e3f41892866b` with immutable budgets of 2 USDC per payment, 5 USDC per
+epoch and 2 USDC per recipient per epoch. Two invoices were then paid through it from a funded
+testnet wallet: 2 USDC and 1 USDC to two different recipients. Each recipient's ERC-20 balance rose
+by exactly the authorized amount, `arc-payables-verify-arc` read the deployed caps back off the chain
+and confirmed the chain id, the USDC bytecode, `decimals() == 6`, `symbol() == USDC`, the guard's
+policy signer and its payment token, and a 250 USDC invoice was refused by the preflight before
+anything was signed because the contract's per-payment cap is 2 USDC.
+
+*ERPNext.* Both payments were written back as a Payment Entry for exactly the supplier's amount plus
+a network-fee Journal Entry, and the invoice reached `ERP_RECORDED`. The bootstrap, the balanced GL
+entries and an idempotent re-run were verified in the same sandbox.
+
+The live runs also found three defects that no mock had: the native-gas to ERC-20 fee conversion was
+off by a factor of 10\*\*6 (the first payment reported 1 micro-USDC where the chain says 3489, and the
+corrected code then reported 3130 for the second against the chain's 3130), a misnamed trade limit
+was silently ignored because settings accepted unknown fields, and the deployment script used a
+cheatcode this forge build does not have, so it had never actually run.
 
 **Not verified live:**
 
-- A real Arc testnet payment was **not** executed. Circle credentials, a funded Circle `ARC-TESTNET` SCA, and a deployed guard are not configured, and no real funds moved. The Circle path is exercised only against the credential-free emulator plus the real `PaymentGuard` bytecode.
+- The **Circle Developer-Controlled Wallet** path has still not been exercised. The live payments used
+  the local-key executor, so the Circle HTTP adapter is covered by its tests and the credential-free
+  emulator only. No Circle API credentials, entity secret or wallet set exist for this project.
 - The fee we absorb is booked rounded up to the company currency's smallest unit, because a ledger in USD cannot represent a fraction of a cent. The entry's remark records the measured figure, and the rounding can overstate our own cost by less than one unit per payment. A company whose base currency is the stablecoin needs no rounding.
 - The live writeback above was verified on a **disposable local sandbox**. A production chart of accounts, a least-privilege runtime user, and an accountant's review of the mapping are still the operator's job.
 - Address screening's OpenSanctions provider is implemented behind its interface with deterministic evidence and fail-closed behavior, but no live call has been made (no API key configured), so a real deployment still relies on human review until it is exercised.
-- The Circle response's exact network-fee representation must be verified live. Live writeback accepts only an explicitly identified ERC-20 USDC fee with 6-decimal precision; a scalar fee or Arc native-USDC fee (18 decimals) is treated as unknown, so the confirmed payment remains `ERP_PENDING` and cannot be written to ERPNext.
+- The fee is measured from the transaction receipt's `gasUsed * effectiveGasPrice`, which Arc reports as 18-decimal native USDC against a 6-decimal token. That conversion is now pinned by a test using a real receipt's numbers. A fee the ledger cannot represent is booked rounded up, and a company whose base currency is the settlement asset needs no rounding at all.
 
 **Not built, on purpose:** the console is a static page over the documented API instead of a product UI, there is no mainnet route, only USDC settlement (currency support is extensible but unimplemented), and there is no KMS signer implementation: `SIGNER_BACKEND=kms` fails closed instead of pretending to sign.
 

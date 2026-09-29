@@ -105,6 +105,9 @@ drop below the reserve. It prints the transaction hash and an explorer link.
 
 Point the accounting side at the sandbox first, using the values the bootstrap printed. With the
 mock accounting provider instead, this step is a local simulation and nothing leaves the database.
+With `PAYMENT_PROVIDER=local` and a funded wallet this same flow has been run for real on Arc
+Testnet, and with a live ERPNext mapping it has been run against a real instance: 2 USDC and 1 USDC
+reached two recipients exactly, each with a Payment Entry and a fee Journal Entry behind it.
 
 ```bash
 export ACCOUNTING_PROVIDER=frappe
