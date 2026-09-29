@@ -172,6 +172,53 @@ def test_an_expired_permit_is_refused_without_spending_gas(tmp_path, chain):
         provider.close()
 
 
+def test_a_paused_guard_is_refused_before_anything_is_sent(tmp_path, chain):
+    """The pause control exists so an incident can be stopped without redeploying the guard."""
+    settings, store, provider, workflow, invoice_id = _workflow(tmp_path, chain)
+    try:
+        workflow.evaluate(invoice_id)
+        before = chain.erc20_balance(SUPPLIER)
+        chain.set_guard_paused(True)
+        try:
+            assert provider._guard_paused() is True
+            permit = _fresh_permit(chain)
+            result = provider.submit_authorized(permit)
+            assert result.status.value == "FAILED"
+            assert result.failure_code == "GUARD_PAUSED"
+            # Nothing moved and no budget was consumed, which is the point of refusing early.
+            assert chain.erc20_balance(SUPPLIER) == before
+            assert chain.guard_used(permit["payment_id"]) is False
+            assert chain.epoch_spent(0) == 0
+        finally:
+            chain.set_guard_paused(False)
+        assert provider._guard_paused() is False
+    finally:
+        provider.close()
+
+
+def _fresh_permit(chain) -> dict:
+    """A signed, authorized payment that has not been submitted."""
+    from arc_payables.domain import ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC, PaymentPermit
+
+    signer = EIP712PermitSigner(DEFAULT_POLICY_KEY)
+    permit = PaymentPermit(
+        payer=chain.wallet.address,
+        token=ARC_TESTNET_USDC,
+        recipient=SUPPLIER,
+        amount_units=INVOICE_USDC * USDC_SCALE,
+        evidence_hash="0x" + "cc" * 32,
+        payment_id="0x" + "dd" * 32,
+        expiry=2_000_000_000,
+        chain_id=ARC_TESTNET_CHAIN_ID,
+        guard_address=chain.guard_address,
+    )
+    return {
+        "payment_id": permit.payment_id,
+        "permit": permit.to_dict(),
+        "signature": signer.sign(permit),
+    }
+
+
 def test_on_chain_budget_refuses_a_payment_the_policy_approves(tmp_path):
     """The policy allows 250 USDC; a 100 USDC contract cap refuses it, naming the cap."""
     with AnvilChain() as bounded:

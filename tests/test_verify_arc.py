@@ -9,6 +9,7 @@ from arc_payables.verify_arc import (
     DECIMALS_SELECTOR,
     EPOCH_CAP_SELECTOR,
     EPOCH_LENGTH_SELECTOR,
+    PAUSED_SELECTOR,
     PAYMENT_TOKEN_SELECTOR,
     PER_PAYMENT_CAP_SELECTOR,
     POLICY_SIGNER_SELECTOR,
@@ -44,6 +45,7 @@ def _rpc(
     epoch_cap: int = 10_000 * 10**6,
     recipient_cap: int = 5_000 * 10**6,
     epoch_length: int = 86_400,
+    guard_paused: bool = False,
 ):
     def handler(request: httpx.Request) -> httpx.Response:
         payload = request.content.decode()
@@ -51,6 +53,8 @@ def _rpc(
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": hex(chain_id)})
         if '"eth_getCode"' in payload:
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": "0x6080"})
+        if PAUSED_SELECTOR in payload:
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": _word(1 if guard_paused else 0)})
         if PER_PAYMENT_CAP_SELECTOR in payload:
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": _word(per_payment_cap)})
         if EPOCH_CAP_SELECTOR in payload:
@@ -170,3 +174,11 @@ def test_the_local_provider_reports_what_is_missing():
     ok, findings = verify(_rpc(), settings, view=view)
     assert ok is False
     assert any("LOCAL_PAYMENT_PRIVATE_KEY, LOCAL_PAYMENT_GUARD_ADDRESS" in line for line in findings)
+
+
+def test_a_paused_guard_is_reported_as_not_ready():
+    """A pause is an operating state, not a misconfiguration, but payments would still revert."""
+    settings = _settings(circle_guard_address="0x" + "22" * 20)
+    ok, findings = verify(_rpc(guard_paused=True), settings, signer_address=SIGNER)
+    assert ok is False
+    assert any("guard is paused" in line for line in findings)

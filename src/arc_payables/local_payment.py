@@ -236,6 +236,8 @@ class LocalKeyPaymentProvider:
         Each check mirrors something the contract enforces. None of them replace it: the
         on-chain call is still the decision, and this only avoids paying gas to learn it.
         """
+        if self._guard_paused():
+            return "GUARD_PAUSED"
         if self._guard_used(permit.payment_id):
             return "ONCHAIN_PAYMENT_ALREADY_USED"
         if self._read_address("policySigner()").lower() != str(getattr(self.signer, "address", "")).lower():
@@ -253,6 +255,9 @@ class LocalKeyPaymentProvider:
             return "GUARD_EPOCH_BUDGET_EXCEEDED"
         return None
 
+    def _guard_paused(self) -> bool:
+        return decode_bool(self._eth_call(self.guard_address, "0x" + selector("paused()").hex()))
+
     def guard_limits(self) -> dict[str, int] | None:
         """The deployed guard's budgets, read from the chain; None if it cannot be read.
 
@@ -265,6 +270,7 @@ class LocalKeyPaymentProvider:
                 "epoch_cap": self._read_uint("epochCap()"),
                 "recipient_epoch_cap": self._read_uint("recipientEpochCap()"),
                 "epoch_length": self._read_uint("epochLength()"),
+                "paused": 1 if self._guard_paused() else 0,
             }
         except LocalPaymentError:
             return None

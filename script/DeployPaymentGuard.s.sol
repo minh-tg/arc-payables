@@ -5,6 +5,7 @@ import {PaymentGuard} from "../src/PaymentGuard.sol";
 
 interface VmDeploy {
     function envUint(string calldata name) external returns (uint256);
+    function envAddress(string calldata name) external returns (address);
     function addr(uint256 privateKey) external returns (address);
     function startBroadcast(uint256 privateKey) external;
     function stopBroadcast() external;
@@ -44,10 +45,17 @@ contract DeployPaymentGuard {
         // whose signature authorizes payments.
         require(vm.addr(deployerKey) != policySigner, "deployer and policy signer must differ");
 
+        // The pauser can only stop and resume payments. It has no way to move funds, redirect a
+        // payment or raise a cap. Point it at a burn address if no pause authority is wanted.
+        address pauser = vm.envAddress("PAYMENT_GUARD_PAUSER");
+        require(pauser != address(0), "PAYMENT_GUARD_PAUSER must be an address");
+        require(pauser != policySigner, "the pauser and the policy signer must differ");
+
         vm.startBroadcast(deployerKey);
         guard = new PaymentGuard(
             ARC_TESTNET_USDC,
             policySigner,
+            pauser,
             uint96(perPaymentCap),
             uint96(epochCap),
             uint96(recipientEpochCap),

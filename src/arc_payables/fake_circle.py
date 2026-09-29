@@ -217,6 +217,7 @@ class AnvilChain:
         epoch_cap: int = DEMO_EPOCH_CAP,
         recipient_epoch_cap: int = DEMO_RECIPIENT_EPOCH_CAP,
         epoch_length: int = DEMO_EPOCH_LENGTH,
+        pauser: str | None = None,
     ) -> tuple[str, str]:
         """Present a 6-decimal USDC at Arc's documented address, then deploy the real guard.
 
@@ -236,12 +237,24 @@ class AnvilChain:
             load_artifact("PaymentGuard"),
             self.token_address,
             policy_signer,
+            pauser or self.wallet.address,
             per_payment_cap,
             epoch_cap,
             recipient_epoch_cap,
             epoch_length,
         )
         return self.token_address, self.guard_address
+
+    def set_guard_paused(self, paused: bool) -> str:
+        """Call the guard's pause control as the pauser, so a local run can exercise it."""
+        signature = "pause()" if paused else "unpause()"
+        data = "0x" + selector(signature).hex()
+        return self.wait_receipt(self.send(to=self.guard_address, data=data))["transactionHash"]
+
+    def guard_paused(self) -> bool:
+        data = "0x" + selector("paused()").hex()
+        word = self.rpc("eth_call", [{"to": self.guard_address, "data": data}, "latest"])
+        return int(word, 16) == 1
 
     def epoch_spent(self, epoch: int = 0) -> int:
         """Budget consumed in an epoch, read from the deployed guard."""

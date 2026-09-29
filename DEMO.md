@@ -26,6 +26,7 @@ export PAYMENT_GUARD_PER_PAYMENT_CAP=20000000        # 20 USDC per payment
 export PAYMENT_GUARD_EPOCH_CAP=100000000             # 100 USDC per epoch
 export PAYMENT_GUARD_RECIPIENT_EPOCH_CAP=50000000    # 50 USDC per supplier per epoch
 export PAYMENT_GUARD_EPOCH_LENGTH_SECONDS=86400
+export PAYMENT_GUARD_PAUSER=<an operator address that may pause payments>
 forge script script/DeployPaymentGuard.s.sol --rpc-url $RPC --broadcast
 ```
 
@@ -153,6 +154,19 @@ uv run pytest tests/test_circle_executor.py -q -k budget          # the contract
 uv run pytest tests/test_workflow.py -q -k suspicious             # an invoice payee that differs from the supplier record
 uv run pytest tests/test_monitoring.py -q -k reduced              # a risk change that cuts the unattended limit
 uv run pytest tests/test_prioritisation.py -q                     # two invoices each affordable, only one jointly
+```
+
+## Stopping payments
+
+If something is wrong, the guard can be paused instead of redeployed. The pauser address was set at
+deployment and can only stop and resume payments, so this is not a way for anyone to take money, it
+is a way to stop it:
+
+```bash
+cast send $GUARD "pause()" --private-key $PAUSER_KEY --rpc-url $RPC
+uv run arc-payables-verify-arc      # reports the guard as paused, and therefore not ready
+uv run arc-payables-live-run --invoice <invoice-id>   # refuses before signing anything
+cast send $GUARD "unpause()" --private-key $PAUSER_KEY --rpc-url $RPC
 ```
 
 ## What not to claim

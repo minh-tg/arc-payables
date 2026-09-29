@@ -63,6 +63,11 @@ Two executors implement the same payment path: an exact `approve`, then the poli
 
 Both refuse to proceed on an unconfigured or incomplete setup, and neither can exceed the guard's on-chain budget.
 
+The guard also has a pause control, held by an address given at deployment. It exists so an incident
+can be stopped without deploying a new guard. The pauser can only stop and resume payments: it cannot
+move tokens, redirect a payment, or raise a cap. Point it at a burn address if no pause authority is
+wanted at all, and note that the deploy script requires it to differ from the policy signer.
+
 Arc Canteen context and current official docs were checked before choosing the adapter:
 
 - Arc Testnet chain ID: `5042002`; RPC: `https://rpc.testnet.arc.io`; testnet-only deployment.
@@ -175,6 +180,7 @@ export PAYMENT_GUARD_PER_PAYMENT_CAP=20000000    # 20 USDC per payment, in 6-dec
 export PAYMENT_GUARD_EPOCH_CAP=100000000
 export PAYMENT_GUARD_RECIPIENT_EPOCH_CAP=50000000
 export PAYMENT_GUARD_EPOCH_LENGTH_SECONDS=86400
+export PAYMENT_GUARD_PAUSER=<an operator address that may pause payments>
 forge script script/DeployPaymentGuard.s.sol --rpc-url $RPC --broadcast
 
 export PAYMENT_PROVIDER=local

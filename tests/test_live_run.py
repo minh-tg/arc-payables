@@ -131,6 +131,20 @@ def test_preflight_refuses_a_payment_the_guard_would_reject(tmp_path):
         bounded.stop()
 
 
+def test_preflight_refuses_a_paused_guard(tmp_path, chain):
+    settings, _store, provider, workflow, invoice_id = _workspace(tmp_path, chain)
+    try:
+        chain.set_guard_paused(True)
+        try:
+            result = preflight(workflow, settings, invoice_id, rpc=RpcClient(chain.url))
+            assert result.ok is False
+            assert any("guard is paused" in line for line in result.findings)
+        finally:
+            chain.set_guard_paused(False)
+    finally:
+        provider.close()
+
+
 def test_preflight_refuses_a_supplier_the_accounting_system_blocked(tmp_path, chain):
     """The policy holds it, and the preflight refuses it independently of that."""
     settings, store, provider, workflow, invoice_id = _workspace(tmp_path, chain)

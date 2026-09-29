@@ -10,6 +10,7 @@ interface VmGuardTest {
     function chainId(uint256 newChainId) external;
     function expectRevert() external;
     function getBlockTimestamp() external view returns (uint256);
+    function prank(address sender) external;
 }
 
 contract MockArcUSDC {
@@ -51,13 +52,14 @@ contract PaymentGuardTest {
     PaymentGuard private guard;
     address private policySigner;
     address private recipient = address(0xBEEF);
+    address private pauser = address(0x5a5);
 
     function setUp() public {
         vm.chainId(CHAIN_ID);
         token = new MockArcUSDC();
         policySigner = vm.addr(POLICY_KEY);
         guard = new PaymentGuard(
-            address(token), policySigner, PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY
+            address(token), policySigner, pauser, PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY
         );
         token.mint(address(this), 10_000_000);
         token.approve(address(guard), 10_000_000);
@@ -155,7 +157,7 @@ contract PaymentGuardTest {
     }
 
     function deployOnCurrentChain() external returns (address) {
-        return address(new PaymentGuard(address(token), policySigner, PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY));
+        return address(new PaymentGuard(address(token), policySigner, pauser, PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY));
     }
 
     function test_wrongSignerRejected() public {
@@ -231,11 +233,11 @@ contract PaymentGuardTest {
 
     function test_epochCapWithoutEpochLengthIsRefusedAtDeployment() public {
         vm.expectRevert();
-        new PaymentGuard(address(token), policySigner, 0, 1_000, 0, 0);
+        new PaymentGuard(address(token), policySigner, pauser, 0, 1_000, 0, 0);
         vm.expectRevert();
-        new PaymentGuard(address(token), policySigner, 0, 0, 1_000, 0);
+        new PaymentGuard(address(token), policySigner, pauser, 0, 0, 1_000, 0);
         vm.expectRevert();
-        new PaymentGuard(address(token), policySigner, 0, 1_000, 1_000, 30);
+        new PaymentGuard(address(token), policySigner, pauser, 0, 1_000, 1_000, 30);
     }
 
     function test_capsAreImmutable() public {
@@ -287,13 +289,80 @@ contract PaymentGuardTest {
         require(!bounded.used(permit.paymentId), "unsigned permit consumed a payment id");
     }
 
+    // ---- the pause control -------------------------------------------------------------
+
+    function test_a_paused_guard_refuses_payment_and_unpause_restores_it() public {
+        PaymentGuard.Permit memory permit = _permit(300, recipient, 1_000);
+        bytes memory signature = _sign(guard, permit);
+
+        vm.prank(pauser);
+        guard.pause();
+        require(guard.paused(), "guard did not report itself paused");
+        (bool refused,) = address(guard).call(abi.encodeCall(PaymentGuard.pay, (permit, signature)));
+        require(!refused, "a paused guard paid");
+        require(token.balanceOf(recipient) == 0, "a paused guard moved funds");
+        require(guard.epochSpent(0) == 0, "a paused guard consumed budget");
+        require(!guard.used(permit.paymentId), "a paused guard consumed a payment id");
+
+        vm.prank(pauser);
+        guard.unpause();
+        guard.pay(permit, signature);
+        require(token.balanceOf(recipient) == 1_000, "unpause did not restore payments");
+    }
+
+    function test_only_the_pauser_may_pause() public {
+        PaymentGuard.Permit memory permit = _permit(301, recipient, 1_000);
+        // The test contract is the payer but not the pauser.
+        (bool notPauser,) = address(guard).call(abi.encodeCall(PaymentGuard.pause, ()));
+        require(!notPauser, "a non-pauser paused the guard");
+        require(!guard.paused(), "guard paused by a non-pauser");
+
+        // And the pauser cannot be impersonated after the fact.
+        vm.prank(pauser);
+        guard.pause();
+        (bool doublePause,) = address(this).call(abi.encodeCall(this.pauseAsPauser, ()));
+        require(!doublePause, "paused twice");
+        (bool notPauserUnpause,) = address(guard).call(abi.encodeCall(PaymentGuard.unpause, ()));
+        require(!notPauserUnpause, "a non-pauser unpaused the guard");
+        // The permit is still spendable once the real pauser resumes.
+        vm.prank(pauser);
+        guard.unpause();
+        guard.pay(permit, _sign(guard, permit));
+    }
+
+    function pauseAsPauser() external {
+        vm.prank(pauser);
+        guard.pause();
+    }
+
+    function test_pausing_cannot_move_funds_or_change_the_limits() public {
+        uint256 payerBefore = token.balanceOf(address(this));
+        uint256 recipientBefore = token.balanceOf(recipient);
+        uint96 perPaymentBefore = guard.perPaymentCap();
+        uint96 epochBefore = guard.epochCap();
+
+        vm.prank(pauser);
+        guard.pause();
+
+        require(token.balanceOf(address(this)) == payerBefore, "pause moved payer funds");
+        require(token.balanceOf(recipient) == recipientBefore, "pause moved recipient funds");
+        require(guard.perPaymentCap() == perPaymentBefore, "pause changed a cap");
+        require(guard.epochCap() == epochBefore, "pause changed the epoch cap");
+        require(guard.policySigner() == policySigner, "pause changed the signer");
+    }
+
+    function test_a_guard_cannot_be_deployed_without_a_pauser() public {
+        vm.expectRevert();
+        new PaymentGuard(address(token), policySigner, address(0), PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY);
+    }
+
     // ---- helpers ----------------------------------------------------------------------
 
     function _deployGuard(uint96 perPayment, uint96 epochCap_, uint96 recipientCap, uint64 epochLen)
         private
         returns (PaymentGuard deployed)
     {
-        deployed = new PaymentGuard(address(token), policySigner, perPayment, epochCap_, recipientCap, epochLen);
+        deployed = new PaymentGuard(address(token), policySigner, pauser, perPayment, epochCap_, recipientCap, epochLen);
         token.approve(address(deployed), type(uint256).max);
         return deployed;
     }

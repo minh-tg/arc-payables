@@ -46,6 +46,10 @@ contract PaymentGuard {
 
     address public immutable paymentToken;
     address public immutable policySigner;
+    /// @notice Address that may stop and restart payments. It has no access to funds.
+    address public immutable pauser;
+    /// @notice When true, `pay` reverts. Pausing can only stop payments, never move money.
+    bool public paused;
 
     /// @notice Maximum size of a single payment in USDC units; 0 disables the check.
     uint96 public immutable perPaymentCap;
@@ -74,6 +78,10 @@ contract PaymentGuard {
     error EpochCapExceeded();
     error RecipientEpochCapExceeded();
     error TokenTransferFailed();
+    error NotPauser();
+    error Paused();
+    error AlreadyPaused();
+    error NotPaused();
 
     event PaymentExecuted(
         bytes32 indexed paymentId,
@@ -83,6 +91,9 @@ contract PaymentGuard {
         address token,
         uint256 amount
     );
+    /// @notice The guard stopped or restarted accepting payments.
+    event GuardPaused(address indexed pauser);
+    event GuardUnpaused(address indexed pauser);
     /// @notice Budget consumption for a settled payment, so the limit is observable off-chain.
     event BudgetConsumed(
         bytes32 indexed paymentId,
@@ -94,13 +105,14 @@ contract PaymentGuard {
     constructor(
         address token,
         address signer,
+        address pauser_,
         uint96 perPaymentCap_,
         uint96 epochCap_,
         uint96 recipientEpochCap_,
         uint64 epochLength_
     ) {
         if (block.chainid != ARC_TESTNET_CHAIN_ID) revert UnsupportedChain();
-        if (token == address(0) || signer == address(0)) revert InvalidConfiguration();
+        if (token == address(0) || signer == address(0) || pauser_ == address(0)) revert InvalidConfiguration();
         // An epoch-based cap without an epoch would silently mean "unlimited", which is the
         // exact failure this contract exists to prevent, so refuse the configuration.
         if (epochLength_ == 0 && (epochCap_ != 0 || recipientEpochCap_ != 0)) {
@@ -109,6 +121,7 @@ contract PaymentGuard {
         if (epochLength_ != 0 && epochLength_ < MIN_EPOCH_LENGTH) revert InvalidConfiguration();
         paymentToken = token;
         policySigner = signer;
+        pauser = pauser_;
         perPaymentCap = perPaymentCap_;
         epochCap = epochCap_;
         recipientEpochCap = recipientEpochCap_;
@@ -166,7 +179,27 @@ contract PaymentGuard {
         return remaining;
     }
 
+    /// @notice Stop payments. Only the pauser may call this, and only this contract's state changes:
+    ///         the pauser cannot move tokens, alter a permit, raise a cap, or spend to itself.
+    /// @dev A pause is deliberately not required for safety, because the caps already bound any
+    ///      payment. It exists so an incident can be stopped without deploying a new guard.
+    function pause() external {
+        if (msg.sender != pauser) revert NotPauser();
+        if (paused) revert AlreadyPaused();
+        paused = true;
+        emit GuardPaused(msg.sender);
+    }
+
+    /// @notice Resume payments, restoring exactly the same limits the guard was deployed with.
+    function unpause() external {
+        if (msg.sender != pauser) revert NotPauser();
+        if (!paused) revert NotPaused();
+        paused = false;
+        emit GuardUnpaused(msg.sender);
+    }
+
     function pay(Permit calldata permit, bytes calldata signature) external {
+        if (paused) revert Paused();
         if (permit.payer != msg.sender) revert InvalidPayer();
         if (permit.token != paymentToken) revert InvalidToken();
         if (permit.recipient == address(0)) revert InvalidRecipient();

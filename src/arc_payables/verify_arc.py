@@ -20,7 +20,7 @@ import httpx
 from eth_account import Account
 
 from .domain import ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC, USDC_SCALE
-from .evm import decode_uint256, encode_balance_of, selector
+from .evm import decode_bool, decode_uint256, encode_balance_of, selector
 from .settings import Settings, get_settings
 
 DECIMALS_SELECTOR = "0x" + selector("decimals()").hex()
@@ -31,6 +31,7 @@ PER_PAYMENT_CAP_SELECTOR = "0x" + selector("perPaymentCap()").hex()
 EPOCH_CAP_SELECTOR = "0x" + selector("epochCap()").hex()
 RECIPIENT_EPOCH_CAP_SELECTOR = "0x" + selector("recipientEpochCap()").hex()
 EPOCH_LENGTH_SELECTOR = "0x" + selector("epochLength()").hex()
+PAUSED_SELECTOR = "0x" + selector("paused()").hex()
 
 LIVE_PROVIDERS = {"circle", "local"}
 
@@ -199,6 +200,11 @@ def verify(
         if recipient_cap and epoch_cap and recipient_cap > epoch_cap:
             guard_ok = False
             findings.append("FAIL  guard per-recipient cap exceeds the epoch cap")
+        if decode_bool(rpc.call("eth_call", [{"to": view.guard_address, "data": PAUSED_SELECTOR}, "latest"])):
+            # A paused guard is a deliberate operating state, not a misconfiguration, but it is
+            # still not ready to pay, so it must not be reported as ready.
+            guard_ok = False
+            findings.append("FAIL  guard is paused; payments revert until the pauser resumes it")
     else:
         guard_ok = False
         findings.append(f"TODO  no guard address is configured for the {view.label} provider; nothing is guarded yet")
