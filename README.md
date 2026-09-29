@@ -238,15 +238,20 @@ So the worst a confused planner can do is sequence the same payments differently
 
 Building a plan is read-only — it derives decisions from live evidence without recording them — and every invoice it ranks must still pass its own policy checks and settle through the same guarded payment path. Invoices that are not payable appear in the plan with the reason, so the queue stays visible in full rather than silently filtered.
 
-## Treasury visibility
+## Treasury visibility and counterparty monitoring
 
-`GET /forecast` answers the question a treasurer asks before either of the above: what is due,
-when, and where does the balance stop covering it. Obligations are walked in **due-date order**
-against the balance, keeping the reserve intact, so the forecast and the payment plan cannot
-disagree about what is affordable. Two distinctions are deliberate: an invoice whose evidence is
-incomplete is still money owed - it is counted and flagged as *not payable by the agent*, with the
-reason - and the shortfall date is the first obligation the balance cannot cover, not the first
-invoice that happens to be urgent.
+`GET /forecast` answers the question a treasurer asks before either of the above: what is due, when, and where the balance stops covering it. Obligations are walked in **due-date order** against the balance, keeping the reserve intact, so the forecast and the payment plan cannot disagree about what is affordable. Two distinctions are deliberate: an invoice whose evidence is incomplete is still money owed — it is counted and flagged as *not payable by the agent*, with the reason — and the shortfall date is the first obligation the balance cannot cover, not the first invoice that happens to be urgent.
+
+`tameion-rescreen` (or `POST /monitoring/rescreen`) re-screens every counterparty with an open invoice and keeps a **history**, so a risk-profile change is a transition rather than a silently overwritten status. A change is written to the audit chain of every open invoice it affects, which means the payment record shows when the counterparty's risk moved under it.
+
+Screening scales authority; it never grants it:
+
+| `SCREENING_MEDIUM_TIER_HANDLING` | Unclear screening (inconclusive / unavailable) | Flagged |
+| --- | --- | --- |
+| `review` (default) | a human must acknowledge it | a human must acknowledge it, and blocked by default |
+| `limit` | payable unattended up to **25%** of the automatic limit | still requires a human |
+
+`GET /suppliers` reports each counterparty's latest screening, tier, resulting automatic limit and open exposure. The tier is derived once and shared: the advisory layer and the authoritative policy read the same limit, so they cannot disagree about whether an amount is automatic.
 
 ## Workflow states and safety behavior
 

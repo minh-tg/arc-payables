@@ -655,12 +655,35 @@ class APWorkflow:
             "accounting": accounting,
             "screening": screening,
             "treasury": treasury,
-            "over_limit": amount > self.settings.max_invoice_units,
+            # Derived once, from the same tier-aware limit the policy applies, so the advisory
+            # layer and the authoritative gate can never disagree about the amount.
+            "over_limit": amount > self._automatic_limit_units(screening),
+            "screening_handled_by_limit": self._screening_handled_by_limit(screening),
             "reserve_breach": amount <= 0 or treasury.balance_units - amount < self.settings.min_reserve_units,
             "discount_due": discount_due,
             "settlement_supported": self.policy.converter.settlement_amount_usdc(invoice.amount_units, invoice.currency) is not None,
             "accounting_source_consistent": accounting_source_consistency(invoice, accounting, self.policy.converter)[0],
         }
+
+    def _automatic_limit_units(self, screening) -> int:
+        """The automatic limit for this counterparty's risk tier, shared with the policy."""
+        from .risk import effective_limit_units, risk_tier
+
+        tier_limited = (
+            risk_tier(screening.status) == "medium" and self.settings.screening_medium_tier_handling == "limit"
+        )
+        return effective_limit_units(self.settings, screening.status) if tier_limited else self.settings.max_invoice_units
+
+    def _screening_handled_by_limit(self, screening) -> bool:
+        """True when an unclear screening result is handled by a reduced limit, not a reviewer."""
+        from .domain import ScreeningStatus
+        from .risk import risk_tier
+
+        return bool(
+            self.settings.screening_medium_tier_handling == "limit"
+            and risk_tier(screening.status) == "medium"
+            and screening.status in {ScreeningStatus.INCONCLUSIVE, ScreeningStatus.UNAVAILABLE}
+        )
 
     def _agent_context(self, invoice: InvoiceRecord, context: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -673,6 +696,7 @@ class APWorkflow:
             "discount_due": context["discount_due"],
             "settlement_supported": context["settlement_supported"],
             "accounting_source_consistent": context["accounting_source_consistent"],
+            "screening_handled_by_limit": context.get("screening_handled_by_limit", False),
             "today": date.today(),
             "due_window": timedelta(days=self.settings.payment_due_window_days),
             "automatic_limit_usdc": self.settings.max_invoice_usdc,

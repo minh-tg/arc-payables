@@ -127,7 +127,20 @@ class EvidenceDecisionAgent:
             if invoice.invoice_payee_address.lower() != evidence.supplier.approved_wallet.lower():
                 blocker("payee_mismatch", "invoice payee differs from supplier's trusted wallet", "The invoice names a different payee; only the supplier record may supply a destination.")
         if context["screening"].status.value != "CLEAR":
-            blocker("screening_not_clear", "address screening is not clear", f"Address screening returned {context['screening'].status.value}.")
+            if context.get("screening_handled_by_limit"):
+                # Configured as a reduced limit rather than a review: the amount check carries the
+                # consequence, so this is context rather than a reason to stop.
+                observations.append({
+                    "code": "screening_reduced_limit",
+                    "severity": "info",
+                    "claim": "address screening is unclear",
+                    "detail": (
+                        f"Address screening returned {context['screening'].status.value}; by configuration this "
+                        "reduces the automatic limit instead of requiring a reviewer."
+                    ),
+                })
+            else:
+                blocker("screening_not_clear", "address screening is not clear", f"Address screening returned {context['screening'].status.value}.")
         if not context.get("settlement_supported", False):
             blocker("unsupported_currency", "invoice currency has no configured settlement conversion", "The invoice currency has no explicit USDC settlement rate.")
 

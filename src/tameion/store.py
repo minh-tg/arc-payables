@@ -49,6 +49,22 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=_json_default)
 
 
+def _screening_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "supplier_id": row["supplier_id"],
+        "wallet": row["wallet"],
+        "status": row["status"],
+        "tier": row["tier"],
+        "provider": row["provider"],
+        "dataset": row["dataset"],
+        "response_hash": row["response_hash"],
+        "matches": json.loads(row["matches_json"]) if row["matches_json"] else [],
+        "reason": row["reason"],
+        "source": row["source"],
+        "checked_at": row["checked_at"],
+    }
+
+
 def invoice_to_dict(invoice: InvoiceRecord) -> dict[str, Any]:
     return asdict(invoice)
 
@@ -539,6 +555,45 @@ class SQLiteEvidenceStore:
         if "0x" + digest.hex() != row["event_hash"]:
             return "entry_contents_do_not_match_its_hash"
         return None
+
+    def record_screening(self, screening: dict) -> None:
+        """Append one screening result. History is kept: a status change is a transition."""
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO screenings(supplier_id,wallet,status,tier,provider,dataset,response_hash,matches_json,reason,source,checked_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    screening["supplier_id"],
+                    screening.get("wallet"),
+                    screening["status"],
+                    screening["tier"],
+                    screening.get("provider"),
+                    screening.get("dataset"),
+                    screening.get("response_hash"),
+                    canonical_json(screening.get("matches", [])),
+                    screening.get("reason"),
+                    screening["source"],
+                    screening["checked_at"],
+                ),
+            )
+
+    def latest_screening(self, supplier_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT supplier_id,wallet,status,tier,provider,dataset,response_hash,matches_json,reason,source,checked_at "
+                "FROM screenings WHERE supplier_id=? ORDER BY id DESC LIMIT 1",
+                (supplier_id,),
+            ).fetchone()
+        return _screening_row(row) if row else None
+
+    def screenings(self, supplier_id: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT supplier_id,wallet,status,tier,provider,dataset,response_hash,matches_json,reason,source,checked_at "
+                "FROM screenings WHERE supplier_id=? ORDER BY id",
+                (supplier_id,),
+            ).fetchall()
+        return [_screening_row(row) for row in rows]
 
     def seed_fixture(self, kind: str, key: str, value: dict) -> None:
         with self._connect() as connection:

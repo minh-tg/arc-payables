@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     screening_provider: Literal["fixture", "opensanctions", "unavailable"] = "fixture"
     screening_timeout_seconds: float = 15.0
     screening_positive_match_policy: Literal["block", "review"] = "block"
+    # How to treat a counterparty whose screening is unclear (inconclusive or unavailable).
+    # `review` (default) requires a human, which is the fail-closed posture. `limit` instead
+    # allows an unattended payment up to a reduced share of the automatic limit, which is the
+    # risk-tiered behaviour a mature desk would use. A flagged counterparty always requires a
+    # human either way.
+    screening_medium_tier_handling: Literal["review", "limit"] = "review"
+    # How often an existing counterparty is re-screened by the monitoring pass.
+    rescreen_interval_hours: int = 24
     opensanctions_api_key: str | None = Field(default=None, repr=False)
     opensanctions_base_url: str = "https://api.opensanctions.org"
     opensanctions_dataset: str = "default"

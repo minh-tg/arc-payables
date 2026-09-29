@@ -19,6 +19,7 @@ from .deliberation import build_decision_agent, build_order_planner
 from .domain import InvoiceLine, InvoiceRecord, ScreeningStatus, WorkflowState, usdc_to_units
 from .frappe_adapter import FrappeAccountingConnector
 from .forecast import build_forecast
+from .monitoring import rescreen_suppliers, supplier_risk_overview
 from .local_payment import LocalKeyPaymentProvider
 from .mock_adapters import MockAccountingConnector, MockPaymentProvider
 from .policy import DeterministicPolicy
@@ -307,6 +308,20 @@ def create_app(
     @app.get("/invoices/{invoice_id}/events", tags=["audit"], dependencies=[Depends(require_api_key)])
     def events(invoice_id: str) -> list[dict[str, Any]]:
         return workflow.events(invoice_id)
+
+    @app.get("/suppliers", tags=["risk"], dependencies=[Depends(require_api_key)])
+    def suppliers() -> list[dict[str, Any]]:
+        """Counterparties with their latest screening, risk tier and resulting automatic limit."""
+        return supplier_risk_overview(workflow)
+
+    @app.post("/monitoring/rescreen", tags=["risk"], dependencies=[Depends(require_api_key)])
+    def rescreen(force: bool = False, source: str = "api") -> list[dict[str, Any]]:
+        """Re-screen counterparties with open invoices, recording each result.
+
+        A change in risk profile is written to the audit chain of every open invoice it affects.
+        Screening authorizes nothing: the result flows into the same evidence and policy.
+        """
+        return [item.to_dict() for item in rescreen_suppliers(workflow, force=force, source=source)]
 
     @app.get("/forecast", tags=["planning"], dependencies=[Depends(require_api_key)])
     def treasury_forecast(days: int = 30) -> dict[str, Any]:

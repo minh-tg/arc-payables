@@ -21,9 +21,17 @@ from .domain import (
     units_to_usdc,
 )
 from .ports import AgentRecommendation, CurrencyConverter
+from .risk import effective_limit_units, risk_tier
 from .screening import ScreeningResult
 from .settings import Settings
 from .store import canonical_json
+
+#: Screening status to the policy check that reports it.
+SCREENING_CHECK_CODES = {
+    ScreeningStatus.FLAGGED: "screening_flagged",
+    ScreeningStatus.INCONCLUSIVE: "screening_ambiguous",
+    ScreeningStatus.UNAVAILABLE: "screening_unavailable",
+}
 
 OVERRIDABLE_CHECKS = {
     "payee_mismatch",
@@ -353,8 +361,32 @@ class DeterministicPolicy:
 
         balance_ref = ref(treasury.evidence_id, treasury.source, "usdc_balance", f"{units_to_usdc(treasury.balance_units)} USDC at {treasury.captured_at.isoformat()}")
         amount_units = self.converter.settlement_amount_usdc(invoice.amount_units, invoice.currency) or 0
-        over_limit = amount_units > self.settings.max_invoice_units
-        checks.append(PolicyCheck("amount_limit", not over_limit or _human_ack(current_approval, "amount_limit"), f"Invoice is within {self.settings.max_invoice_usdc} USDC automatic limit." if not over_limit else f"Invoice exceeds the configured {self.settings.max_invoice_usdc} USDC automatic limit.", (amount_ref,), over_limit, over_limit))
+        # The automatic limit is scaled by the counterparty's risk tier, so an unclear
+        # screening result buys a smaller unattended payment rather than a refusal. Tiering
+        # never grants authority: flagged or unavailable screening keeps its own review check.
+        tier = risk_tier(screening.status)
+        # Risk-tiered limits are opt-in. The default posture requires a human when screening is
+        # unclear, and scaling the amount on top would ask for the same risk decision twice.
+        # When the operator opts into reduced-limit handling, the screening check below stops
+        # requiring a human for the unclear tiers and this check carries the consequence.
+        tier_limited = tier == "medium" and self.settings.screening_medium_tier_handling == "limit"
+        limit_units = effective_limit_units(self.settings, screening.status) if tier_limited else self.settings.max_invoice_units
+        over_limit = amount_units > limit_units
+        if limit_units == self.settings.max_invoice_units:
+            limit_detail = (
+                f"Invoice is within {self.settings.max_invoice_usdc} USDC automatic limit."
+                if not over_limit
+                else f"Invoice exceeds the configured {self.settings.max_invoice_usdc} USDC automatic limit."
+            )
+        else:
+            limit_detail = (
+                f"Invoice is within the reduced {units_to_usdc(limit_units)} USDC automatic limit for risk tier "
+                f"{tier} (full limit {self.settings.max_invoice_usdc} USDC)."
+                if not over_limit
+                else f"Invoice exceeds the reduced {units_to_usdc(limit_units)} USDC automatic limit for risk tier "
+                f"{tier} (full limit {self.settings.max_invoice_usdc} USDC)."
+            )
+        checks.append(PolicyCheck("amount_limit", not over_limit or _human_ack(current_approval, "amount_limit"), limit_detail, (amount_ref,), over_limit, over_limit))
         if over_limit and not _human_ack(current_approval, "amount_limit"):
             missing.append("Human approval for amount above configured automatic limit.")
 
@@ -372,12 +404,7 @@ class DeterministicPolicy:
 
         screen_ref = ref(f"screening:{supplier.id if supplier else invoice.supplier_id}", f"screening_provider:{screening.provider}", "address_screening", screening.status.value)
 
-        screening_codes = {
-            ScreeningStatus.FLAGGED: "screening_flagged",
-            ScreeningStatus.INCONCLUSIVE: "screening_ambiguous",
-            ScreeningStatus.UNAVAILABLE: "screening_unavailable",
-        }
-        code = screening_codes.get(screening.status)
+        code = SCREENING_CHECK_CODES.get(screening.status)
         if code is None:
             checks.append(PolicyCheck(
                 "address_screening",
@@ -400,9 +427,25 @@ class DeterministicPolicy:
                     " A reviewer acknowledged this screening exception; the payment destination"
                     " still comes only from the trusted supplier record."
                 )
-            checks.append(PolicyCheck(code, acknowledged, detail, (screen_ref,), True, overridable))
-            if not acknowledged:
-                missing.append(f"Human review for screening result: {screening.status.value.lower()}.")
+            handles_it_with_a_limit = tier_limited and screening.status in {
+                ScreeningStatus.INCONCLUSIVE,
+                ScreeningStatus.UNAVAILABLE,
+            }
+            if handles_it_with_a_limit:
+                checks.append(PolicyCheck(
+                    code,
+                    True,
+                    (screening.reason or "Screening is unclear.")
+                    + " Handled as a reduced automatic limit by configuration rather than by a reviewer, so this"
+                    " counterparty may be paid less without a human in the loop.",
+                    (screen_ref,),
+                    False,
+                    overridable,
+                ))
+            else:
+                checks.append(PolicyCheck(code, acknowledged, detail, (screen_ref,), True, overridable))
+                if not acknowledged:
+                    missing.append(f"Human review for screening result: {screening.status.value.lower()}.")
 
         duplicate_ok = duplicate_ok
         if accounting.duplicate_invoice_id:
