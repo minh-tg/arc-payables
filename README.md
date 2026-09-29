@@ -310,7 +310,7 @@ The authorization is bound to the evidence hash of the evaluated snapshot, which
 - Address screening's OpenSanctions provider is implemented behind its interface with deterministic evidence and fail-closed behavior, but no live call has been made (no API key configured), so a real deployment still relies on human review until it is exercised.
 - The Circle response's exact network-fee representation must be verified live. Live writeback accepts only an explicitly identified ERC-20 USDC fee with 6-decimal precision; a scalar fee or Arc native-USDC fee (18 decimals) is treated as unknown, so the confirmed payment remains `ERP_PENDING` and cannot be written to ERPNext.
 
-**Deferred by design, not by accident:** no frontend (backend first), no mainnet route, only USDC settlement (currency support is extensible but unimplemented), and no KMS signer implementation — `SIGNER_BACKEND=kms` fails closed rather than pretending to sign.
+**Deferred by design, not by accident:** the console is a static page over the documented API rather than a product UI, there is no mainnet route, only USDC settlement (currency support is extensible but unimplemented), and there is no KMS signer implementation — `SIGNER_BACKEND=kms` fails closed rather than pretending to sign.
 
 **Operational prerequisites left to the operator:** replace and human-verify the demo supplier wallet (currently an unverified placeholder), create a narrowly scoped runtime ERPNext user, and decide address-screening vendor/keys.
 
