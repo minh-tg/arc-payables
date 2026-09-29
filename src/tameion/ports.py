@@ -55,9 +55,25 @@ class PaymentMapping:
 
 @dataclass(frozen=True)
 class AgentRecommendation:
+    """An advisory opinion. It is never sufficient to authorize a payment.
+
+    ``decided_by`` and ``deliberations`` exist so the audit record can answer which layer
+    reached the conclusion, on what basis, and - for a deliberating layer - with which model
+    and prompt. The deterministic policy remains authoritative regardless of what is here.
+    """
+
     action: str
     reason: str
     material_claims: tuple[str, ...]
+    decided_by: str = "unconfigured"
+    rationale: str = ""
+    confidence: str | None = None
+    evidence_used: tuple[str, ...] = ()
+    deliberations: tuple[dict, ...] = ()
+    fast_path_action: str | None = None
+    observation_codes: tuple[str, ...] = ()
+    """Machine-readable codes for the observations behind this recommendation, so a later layer
+    can tell a judgement call apart from a missing fact without parsing prose."""
 
 
 class EvidenceStore(Protocol):

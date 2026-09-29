@@ -487,4 +487,14 @@ class DeterministicPolicy:
             checks=tuple(checks),
             evidence_hash=evidence_hash,
             policy_version=self.settings.policy_version,
+            advisory={
+                "decided_by": recommendation.decided_by,
+                "action": recommendation.action,
+                "fast_path_action": recommendation.fast_path_action,
+                "confidence": recommendation.confidence,
+                "rationale": recommendation.rationale,
+                "material_claims": list(recommendation.material_claims),
+                "evidence_used": list(recommendation.evidence_used),
+                "deliberations": [dict(item) for item in recommendation.deliberations],
+            },
         )

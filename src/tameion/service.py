@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from .agent import EvidenceDecisionAgent
+from .deliberation import build_decision_agent
 from .domain import (
     ARC_TESTNET_CHAIN_ID,
     ARC_TESTNET_USDC,
@@ -65,7 +66,7 @@ class APWorkflow:
         self.signer = signer
         self.policy = policy
         self.settings = settings
-        self.agent = agent or EvidenceDecisionAgent()
+        self.agent = agent if agent is not None else build_decision_agent(settings)
         self.screener = screener or FixtureScreeningProvider(store)
 
     def create_invoice(self, invoice: InvoiceRecord, idempotency_key: str) -> tuple[InvoiceRecord, bool]:
@@ -674,6 +675,8 @@ class APWorkflow:
             "accounting_source_consistent": context["accounting_source_consistent"],
             "today": date.today(),
             "due_window": timedelta(days=self.settings.payment_due_window_days),
+            "automatic_limit_usdc": self.settings.max_invoice_usdc,
+            "reserve_floor_usdc": self.settings.min_reserve_usdc,
         }
 
     def _decide(self, invoice: InvoiceRecord, context: dict[str, Any], recommendation: AgentRecommendation, approval: dict | None) -> Decision:

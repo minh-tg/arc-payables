@@ -148,6 +148,25 @@ Use a dedicated API user with least-privilege read/Payment Entry create+submit p
 
 A sandbox administrator/accountant must confirm the actual chart-of-accounts mapping, invoice currency, exchange-rate direction, fee deduction account and exact network-fee field returned by Circle before enabling this connector. The **read/import path and the operator bootstrap have been verified against a live ERPNext v15 sandbox** (see `deploy/erpnext/README.md`); the Payment Entry **writeback has not**: it is covered by mock tests only, so the first live writeback needs supervised verification.
 
+## Decision layers
+
+The advisory layer is optional and selectable; the deterministic policy is always the authority.
+
+| `DECISION_LAYER` | Behaviour |
+| --- | --- |
+| `policy` | No advisory opinion at all. The deterministic checks are the only view, and the audit record says so. |
+| `heuristics` (default) | The fast, explainable layer: named observations about evidence gaps and trade-offs, each with a reason and a confidence. No model call. |
+| `dual_process` | The fast layer first; a bounded planner is consulted only for genuine trade-offs. |
+
+What the planner may and may not do:
+
+* It is asked only about trade-offs — amount against the automatic limit, treasury reserve, payment timing. A missing fact is never sent to it, because reasoning cannot supply evidence that does not exist.
+* It may choose only from the actions the caller permits, and its reply is validated strictly. Anything malformed, slow, unavailable or off-list is rejected, and the fast layer's answer stands unchanged.
+* It cannot change the destination, the amount, or whether approval is required. A planner that says `PAY_NOW` where the policy disagrees changes nothing: the disagreement is recorded and surfaces as an escalation.
+* Its answers are recorded in the audit chain with model identity, prompt hash, response hash, latency and outcome, so "which layer decided, and on what basis" stays answerable long afterwards.
+
+Captured free text (for example OCR output) reaches the planner only in an explicitly-labelled, bounded field, and the system prompt instructs the model to treat all evidence as data. An adversarial test drives a model that has "complied" with an injected instruction and asserts that nothing about the payment — destination, amount, authorization — changes.
+
 ## Workflow states and safety behavior
 
 `RECEIVED → EVIDENCE_CHECKING → ELIGIBLE | WAITING | HELD | ESCALATED → AUTHORIZED → SUBMITTED → CONFIRMED → ERP_PENDING | ERP_RECORDED`.

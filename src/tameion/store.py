@@ -309,7 +309,7 @@ class SQLiteEvidenceStore:
                     "UPDATE invoices SET decision_json=?, evidence_snapshot_json=?, state=?, updated_at=? WHERE id=?",
                     (canonical_json(decision), canonical_json(evidence_snapshot), effective_state, utcnow().isoformat(), invoice_id),
                 )
-                self._append_event(connection, invoice_id, "DECISION_RECORDED", effective_state, {"action": decision["action"], "evidence_hash": decision["evidence_hash"], "policy_version": decision["policy_version"], "checks": decision["policy_checks"]})
+                self._append_event(connection, invoice_id, "DECISION_RECORDED", effective_state, {"action": decision["action"], "evidence_hash": decision["evidence_hash"], "policy_version": decision["policy_version"], "checks": decision["policy_checks"], "advisory": decision.get("advisory")})
                 connection.commit()
             except Exception:
                 connection.rollback()

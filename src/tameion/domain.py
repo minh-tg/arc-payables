@@ -105,6 +105,9 @@ class InvoiceRecord:
     payment_terms: str | None = None
     source_text_hash: str | None = None
     source_document_hash: str | None = None
+    source_text: str | None = None
+    """Raw captured text (for example OCR output). Untrusted: never a destination or an amount,
+    and passed to a deliberating layer only as explicitly-labelled data."""
     created_at: datetime = field(default_factory=utcnow)
 
 
@@ -217,6 +220,9 @@ class Decision:
     evidence_hash: str
     policy_version: str
     evaluated_at: datetime = field(default_factory=utcnow)
+    advisory: dict[str, Any] = field(default_factory=dict)
+    """Which advisory layer produced the recommendation, and on what basis. Recorded for the
+    audit; it has no authority over the decision itself."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -230,6 +236,7 @@ class Decision:
             "evidence_hash": self.evidence_hash,
             "policy_version": self.policy_version,
             "evaluated_at": self.evaluated_at.isoformat(),
+            "advisory": self.advisory,
         }
 
 

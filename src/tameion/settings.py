@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     # PermitSigner interface before use. The key is read only by the payment service.
     signer_backend: Literal["env", "kms"] = "env"
 
+    # Advisory decision layer. Optional by design: everything works with the deterministic
+    # policy alone. `policy` uses no advisory layer at all, `heuristics` is the fast
+    # explainable layer, and `dual_process` adds a bounded planner for judgement calls.
+    # A deliberating planner can never authorize anything; the policy and the guard decide.
+    decision_layer: Literal["policy", "heuristics", "dual_process"] = "heuristics"
+    planner_base_url: str | None = None
+    planner_api_key: str | None = Field(default=None, repr=False)
+    planner_model: str | None = None
+    planner_timeout_seconds: float = 20.0
+    planner_max_tokens: int = 700
+
     # Screening. `fixture` keeps the local demo deterministic; `opensanctions` is the first
     # real provider; `unavailable` is the fail-closed failure-injection implementation.
     screening_provider: Literal["fixture", "opensanctions", "unavailable"] = "fixture"
@@ -118,6 +129,11 @@ class Settings(BaseSettings):
             self.permit_signing_private_key,
         )
         return all(value and value.strip() for value in required)
+
+    @property
+    def planner_configured(self) -> bool:
+        """True when a deliberating planner could actually be called."""
+        return bool(self.decision_layer == "dual_process" and self.planner_base_url and self.planner_model)
 
     @property
     def local_payment_ready(self) -> bool:
