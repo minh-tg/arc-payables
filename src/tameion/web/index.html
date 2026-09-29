@@ -86,6 +86,8 @@
       button:disabled { opacity: 0.5; cursor: default; }
       a { color: inherit; }
       ul.tight { margin: 6px 0 0; padding-left: 18px; }
+      .checks { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+      .check { display: flex; gap: 8px; align-items: center; }
       details summary { cursor: pointer; color: var(--muted); }
       footer { max-width: 1180px; margin: 0 auto; padding: 0 22px 28px; color: var(--muted); font-size: 12px; }
       .testnet { border-left: 2px solid var(--accent); padding-left: 10px; }
@@ -121,6 +123,7 @@
     <script type="module">
       import { apiKey, approvalToken, setApiKey, setApprovalToken, startRouter } from './app.js';
       import './queue.js';
+      import './invoice.js';
 
       const keyField = document.getElementById('api-key');
       const tokenField = document.getElementById('approval-token');

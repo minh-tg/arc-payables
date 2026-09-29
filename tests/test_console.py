@@ -43,7 +43,7 @@ def test_the_console_shell_is_served_without_an_api_key(tmp_path):
 
 def test_the_console_assets_are_reachable(tmp_path):
     client = _client(tmp_path)
-    for asset in ("app.js", "queue.js"):
+    for asset in ("app.js", "queue.js", "invoice.js"):
         response = client.get(f"/console/{asset}")
         assert response.status_code == 200, asset
         assert "javascript" in response.headers["content-type"], asset
