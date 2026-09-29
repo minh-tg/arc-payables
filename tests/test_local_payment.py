@@ -88,9 +88,14 @@ def test_pays_the_supplier_exactly_and_reports_a_measured_fee(tmp_path, chain):
         assert chain.erc20_balance(SUPPLIER) - before == INVOICE_USDC * USDC_SCALE
         assert payment["transaction_hash"].startswith("0x")
 
-        # The fee is measured from the receipt, in 6-decimal USDC units.
+        # The fee is measured from the receipt, in 6-decimal USDC units. The expected figure is
+        # recomputed here from the chain's own receipt, so a wrong scale cannot pass unnoticed.
         stored = store.get_payment(invoice_id)
-        assert stored["fee_units"] is not None and int(stored["fee_units"]) > 0
+        receipt = provider._wait_receipt(stored["transaction_hash"])
+        gas_wei = int(receipt["gasUsed"], 16) * int(receipt["effectiveGasPrice"], 16)
+        expected_units = -(-gas_wei // 10**12)
+        assert int(stored["fee_units"]) == expected_units
+        assert expected_units > 1, "a gas cost this size must not collapse to a single micro-USDC"
 
         # The exact allowance the guard pulled is fully consumed, leaving nothing behind.
         assert provider._allowance() == 0
@@ -328,3 +333,18 @@ def test_incomplete_local_configuration_fails_closed(tmp_path):
     response = TestClient(app).get("/ready")
     assert response.status_code == 503
     assert response.json()["detail"]["payment_provider_configured"] is False
+
+
+def test_native_gas_is_converted_to_six_decimal_units():
+    """Arc reports gas in 18-decimal USDC while the token has 6 decimals.
+
+    Getting this wrong by a factor of 10**6 turns a real fee into "1", which is exactly what the
+    first live Arc Testnet payment reported. The numbers below are a real receipt's.
+    """
+    convert = LocalKeyPaymentProvider._fee_units
+    # A real Arc Testnet receipt: 166,096 gas at 21 gwei.
+    assert convert(3_488_016_000_000_000) == 3489   # 0.003488016 USDC, rounded up
+    assert convert(10**12) == 1                     # the smallest representable unit
+    assert convert(10**12 - 1) == 1                 # rounded up, never down to zero
+    assert convert(1) == 1
+    assert convert(0) == 0

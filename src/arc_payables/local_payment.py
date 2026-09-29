@@ -374,13 +374,15 @@ class LocalKeyPaymentProvider:
     def _fee_units(wei: int) -> int:
         """Native gas cost (18-decimal USDC) as 6-decimal USDC units, rounded up.
 
-        Rounding up can only overstate our own expense; it never reduces the supplier's
-        amount, and the ERPNext entry stays balanced because the same figure is used for both
-        the outflow and the deduction.
+        Arc charges gas in the same USDC balance the token holds, so the native interface reports
+        18 decimals and the ERC-20 reports 6. One micro-USDC is therefore 10**12 wei, and dividing
+        by the ERC-20 scale as well would report whole USDC instead: a 3,488 micro-USDC fee became
+        "1", which is what a live Arc Testnet payment exposed. Rounding up can only overstate our
+        own cost, and it never reduces the supplier's amount.
         """
         if wei <= 0:
             return 0
-        return -(-wei // (USDC_SCALE * 10**12))
+        return -(-wei // 10**12)
 
     def _wait_receipt(self, tx_hash: str) -> dict | None:
         deadline = time.monotonic() + self.receipt_timeout
