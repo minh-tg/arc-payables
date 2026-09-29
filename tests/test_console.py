@@ -37,13 +37,13 @@ def test_the_console_shell_is_served_without_an_api_key(tmp_path):
     body = response.text
     # The shell names the views it offers and states the testnet boundary it operates within.
     assert "operator console" in body
-    assert "#/queue" in body
+    assert "#/queue" in body and "#/treasury" in body
     assert "Arc Testnet only" in body
 
 
 def test_the_console_assets_are_reachable(tmp_path):
     client = _client(tmp_path)
-    for asset in ("app.js", "queue.js", "invoice.js"):
+    for asset in ("app.js", "queue.js", "invoice.js", "treasury.js"):
         response = client.get(f"/console/{asset}")
         assert response.status_code == 200, asset
         assert "javascript" in response.headers["content-type"], asset
