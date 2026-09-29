@@ -10,6 +10,31 @@ from pathlib import Path
 from typing import Any
 
 from .domain import InvoiceLine, InvoiceRecord, WorkflowState, utcnow
+from .security import recover_digest_signer
+
+#: Previous-hash value for the first event in the chain.
+GENESIS_HASH = "0x" + "00" * 32
+
+
+def _event_digest(event: dict[str, Any]) -> bytes:
+    """Digest of one audit entry, including the exact stored payload text.
+
+    Hashing the stored ``payload_json`` string rather than a re-serialised object means any
+    edit to the persisted text is detected without depending on canonicalisation matching
+    byte for byte on the verifier's side.
+    """
+    return hashlib.sha256(
+        canonical_json(
+            {
+                "invoice_id": event["invoice_id"],
+                "event_type": event["event_type"],
+                "state": event["state"],
+                "payload_json": event["payload_json"],
+                "created_at": event["created_at"],
+                "prev_hash": event["prev_hash"],
+            }
+        ).encode()
+    ).digest()
 
 
 def _json_default(value: Any) -> Any:
@@ -72,9 +97,18 @@ class DuplicateInvoiceNumber(ValueError):
 class SQLiteEvidenceStore:
     """Small durable evidence store with explicit SQLite write transactions."""
 
-    def __init__(self, database_path: Path | str):
+    def __init__(self, database_path: Path | str, audit_signer: Any | None = None):
         self.path = Path(database_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._audit_signer = audit_signer
+
+    def set_audit_signer(self, signer: Any | None) -> None:
+        """Attach the key that signs audit entries, once at start-up.
+
+        Optional: without it the chain is still hash-linked, which detects partial edits
+        inside the database, but it cannot be distinguished from a fully rewritten log.
+        """
+        self._audit_signer = signer
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=15, isolation_level=None)
@@ -398,11 +432,113 @@ class SQLiteEvidenceStore:
 
     def events(self, invoice_id: str) -> list[dict]:
         with self._connect() as connection:
-            rows = connection.execute("SELECT event_type,state,payload_json,created_at FROM audit_events WHERE invoice_id=? ORDER BY id", (invoice_id,)).fetchall()
+            rows = connection.execute(
+                "SELECT event_type,state,payload_json,created_at,prev_hash,event_hash,signature,signer FROM audit_events WHERE invoice_id=? ORDER BY id",
+                (invoice_id,),
+            ).fetchall()
         return [
-            {"type": row["event_type"], "state": row["state"], "payload": json.loads(row["payload_json"]), "created_at": row["created_at"]}
+            {
+                "type": row["event_type"],
+                "state": row["state"],
+                "payload": json.loads(row["payload_json"]),
+                "created_at": row["created_at"],
+                "prev_hash": row["prev_hash"],
+                "event_hash": row["event_hash"],
+                "signature": row["signature"],
+                "signer": row["signer"],
+            }
             for row in rows
         ]
+
+    def verify_audit_chain(self, expected_signer: str | None = None) -> dict[str, Any]:
+        """Recompute the audit chain and report the first entry that does not check out.
+
+        Detects an edited payload, a removed entry, a reordered chain and a rewritten tail.
+        When entries were signed they are checked against the *configured* audit key, not
+        against the signer recorded on the entry: an attacker who rewrites a log and records
+        their own address as the signer must still fail. Without a configured key the hash
+        chain is still verified, but the report says the signatures were not anchored.
+        """
+        expected = expected_signer or (self._audit_signer.address if self._audit_signer is not None else None)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id,invoice_id,event_type,state,payload_json,created_at,prev_hash,event_hash,signature,signer "
+                "FROM audit_events ORDER BY id"
+            ).fetchall()
+
+        expected_prev = GENESIS_HASH
+        checked = 0
+        signed = 0
+        unanchored = 0
+        unchained = 0
+
+        def failure(reason: str, row_id: int) -> dict[str, Any]:
+            return {
+                "ok": False,
+                "length": len(rows),
+                "checked": checked,
+                "signed": signed,
+                "signature_anchor": "configured_signer" if expected else "not_configured",
+                "unchained_prefix": unchained,
+                "first_broken_id": row_id,
+                "reason": reason,
+            }
+
+        for row in rows:
+            if row["event_hash"] is None:
+                # Written before the chain existed: reported, never counted as verified.
+                unchained += 1
+                continue
+            problem = self._chain_problem(row, expected_prev)
+            if problem:
+                return failure(problem, row["id"])
+            if row["signature"]:
+                signed += 1
+                if expected is None:
+                    # Nothing to check the signature against; say so rather than imply trust.
+                    unanchored += 1
+                else:
+                    recovered = recover_digest_signer(bytes.fromhex(row["event_hash"][2:]), row["signature"])
+                    if recovered is None or recovered.lower() != expected.lower():
+                        return failure("signature_is_not_from_the_configured_signer", row["id"])
+                    if (row["signer"] or "").lower() != expected.lower():
+                        return failure("recorded_signer_is_not_the_configured_signer", row["id"])
+            checked += 1
+            expected_prev = row["event_hash"]
+        return {
+            "ok": True,
+            "length": len(rows),
+            "checked": checked,
+            "signed": signed,
+            "unanchored_signatures": unanchored,
+            "signature_anchor": "configured_signer" if expected else "not_configured",
+            "unchained_prefix": unchained,
+            "head": expected_prev if checked else None,
+            "reason": None,
+        }
+
+    def audit_head(self) -> str:
+        with self._connect() as connection:
+            row = connection.execute("SELECT event_hash FROM audit_events ORDER BY id DESC LIMIT 1").fetchone()
+        return (row["event_hash"] if row and row["event_hash"] else GENESIS_HASH) or GENESIS_HASH
+
+    @staticmethod
+    def _chain_problem(row: sqlite3.Row, expected_prev: str) -> str | None:
+        if row["prev_hash"] != expected_prev:
+            return "prev_hash_does_not_match_the_previous_entry"
+        digest = _event_digest(
+            {
+                "invoice_id": row["invoice_id"],
+                "event_type": row["event_type"],
+                "state": row["state"],
+                "payload_json": row["payload_json"],
+                "created_at": row["created_at"],
+                "prev_hash": row["prev_hash"],
+            }
+        )
+        if "0x" + digest.hex() != row["event_hash"]:
+            return "entry_contents_do_not_match_its_hash"
+        return None
 
     def seed_fixture(self, kind: str, key: str, value: dict) -> None:
         with self._connect() as connection:
@@ -433,9 +569,32 @@ class SQLiteEvidenceStore:
         row = connection.execute("SELECT state FROM invoices WHERE id=?", (invoice_id,)).fetchone()
         return row["state"] if row else WorkflowState.RECEIVED.value
 
-    @staticmethod
-    def _append_event(connection: sqlite3.Connection, invoice_id: str, event_type: str, state: str, payload: dict) -> None:
+    def _append_event(self, connection: sqlite3.Connection, invoice_id: str, event_type: str, state: str, payload: dict) -> None:
+        """Append one hash-linked entry. Must run inside the caller's BEGIN IMMEDIATE block.
+
+        Reading the head and inserting in the same transaction is what keeps the chain from
+        forking under concurrent writers.
+        """
+        created_at = utcnow().isoformat()
+        previous = connection.execute("SELECT event_hash FROM audit_events ORDER BY id DESC LIMIT 1").fetchone()
+        prev_hash = (previous["event_hash"] if previous and previous["event_hash"] else GENESIS_HASH) or GENESIS_HASH
+        event = {
+            "invoice_id": invoice_id,
+            "event_type": event_type,
+            "state": state,
+            "payload_json": canonical_json(payload),
+            "created_at": created_at,
+            "prev_hash": prev_hash,
+        }
+        digest = _event_digest(event)
+        event_hash = "0x" + digest.hex()
+        signature = None
+        signer = None
+        if self._audit_signer is not None:
+            signature = self._audit_signer.sign_digest(digest)
+            signer = self._audit_signer.address
         connection.execute(
-            "INSERT INTO audit_events(invoice_id,event_type,state,payload_json,created_at) VALUES(?,?,?,?,?)",
-            (invoice_id, event_type, state, canonical_json(payload), utcnow().isoformat()),
+            "INSERT INTO audit_events(invoice_id,event_type,state,payload_json,created_at,prev_hash,event_hash,signature,signer) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (invoice_id, event_type, state, event["payload_json"], created_at, prev_hash, event_hash, signature, signer),
         )

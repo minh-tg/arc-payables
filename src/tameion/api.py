@@ -155,6 +155,9 @@ def create_app(
         # constructible and cannot be used to move funds.
         signer = EIP712PermitSigner("0x" + "01".zfill(64))
     policy = DeterministicPolicy(settings, USDCOnlyConverter())
+    # Anchor the audit chain to the same key that authorizes payments. Without a signer the
+    # chain is still hash-linked, but it cannot be distinguished from a fully rewritten log.
+    store.set_audit_signer(signer)
     workflow = APWorkflow(store, accounting, payment_provider, signer, policy, settings, screener=build_screening_provider(settings, store))
 
     app = FastAPI(
@@ -292,6 +295,11 @@ def create_app(
     @app.get("/invoices/{invoice_id}/events", tags=["audit"], dependencies=[Depends(require_api_key)])
     def events(invoice_id: str) -> list[dict[str, Any]]:
         return workflow.events(invoice_id)
+
+    @app.get("/audit/verify", tags=["audit"], dependencies=[Depends(require_api_key)])
+    def verify_audit() -> dict[str, Any]:
+        """Recompute the audit chain, so a reviewer can tell the record was not rewritten."""
+        return store.verify_audit_chain()
 
     return app
 

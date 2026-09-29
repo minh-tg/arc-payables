@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from eth_account import Account
-from eth_account.messages import encode_typed_data
+from eth_account.messages import encode_defunct, encode_typed_data
 
 from .domain import PaymentPermit
 
@@ -62,6 +62,26 @@ class EIP712PermitSigner:
             return recovered.lower() == self.address.lower()
         except (ValueError, TypeError):
             return False
+
+    def sign_digest(self, digest: bytes) -> str:
+        """Sign a 32-byte digest, used to anchor the audit chain to this key.
+
+        The chain is hash-linked on its own, which only catches partial edits: anyone able to
+        rewrite every row could recompute the whole chain. Signing each entry means a rewritten
+        record can be detected by anyone holding the log, without them holding the key.
+        """
+        if len(digest) != 32:
+            raise ValueError("sign_digest expects a 32-byte digest")
+        signed = Account.sign_message(encode_defunct(primitive=digest), private_key=self._private_key)
+        return "0x" + bytes(signed.signature).hex()
+
+
+def recover_digest_signer(digest: bytes, signature: str) -> str | None:
+    """Address that signed a 32-byte digest, or None when the signature is unusable."""
+    try:
+        return Account.recover_message(encode_defunct(primitive=digest), signature=signature)
+    except (ValueError, TypeError):
+        return None
 
 
 def build_permit_signer(settings, private_key: str | None = None) -> "PermitSigner":
