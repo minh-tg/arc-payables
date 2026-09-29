@@ -15,11 +15,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .circle_adapter import CircleDeveloperControlledWalletProvider
 from .currency import USDCOnlyConverter
+from .deliberation import build_decision_agent, build_order_planner
 from .domain import InvoiceLine, InvoiceRecord, ScreeningStatus, WorkflowState, usdc_to_units
 from .frappe_adapter import FrappeAccountingConnector
 from .local_payment import LocalKeyPaymentProvider
 from .mock_adapters import MockAccountingConnector, MockPaymentProvider
 from .policy import DeterministicPolicy
+from .prioritisation import PaymentPrioritiser
 from .screening import build_screening_provider
 from .security import EIP712PermitSigner, SignerBackendUnavailable, build_permit_signer
 from .service import APWorkflow, WorkflowError
@@ -304,6 +306,17 @@ def create_app(
     @app.get("/invoices/{invoice_id}/events", tags=["audit"], dependencies=[Depends(require_api_key)])
     def events(invoice_id: str) -> list[dict[str, Any]]:
         return workflow.events(invoice_id)
+
+    @app.get("/plan", tags=["planning"], dependencies=[Depends(require_api_key)])
+    def payment_plan() -> dict[str, Any]:
+        """Which payable to pay first, given the treasury balance and the reserve floor.
+
+        Read-only advice: it evaluates each invoice without recording a decision, and every
+        invoice it ranks must still pass its own policy checks and settle through the same
+        guarded payment path.
+        """
+        prioritiser = PaymentPrioritiser(workflow, planner=build_order_planner(settings))
+        return prioritiser.plan().to_dict()
 
     @app.get("/audit/verify", tags=["audit"], dependencies=[Depends(require_api_key)])
     def verify_audit() -> dict[str, Any]:

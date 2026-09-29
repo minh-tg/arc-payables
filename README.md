@@ -167,6 +167,19 @@ What the planner may and may not do:
 
 Captured free text (for example OCR output) reaches the planner only in an explicitly-labelled, bounded field, and the system prompt instructs the model to treat all evidence as data. An adversarial test drives a model that has "complied" with an injected instruction and asserts that nothing about the payment — destination, amount, authorization — changes.
 
+## Which payable to pay first
+
+Individual evaluation answers "may this invoice be paid?". `GET /plan` answers the question a treasury actually faces: several invoices are payable, the balance covers some of them, and paying the wrong one first costs money.
+
+The split between advice and money is deliberate:
+
+* **Ordering is advisory.** The heuristic order is expiring discount first, then lateness, then imminent due dates, then the smaller obligation — a tuple of business facts rather than weights, so each position has a readable reason. With `DECISION_LAYER=dual_process` a planner may reorder the queue.
+* **Spending is deterministic.** The allocation applies the reserve floor and the balance in code, by walking the order and stopping when the next invoice would breach the reserve. A planner may reorder; it may never decide how much leaves.
+
+So the worst a confused planner can do is sequence the same payments differently. Validation requires exactly the offered invoices, each once, each with a reason: an added, omitted, duplicated or unexplained invoice rejects the whole answer and the deterministic order stands.
+
+Building a plan is read-only — it derives decisions from live evidence without recording them — and every invoice it ranks must still pass its own policy checks and settle through the same guarded payment path. Invoices that are not payable appear in the plan with the reason, so the queue stays visible in full rather than silently filtered.
+
 ## Workflow states and safety behavior
 
 `RECEIVED → EVIDENCE_CHECKING → ELIGIBLE | WAITING | HELD | ESCALATED → AUTHORIZED → SUBMITTED → CONFIRMED → ERP_PENDING | ERP_RECORDED`.
