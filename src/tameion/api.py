@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import re
 import uuid
+from pathlib import Path
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any
@@ -11,6 +12,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .circle_adapter import CircleDeveloperControlledWalletProvider
@@ -182,6 +184,12 @@ def create_app(
     app.state.workflow = workflow
     app.state.settings = settings
     app.state.store = store
+
+    # The operator console: static files, no build step. Serving the shell needs no key because it
+    # contains no data; every request it makes is authenticated like any other API call.
+    web_dir = Path(__file__).resolve().parent / "web"
+    if web_dir.is_dir():
+        app.mount("/console", StaticFiles(directory=web_dir, html=True), name="console")
 
     def require_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None) -> None:
         external = settings.payment_provider == "circle" or settings.accounting_provider == "frappe"
