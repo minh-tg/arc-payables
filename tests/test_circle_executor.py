@@ -284,6 +284,44 @@ def test_insufficient_balance_fails_without_submitting(tmp_path, chain, circle):
         chain.mint(chain.wallet.address, 5_000 * USDC_SCALE)
 
 
+def test_on_chain_budget_cannot_be_exceeded_by_the_backend(tmp_path):
+    """The backend's own policy allows this payment; the contract's budget refuses it.
+
+    The invoice is 250 USDC and the policy's automatic limit is 1,000 USDC, so nothing in
+    software objects. The deployed guard caps a single payment at 100 USDC, so the transfer
+    must revert, no funds may move and no budget may be consumed. This is the invariant that
+    makes the agent's authority bounded by something it cannot talk past.
+    """
+    with AnvilChain() as bounded:
+        bounded.deploy_suite(
+            EIP712PermitSigner(DEFAULT_POLICY_KEY).address,
+            per_payment_cap=100 * USDC_SCALE,
+            epoch_cap=500 * USDC_SCALE,
+            recipient_epoch_cap=500 * USDC_SCALE,
+        )
+        bounded.fund_native(bounded.wallet.address, 10**18)
+        bounded.mint(bounded.wallet.address, 5_000 * USDC_SCALE)
+        api = FakeCircleApi(bounded, FakeCircleState()).start()
+        try:
+            settings, store, provider, workflow, invoice_id, _ = _workflow(tmp_path, bounded, api)
+            evaluated = workflow.evaluate(invoice_id)
+            assert evaluated["state"] == WorkflowState.ELIGIBLE.value
+            assert settings.max_invoice_usdc == Decimal("1000")
+
+            result = workflow.submit_payment(invoice_id)
+
+            # The on-chain cap wins: refused, unpaid, and the budget is untouched.
+            assert result["state"] == WorkflowState.FAILED.value
+            assert result["payment"]["confirmation_status"] == "FAILED"
+            assert result["payment"]["failure_code"].startswith("CIRCLE_")
+            assert result["payment"]["erp_status"] != "RECORDED"
+            assert bounded.erc20_balance(SUPPLIER) == 0
+            assert bounded.epoch_spent(0) == 0
+            assert store.get_payment(invoice_id)["confirmation_status"] == "FAILED"
+        finally:
+            api.stop()
+
+
 def test_lost_submission_response_never_double_pays_and_reconciles(tmp_path, chain, circle):
     circle.state.lose_first_submission_response = True
     settings, store, provider, workflow, invoice_id, _ = _workflow(tmp_path, chain, api=circle)

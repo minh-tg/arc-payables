@@ -40,9 +40,17 @@ from eth_utils import to_checksum_address
 
 from .crypto_utils import encrypt_circle_entity_secret
 from .domain import ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC, USDC_SCALE
-from .evm import encode_used
+from .evm import encode_used, selector
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Budget caps for the locally deployed guard. Deliberately finite so a local run exercises the
+# same on-chain limits the real deployment enforces; a test can pass tighter values.
+DEMO_PER_PAYMENT_CAP = 1_000 * USDC_SCALE          # 1,000 USDC in a single payment
+DEMO_EPOCH_CAP = 10_000 * USDC_SCALE               # 10,000 USDC per epoch across all suppliers
+DEMO_RECIPIENT_EPOCH_CAP = 5_000 * USDC_SCALE      # 5,000 USDC per supplier per epoch
+DEMO_EPOCH_LENGTH = 86_400                         # one day
+EPOCH_SPENT_SELECTOR = "0x" + selector("epochSpent(uint64)").hex()
 ARTIFACT_DIR = REPO_ROOT / "out"
 DEFAULT_WALLET_KEY = "0x" + "5c" * 32
 DEFAULT_ENTITY_SECRET = "ab" * 32
@@ -188,11 +196,23 @@ class AnvilChain:
             raise FakeExecutorError(f"deployment failed: {receipt}")
         return to_checksum_address(receipt["contractAddress"])
 
-    def deploy_suite(self, policy_signer: str, *, token: str = ARC_TESTNET_USDC) -> tuple[str, str]:
+    def deploy_suite(
+        self,
+        policy_signer: str,
+        *,
+        token: str = ARC_TESTNET_USDC,
+        per_payment_cap: int = DEMO_PER_PAYMENT_CAP,
+        epoch_cap: int = DEMO_EPOCH_CAP,
+        recipient_epoch_cap: int = DEMO_RECIPIENT_EPOCH_CAP,
+        epoch_length: int = DEMO_EPOCH_LENGTH,
+    ) -> tuple[str, str]:
         """Present a 6-decimal USDC at Arc's documented address, then deploy the real guard.
 
         The adapter deliberately targets the hardcoded Arc Testnet USDC address, so the local
         EVM exposes the test token at that exact address instead of the test bypassing it.
+
+        The guard's budget caps are passed explicitly, so a local run exercises the same
+        on-chain limits the deployed guard enforces. Amounts are 6-decimal USDC units.
         """
         implementation = self.deploy(load_artifact("TestArcUSDC"))
         runtime_code = self.rpc("eth_getCode", [implementation, "latest"])
@@ -200,8 +220,21 @@ class AnvilChain:
             raise FakeExecutorError("deployed test token has no runtime code")
         self.set_code(token, runtime_code)
         self.token_address = to_checksum_address(token)
-        self.guard_address = self.deploy(load_artifact("PaymentGuard"), self.token_address, policy_signer)
+        self.guard_address = self.deploy(
+            load_artifact("PaymentGuard"),
+            self.token_address,
+            policy_signer,
+            per_payment_cap,
+            epoch_cap,
+            recipient_epoch_cap,
+            epoch_length,
+        )
         return self.token_address, self.guard_address
+
+    def epoch_spent(self, epoch: int = 0) -> int:
+        """Budget consumed in an epoch, read from the deployed guard."""
+        word = self.rpc("eth_call", [{"to": self.guard_address, "data": EPOCH_SPENT_SELECTOR + _word(hex(epoch))}, "latest"])
+        return int(word, 16)
 
     def set_code(self, address: str, code: str) -> None:
         self.rpc("anvil_setCode", [to_checksum_address(address), code])

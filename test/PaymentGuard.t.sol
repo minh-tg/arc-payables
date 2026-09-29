@@ -8,6 +8,8 @@ interface VmGuardTest {
     function sign(uint256 privateKey, bytes32 digest) external returns (uint8 v, bytes32 r, bytes32 s);
     function warp(uint256 timestamp) external;
     function chainId(uint256 newChainId) external;
+    function expectRevert() external;
+    function getBlockTimestamp() external view returns (uint256);
 }
 
 contract MockArcUSDC {
@@ -38,6 +40,13 @@ contract PaymentGuardTest {
     VmGuardTest private constant vm = VmGuardTest(address(uint160(uint256(keccak256("hevm cheat code")))));
     uint256 private constant POLICY_KEY = 0xA11CE;
     uint256 private constant CHAIN_ID = 5_042_002;
+    uint64 private constant DAY = 86_400;
+    // Demo budget used by the shared guard. Deliberately small so the caps are real
+    // constraints rather than decoration.
+    uint96 private constant PER_PAYMENT_CAP = 5_000_000;   // 5 USDC
+    uint96 private constant EPOCH_CAP = 20_000_000;        // 20 USDC per day
+    uint96 private constant RECIPIENT_EPOCH_CAP = 10_000_000; // 10 USDC per recipient per day
+
     MockArcUSDC private token;
     PaymentGuard private guard;
     address private policySigner;
@@ -47,10 +56,14 @@ contract PaymentGuardTest {
         vm.chainId(CHAIN_ID);
         token = new MockArcUSDC();
         policySigner = vm.addr(POLICY_KEY);
-        guard = new PaymentGuard(address(token), policySigner);
+        guard = new PaymentGuard(
+            address(token), policySigner, PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY
+        );
         token.mint(address(this), 10_000_000);
         token.approve(address(guard), 10_000_000);
     }
+
+    // ---- authorization and replay ------------------------------------------------------
 
     function test_executesExactAuthorizedPayment() public {
         PaymentGuard.Permit memory permit = _permit(1, recipient, 2_500_000);
@@ -122,8 +135,7 @@ contract PaymentGuardTest {
         require(!wrongChain, "wrong chain accepted");
         vm.chainId(CHAIN_ID);
 
-        PaymentGuard secondGuard = new PaymentGuard(address(token), policySigner);
-        token.approve(address(secondGuard), 100);
+        PaymentGuard secondGuard = _deployGuard(PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY);
         (bool wrongDomain,) = address(secondGuard).call(abi.encodeCall(PaymentGuard.pay, (permit, signature)));
         require(!wrongDomain, "wrong contract domain accepted");
     }
@@ -143,7 +155,7 @@ contract PaymentGuardTest {
     }
 
     function deployOnCurrentChain() external returns (address) {
-        return address(new PaymentGuard(address(token), policySigner));
+        return address(new PaymentGuard(address(token), policySigner, PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY));
     }
 
     function test_wrongSignerRejected() public {
@@ -154,6 +166,143 @@ contract PaymentGuardTest {
         require(!success, "wrong policy signer accepted");
     }
 
+    // ---- on-chain budget limits --------------------------------------------------------
+
+    function test_perPaymentCapBoundary() public {
+        PaymentGuard bounded = _deployGuard(1_000, 0, 0, 0);
+        guard = bounded;
+        guard.pay(_permit(100, recipient, 1_000), _sign(guard, _permit(100, recipient, 1_000)));
+        (bool overCap,) = address(guard).call(
+            abi.encodeCall(PaymentGuard.pay, (_permit(101, recipient, 1_001), _sign(guard, _permit(101, recipient, 1_001))))
+        );
+        require(!overCap, "payment above the per-payment cap was accepted");
+        require(token.balanceOf(recipient) == 1_000, "cap boundary transferred the wrong amount");
+    }
+
+    function test_epochCapIsExactAcrossRecipients() public {
+        PaymentGuard bounded = _deployGuard(10_000, 1_000, 1_000, 3_600);
+        guard = bounded;
+        _pay(guard, 200, recipient, 500);
+        _pay(guard, 201, address(0xF00D), 500);
+        require(guard.epochSpent(0) == 1_000, "epoch spend not tracked");
+        // A third, never-paid recipient is still refused, so the aggregate cap binds.
+        (bool overEpoch,) = address(guard).call(
+            abi.encodeCall(PaymentGuard.pay, (_permit(202, address(0xCAFE), 1), _sign(guard, _permit(202, address(0xCAFE), 1))))
+        );
+        require(!overEpoch, "payment above the epoch cap was accepted");
+        require(token.balanceOf(address(0xCAFE)) == 0, "capped payment transferred funds");
+    }
+
+    function test_recipientCapIsIndependentPerRecipient() public {
+        PaymentGuard bounded = _deployGuard(10_000, 0, 1_000, 3_600);
+        guard = bounded;
+        _pay(guard, 210, recipient, 1_000);
+        (bool overRecipient,) = address(guard).call(
+            abi.encodeCall(PaymentGuard.pay, (_permit(211, recipient, 1), _sign(guard, _permit(211, recipient, 1))))
+        );
+        require(!overRecipient, "payment above the recipient cap was accepted");
+        // A different recipient has its own budget.
+        _pay(guard, 212, address(0xF00D), 1_000);
+        require(token.balanceOf(address(0xF00D)) == 1_000, "second recipient was wrongly blocked");
+        require(guard.recipientEpochSpent(0, recipient) == 1_000, "recipient spend not tracked");
+    }
+
+    function test_epochRolloverRestoresBudget() public {
+        PaymentGuard bounded = _deployGuard(1_000, 1_000, 1_000, 3_600);
+        guard = bounded;
+        _pay(guard, 220, recipient, 1_000);
+        (bool sameEpoch,) = address(guard).call(
+            abi.encodeCall(PaymentGuard.pay, (_permit(221, recipient, 1), _sign(guard, _permit(221, recipient, 1))))
+        );
+        require(!sameEpoch, "budget exceeded within one epoch");
+        vm.warp(3_600);
+        _pay(guard, 222, recipient, 1_000);
+        require(token.balanceOf(recipient) == 2_000, "rollover did not restore budget");
+        require(guard.epochAt(3_600) == 1, "epoch index did not advance");
+    }
+
+    function test_disabledLimitsMeanNoBudgetEnforcement() public {
+        PaymentGuard unbounded = _deployGuard(0, 0, 0, 0);
+        token.approve(address(unbounded), type(uint256).max);
+        unbounded.pay(_permit(230, recipient, 10_000_000), _sign(unbounded, _permit(230, recipient, 10_000_000)));
+        require(token.balanceOf(recipient) == 10_000_000, "unbounded guard refused a payment");
+        require(unbounded.remainingEpochBudget(recipient) == type(uint256).max, "unbounded budget not reported");
+    }
+
+    function test_epochCapWithoutEpochLengthIsRefusedAtDeployment() public {
+        vm.expectRevert();
+        new PaymentGuard(address(token), policySigner, 0, 1_000, 0, 0);
+        vm.expectRevert();
+        new PaymentGuard(address(token), policySigner, 0, 0, 1_000, 0);
+        vm.expectRevert();
+        new PaymentGuard(address(token), policySigner, 0, 1_000, 1_000, 30);
+    }
+
+    function test_capsAreImmutable() public {
+        require(guard.perPaymentCap() == PER_PAYMENT_CAP, "per-payment cap changed");
+        require(guard.epochCap() == EPOCH_CAP, "epoch cap changed");
+        require(guard.recipientEpochCap() == RECIPIENT_EPOCH_CAP, "recipient cap changed");
+        require(guard.epochLength() == DAY, "epoch length changed");
+    }
+
+    function test_remainingBudgetReflectsTheTightestCap() public {
+        PaymentGuard epochOnly = _deployGuard(10_000, 1_000, 0, 3_600);
+        require(epochOnly.remainingEpochBudget(recipient) == 1_000, "fresh epoch budget wrong");
+        _pay(epochOnly, 240, recipient, 300);
+        require(epochOnly.remainingEpochBudget(recipient) == 700, "epoch budget not decremented");
+
+        // A per-recipient cap binds every recipient, including one that has never been paid.
+        PaymentGuard bounded = _deployGuard(10_000, 1_000, 400, 3_600);
+        guard = bounded;
+        require(bounded.remainingEpochBudget(recipient) == 400, "tightest cap not reported");
+        _pay(bounded, 241, recipient, 300);
+        require(bounded.remainingEpochBudget(recipient) == 100, "recipient budget not decremented");
+        require(bounded.remainingEpochBudget(address(0xF00D)) == 400, "untouched recipient budget wrong");
+    }
+
+    function test_failedTransferDoesNotConsumeBudget() public {
+        PaymentGuard bounded = _deployGuard(1_000, 1_000, 1_000, 3_600);
+        guard = bounded;
+        token.approve(address(bounded), 0);
+        (bool failed,) = address(bounded).call(
+            abi.encodeCall(PaymentGuard.pay, (_permit(250, recipient, 1_000), _sign(bounded, _permit(250, recipient, 1_000))))
+        );
+        require(!failed, "payment without allowance succeeded");
+        require(bounded.epochSpent(0) == 0, "failed payment consumed budget");
+        require(bounded.recipientEpochSpent(0, recipient) == 0, "failed payment consumed recipient budget");
+        // Restore the allowance: the same budget must still be spendable afterwards.
+        token.approve(address(bounded), type(uint256).max);
+        _pay(bounded, 251, recipient, 1_000);
+        require(token.balanceOf(recipient) == 1_000, "budget was lost after a failed transfer");
+        require(bounded.epochSpent(0) == 1_000, "budget not consumed by the settled payment");
+    }
+
+    function test_unsignedPermitCannotConsumeBudget() public {
+        PaymentGuard bounded = _deployGuard(1_000, 1_000, 1_000, 3_600);
+        PaymentGuard.Permit memory permit = _permit(260, recipient, 1_000);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(uint256(0xB0B), bounded.hashPermit(permit));
+        (bool rejected,) = address(bounded).call(abi.encodeCall(PaymentGuard.pay, (permit, abi.encodePacked(r, s, v))));
+        require(!rejected, "wrong signer accepted");
+        require(bounded.epochSpent(0) == 0, "unsigned permit consumed budget");
+        require(!bounded.used(permit.paymentId), "unsigned permit consumed a payment id");
+    }
+
+    // ---- helpers ----------------------------------------------------------------------
+
+    function _deployGuard(uint96 perPayment, uint96 epochCap_, uint96 recipientCap, uint64 epochLen)
+        private
+        returns (PaymentGuard deployed)
+    {
+        deployed = new PaymentGuard(address(token), policySigner, perPayment, epochCap_, recipientCap, epochLen);
+        token.approve(address(deployed), type(uint256).max);
+        return deployed;
+    }
+
+    function _pay(PaymentGuard target, uint256 nonce, address to, uint256 amount) private {
+        PaymentGuard.Permit memory permit = _permit(nonce, to, amount);
+        target.pay(permit, _sign(target, permit));
+    }
+
     function _permit(uint256 nonce, address to, uint256 amount) private view returns (PaymentGuard.Permit memory) {
         return PaymentGuard.Permit({
             payer: address(this),
@@ -162,7 +311,7 @@ contract PaymentGuardTest {
             amount: amount,
             evidenceHash: keccak256(abi.encode("evidence", nonce)),
             paymentId: bytes32(nonce),
-            expiry: uint64(block.timestamp + 300)
+            expiry: uint64(vm.getBlockTimestamp() + 300)
         });
     }
 

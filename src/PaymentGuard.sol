@@ -5,9 +5,20 @@ interface IERC20PaymentGuard {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
-/// @notice Executes one exact, policy-signed USDC payment from the calling Circle SCA.
+/// @notice Executes one exact, policy-signed USDC payment from the calling Circle SCA,
+///         inside budget limits that were fixed at deployment.
 /// @dev Deploy a separate instance per chain/domain. The EIP-712 domain includes chain ID
 ///      and this contract address; payer is additionally bound to msg.sender.
+///
+///      Why the limits live here rather than in the calling backend: an agent (or a bug, or
+///      a compromised process) that can talk its way past policy in software can still not
+///      exceed the budget, because the budget is enforced by the contract holding authority
+///      over the transfer. The caps are immutable, so they cannot be raised after deployment
+///      either — rotating a budget means deploying a new guard and re-pointing the treasury.
+///
+///      Amounts are ERC-20 USDC units (6 decimals), the same unit the permit and the permit
+///      hash use. That is deliberately NOT Arc's 18-decimal native gas accounting: gas is a
+///      separate balance and is never counted against a payment budget.
 contract PaymentGuard {
     struct Permit {
         address payer;
@@ -27,14 +38,28 @@ contract PaymentGuard {
     bytes32 private constant PERMIT_TYPEHASH = keccak256(
         "Permit(address payer,address token,address recipient,uint256 amount,bytes32 evidenceHash,bytes32 paymentId,uint64 expiry)"
     );
-    // secp256k1n / 2, rejecting malleable signatures.
     uint256 private constant ARC_TESTNET_CHAIN_ID = 5_042_002;
     uint256 private constant SECP256K1N_HALF =
         0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
+    /// @dev An epoch shorter than this would reset a budget faster than it can be reviewed.
+    uint64 private constant MIN_EPOCH_LENGTH = 60;
 
     address public immutable paymentToken;
     address public immutable policySigner;
+
+    /// @notice Maximum size of a single payment in USDC units; 0 disables the check.
+    uint96 public immutable perPaymentCap;
+    /// @notice Maximum total USDC units payable per epoch across all recipients; 0 disables.
+    uint96 public immutable epochCap;
+    /// @notice Maximum total USDC units payable per epoch to one recipient; 0 disables.
+    uint96 public immutable recipientEpochCap;
+    /// @notice Length of a budget epoch in seconds; 0 disables all epoch accounting.
+    uint64 public immutable epochLength;
+
     mapping(bytes32 paymentId => bool consumed) public used;
+    /// @notice Consumed budget for an epoch, readable by an operator or an agent.
+    mapping(uint64 epoch => uint256 spent) public epochSpent;
+    mapping(uint64 epoch => mapping(address recipient => uint256 spent)) public recipientEpochSpent;
 
     error InvalidConfiguration();
     error UnsupportedChain();
@@ -45,6 +70,9 @@ contract PaymentGuard {
     error ExpiredPermit();
     error PaymentAlreadyUsed();
     error InvalidSignature();
+    error PerPaymentCapExceeded();
+    error EpochCapExceeded();
+    error RecipientEpochCapExceeded();
     error TokenTransferFailed();
 
     event PaymentExecuted(
@@ -55,12 +83,36 @@ contract PaymentGuard {
         address token,
         uint256 amount
     );
+    /// @notice Budget consumption for a settled payment, so the limit is observable off-chain.
+    event BudgetConsumed(
+        bytes32 indexed paymentId,
+        uint64 indexed epoch,
+        uint256 epochSpent,
+        uint256 recipientEpochSpent
+    );
 
-    constructor(address token, address signer) {
+    constructor(
+        address token,
+        address signer,
+        uint96 perPaymentCap_,
+        uint96 epochCap_,
+        uint96 recipientEpochCap_,
+        uint64 epochLength_
+    ) {
         if (block.chainid != ARC_TESTNET_CHAIN_ID) revert UnsupportedChain();
         if (token == address(0) || signer == address(0)) revert InvalidConfiguration();
+        // An epoch-based cap without an epoch would silently mean "unlimited", which is the
+        // exact failure this contract exists to prevent, so refuse the configuration.
+        if (epochLength_ == 0 && (epochCap_ != 0 || recipientEpochCap_ != 0)) {
+            revert InvalidConfiguration();
+        }
+        if (epochLength_ != 0 && epochLength_ < MIN_EPOCH_LENGTH) revert InvalidConfiguration();
         paymentToken = token;
         policySigner = signer;
+        perPaymentCap = perPaymentCap_;
+        epochCap = epochCap_;
+        recipientEpochCap = recipientEpochCap_;
+        epochLength = epochLength_;
     }
 
     function domainSeparator() public view returns (bytes32) {
@@ -91,6 +143,29 @@ contract PaymentGuard {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
     }
 
+    /// @notice The epoch a timestamp falls in, or 0 when epoch accounting is disabled.
+    function epochAt(uint256 timestamp) public view returns (uint64) {
+        if (epochLength == 0) return 0;
+        // Casting to 'uint64' is safe because a Unix timestamp divided by at least
+        // MIN_EPOCH_LENGTH seconds stays far below 2**64 for any reachable block time.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint64(timestamp / epochLength);
+    }
+
+    /// @notice Budget still available in the current epoch, given a recipient.
+    /// @dev Purely informational; `pay` is the authority.
+    function remainingEpochBudget(address recipient) external view returns (uint256) {
+        if (epochLength == 0) return type(uint256).max;
+        uint64 epoch = epochAt(block.timestamp);
+        uint256 remaining = type(uint256).max;
+        if (epochCap != 0) remaining = epochCap - epochSpent[epoch];
+        if (recipientEpochCap != 0) {
+            uint256 recipientRemaining = recipientEpochCap - recipientEpochSpent[epoch][recipient];
+            if (recipientRemaining < remaining) remaining = recipientRemaining;
+        }
+        return remaining;
+    }
+
     function pay(Permit calldata permit, bytes calldata signature) external {
         if (permit.payer != msg.sender) revert InvalidPayer();
         if (permit.token != paymentToken) revert InvalidToken();
@@ -105,9 +180,27 @@ contract PaymentGuard {
         if (used[permit.paymentId]) revert PaymentAlreadyUsed();
         if (_recover(hashPermit(permit), signature) != policySigner) revert InvalidSignature();
 
-        // CEI: the effect is written before the only external interaction. A failing or
-        // reverted transfer rolls back this mapping write, so a consumed payment ID is
-        // never observable together with an unsettled transfer.
+        // Budget accounting happens only after the authorization is proven, so an unsigned
+        // permit can never consume another payment's budget. A later revert (including a
+        // failed transfer) rolls all of this back, so a budget is never spent unsettled.
+        uint64 epoch = epochAt(block.timestamp);
+        // Only meaningfully populated when epoch accounting is on; the event below is emitted
+        // under the same condition, so a disabled guard reports nothing rather than a zero.
+        uint256 epochTotal = 0;
+        uint256 recipientTotal = 0;
+        if (perPaymentCap != 0 && permit.amount > perPaymentCap) revert PerPaymentCapExceeded();
+        if (epochLength != 0) {
+            epochTotal = epochSpent[epoch] + permit.amount;
+            recipientTotal = recipientEpochSpent[epoch][permit.recipient] + permit.amount;
+            if (epochCap != 0 && epochTotal > epochCap) revert EpochCapExceeded();
+            if (recipientEpochCap != 0 && recipientTotal > recipientEpochCap) {
+                revert RecipientEpochCapExceeded();
+            }
+            epochSpent[epoch] = epochTotal;
+            recipientEpochSpent[epoch][permit.recipient] = recipientTotal;
+        }
+
+        // CEI: every effect is written before the only external interaction.
         used[permit.paymentId] = true;
         _transferExact(permit.recipient, permit.amount);
         emit PaymentExecuted(
@@ -118,6 +211,9 @@ contract PaymentGuard {
             permit.token,
             permit.amount
         );
+        if (epochLength != 0) {
+            emit BudgetConsumed(permit.paymentId, epoch, epochTotal, recipientTotal);
+        }
     }
 
     /// @dev Pulls exactly `amount` from this contract's caller. `msg.sender` is preserved
