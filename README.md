@@ -238,6 +238,16 @@ So the worst a confused planner can do is sequence the same payments differently
 
 Building a plan is read-only — it derives decisions from live evidence without recording them — and every invoice it ranks must still pass its own policy checks and settle through the same guarded payment path. Invoices that are not payable appear in the plan with the reason, so the queue stays visible in full rather than silently filtered.
 
+## Treasury visibility
+
+`GET /forecast` answers the question a treasurer asks before either of the above: what is due,
+when, and where does the balance stop covering it. Obligations are walked in **due-date order**
+against the balance, keeping the reserve intact, so the forecast and the payment plan cannot
+disagree about what is affordable. Two distinctions are deliberate: an invoice whose evidence is
+incomplete is still money owed - it is counted and flagged as *not payable by the agent*, with the
+reason - and the shortfall date is the first obligation the balance cannot cover, not the first
+invoice that happens to be urgent.
+
 ## Workflow states and safety behavior
 
 `RECEIVED → EVIDENCE_CHECKING → ELIGIBLE | WAITING | HELD | ESCALATED → AUTHORIZED → SUBMITTED → CONFIRMED → ERP_PENDING | ERP_RECORDED`.

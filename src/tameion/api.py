@@ -18,6 +18,7 @@ from .currency import USDCOnlyConverter
 from .deliberation import build_decision_agent, build_order_planner
 from .domain import InvoiceLine, InvoiceRecord, ScreeningStatus, WorkflowState, usdc_to_units
 from .frappe_adapter import FrappeAccountingConnector
+from .forecast import build_forecast
 from .local_payment import LocalKeyPaymentProvider
 from .mock_adapters import MockAccountingConnector, MockPaymentProvider
 from .policy import DeterministicPolicy
@@ -306,6 +307,15 @@ def create_app(
     @app.get("/invoices/{invoice_id}/events", tags=["audit"], dependencies=[Depends(require_api_key)])
     def events(invoice_id: str) -> list[dict[str, Any]]:
         return workflow.events(invoice_id)
+
+    @app.get("/forecast", tags=["planning"], dependencies=[Depends(require_api_key)])
+    def treasury_forecast(days: int = 30) -> dict[str, Any]:
+        """Forward coverage: what is due, and the first date the balance stops covering it.
+
+        Read-only. Obligations are walked in due-date order, keeping the treasury reserve
+        intact, and obligations the agent may not pay are still counted as money owed.
+        """
+        return build_forecast(workflow, days=max(1, min(days, 365))).to_dict()
 
     @app.get("/plan", tags=["planning"], dependencies=[Depends(require_api_key)])
     def payment_plan() -> dict[str, Any]:
