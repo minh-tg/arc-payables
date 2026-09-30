@@ -268,6 +268,10 @@ step does not stop the pass, and a failed pass does not stop the loop. Every pas
 worker running as its own process is still visible to the API. `--max-actions` caps the work in a
 single pass, and what it defers is picked up by the next one rather than lost.
 
+### Supervised service
+
+The single-host Podman Compose deployment runs one API and one worker against a shared SQLite volume. It defines restart policies, healthchecks, and a host-local Prometheus scrape example. See the [deployment runbook](deploy/arc-payables/README.md) for configuration, startup, health, alerts, and storage limits. The console's Worker view reads `GET /worker/status`.
+
 ### Metrics
 
 `GET /metrics` exposes the Prometheus text format. It needs the API key, and it also accepts it as a

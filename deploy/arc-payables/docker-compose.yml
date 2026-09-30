@@ -1,0 +1,52 @@
+name: arc-payables
+
+services:
+  api:
+    image: localhost/arc-payables:local
+    build:
+      context: ../..
+      dockerfile: deploy/arc-payables/Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ../../.secret
+    environment:
+      DATABASE_PATH: /app/data/arc_payables.sqlite3
+    volumes:
+      - arc-payables-data:/app/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    image: localhost/arc-payables:local
+    command: ["arc-payables-worker"]
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ../../.secret
+    environment:
+      DATABASE_PATH: /app/data/arc_payables.sqlite3
+    volumes:
+      - arc-payables-data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "/app/deploy/arc-payables/worker_healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  arc-payables-data:
