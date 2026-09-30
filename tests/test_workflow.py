@@ -490,11 +490,8 @@ def test_a_finished_writeback_cannot_be_claimed_again(runtime):
 
 def test_erp_writeback_in_flight_is_reported_not_silently_succeeded(runtime):
     runtime["workflow"].evaluate(runtime["legitimate_id"])
-    runtime["accounting"].fail_next_write = True
+    runtime["accounting"].unsure_next_write = True
     runtime["workflow"].submit_payment(runtime["legitimate_id"])
-    # Simulate a writeback lease held by another in-flight request.
-    runtime["accounting"].fail_next_write = False
-    assert runtime["store"].claim_erp_writeback(runtime["legitimate_id"], lease_seconds=120) is True
     try:
         runtime["workflow"].retry_erp_writeback(runtime["legitimate_id"])
     except WorkflowError as exc:

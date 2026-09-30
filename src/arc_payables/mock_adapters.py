@@ -40,6 +40,21 @@ class MockAccountingConnector:
         self.entries: dict[str, dict[str, Any]] = {}
         self.fail_next_write = False
 
+class MockErpError(RuntimeError):
+    """A mock connector failure that says which kind it is.
+
+    The service reads `status_code` and `uncertain` to decide what to do next, so a test double that
+    raises a bare exception is lying about the only thing it was supposed to reproduce. A lost
+    response is uncertain: the write may have committed, so the retry must be soon and must
+    reconcile. A rejection is definite, so the retry backs off instead of hammering.
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None, uncertain: bool = False):
+        super().__init__(message)
+        self.status_code = status_code
+        self.uncertain = uncertain
+
+
 class MockAccountingConnector:
     """Simulated ERPNext.
 
@@ -60,8 +75,13 @@ class MockAccountingConnector:
         self.store = store
         self.entries: dict[str, dict[str, Any]] = {}
         self.fee_entries: dict[str, dict[str, Any]] = {}
+        # Refused before anything was written: definite, so the retry backs off.
         self.fail_next_write = False
         self.fail_next_fee_write = False
+        # Committed, then the response was lost: uncertain, so the claim is kept and the outcome
+        # has to be reconciled before anything else is written.
+        self.unsure_next_write = False
+        self.unsure_next_fee_write = False
         self.invoice_currency = (invoice_currency or "USD").upper()
         self.settlement_currency = (settlement_currency or "USDC").upper()
         self.rate = Decimal(str(settlement_to_invoice_rate))
@@ -175,6 +195,9 @@ class MockAccountingConnector:
         tx_hash: str,
         mapping: PaymentMapping,
     ) -> ERPWriteResult:
+        if self.fail_next_write:
+            self.fail_next_write = False
+            raise MockErpError("mock ERPNext rejected the Payment Entry", status_code=417)
         existing = self.entries.get(tx_hash)
         if existing:
             if existing["invoice_id"] != invoice.id:
@@ -188,9 +211,9 @@ class MockAccountingConnector:
             "docstatus": 1,
             "mapping": mapping.__dict__,
         }
-        if self.fail_next_write:
-            self.fail_next_write = False
-            raise TimeoutError("Mock ERPNext timeout after its idempotent write committed")
+        if self.unsure_next_write:
+            self.unsure_next_write = False
+            raise MockErpError("mock ERPNext lost the response after its idempotent write committed", uncertain=True)
         return ERPWriteResult(entry_id, 1, already_existed=False)
 
     def create_fee_expense(
@@ -203,6 +226,9 @@ class MockAccountingConnector:
         """Book the network fee as its own expense entry, exactly as the live connector does."""
         if fee_units <= 0:
             return None
+        if self.fail_next_fee_write:
+            self.fail_next_fee_write = False
+            raise MockErpError("mock ERPNext rejected the network-fee entry", status_code=417)
         existing = self.fee_entries.get(tx_hash)
         if existing:
             if existing["invoice_id"] != invoice.id:
@@ -220,9 +246,9 @@ class MockAccountingConnector:
             "settlement_account": mapping.paid_from,
             "cost_center": mapping.cost_center,
         }
-        if self.fail_next_fee_write:
-            self.fail_next_fee_write = False
-            raise TimeoutError("Mock ERPNext timeout after its idempotent fee write committed")
+        if self.unsure_next_fee_write:
+            self.unsure_next_fee_write = False
+            raise MockErpError("mock ERPNext lost the response after its idempotent fee write committed", uncertain=True)
         return ERPWriteResult(entry_id, 1, already_existed=False)
 
     @staticmethod
