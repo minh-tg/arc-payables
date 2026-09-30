@@ -111,7 +111,7 @@ class DuplicateInvoiceNumber(ValueError):
 
 
 class SQLiteEvidenceStore:
-    """Small durable evidence store with explicit SQLite write transactions."""
+    """Durable evidence store with WAL readers and explicit SQLite write transactions."""
 
     def __init__(self, database_path: Path | str, audit_signer: Any | None = None):
         self.path = Path(database_path)
@@ -138,6 +138,9 @@ class SQLiteEvidenceStore:
         if not migrations.exists():
             migrations = Path(__file__).resolve().parents[2] / "migrations"
         with self._connect() as connection:
+            journal_mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+            if str(journal_mode).lower() != "wal":
+                raise RuntimeError(f"SQLite WAL mode is required, got {journal_mode!r}")
             connection.execute("BEGIN IMMEDIATE")
             try:
                 connection.execute(
