@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     payment_provider: Literal["mock", "circle", "local"] = "mock"
     accounting_provider: Literal["mock", "frappe"] = "mock"
     policy_version: str = "arc-payables-ap-v1"
+    # Background worker. The loop reconciles, retries and re-screens on its own; paying on its own
+    # is opt-in, because deciding when to spend unattended is a policy choice and not a default.
+    worker_interval_seconds: int = 60
+    worker_autopay: bool = False
+    worker_max_actions_per_pass: int = 25
+
     max_invoice_usdc: Decimal = Decimal("1000")
     min_reserve_usdc: Decimal = Decimal("2000")
     max_treasury_snapshot_age_seconds: int = 90

@@ -560,6 +560,54 @@ class SQLiteEvidenceStore:
             return "entry_contents_do_not_match_its_hash"
         return None
 
+    def record_worker_run(self, started_at: str, finished_at: str, outcome: str, detail: dict) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    "INSERT INTO worker_runs(started_at, finished_at, outcome, detail_json) VALUES (?, ?, ?, ?)",
+                    (started_at, finished_at, outcome, canonical_json(detail)),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def worker_summary(self, limit: int = 200) -> dict:
+        """Recent passes, plus how many have failed in a row.
+
+        Consecutive failures are what an alert watches: one degraded pass is noise, and ten in a row
+        means the loop is not doing its job.
+        """
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT started_at, finished_at, outcome, detail_json FROM worker_runs ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        runs = [
+            {
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+                "outcome": row["outcome"],
+                "detail": json.loads(row["detail_json"]),
+            }
+            for row in rows
+        ]
+        consecutive_failures = 0
+        for run in runs:
+            if run["outcome"] == "ok":
+                break
+            consecutive_failures += 1
+        outcomes: dict[str, int] = {}
+        for run in runs:
+            outcomes[run["outcome"]] = outcomes.get(run["outcome"], 0) + 1
+        return {
+            "last": runs[0] if runs else None,
+            "consecutive_failures": consecutive_failures,
+            "outcomes": outcomes,
+            "observed": len(runs),
+        }
+
     def record_screening(self, screening: dict) -> None:
         """Append one screening result. History is kept: a status change is a transition."""
         with self._connect() as connection:
