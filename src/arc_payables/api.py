@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -28,6 +28,7 @@ from .policy import DeterministicPolicy
 from .prioritisation import PaymentPrioritiser
 from .screening import build_screening_provider
 from .security import EIP712PermitSigner, SignerBackendUnavailable, build_permit_signer
+from .metrics import collect, render
 from .service import APWorkflow, WorkflowError
 from .settings import Settings, get_settings
 from .store import SQLiteEvidenceStore
@@ -198,6 +199,19 @@ def create_app(
         if settings.api_key and (not x_api_key or not hmac.compare_digest(x_api_key, settings.api_key)):
             raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Valid API credentials are required."})
 
+    def require_metrics_access(
+        x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> None:
+        """The scrape credential. A bearer token is accepted because Prometheus cannot send X-API-Key."""
+        if not settings.api_key:
+            return
+        presented = x_api_key
+        if not presented and authorization and authorization.lower().startswith("bearer "):
+            presented = authorization[7:].strip()
+        if not presented or not hmac.compare_digest(presented, settings.api_key):
+            raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Valid API credentials are required."})
+
     def require_human_approval_token(
         x_approval_token: Annotated[str | None, Header(alias="X-Approval-Token")] = None,
     ) -> None:
@@ -252,6 +266,14 @@ def create_app(
         if not ready_value:
             raise HTTPException(status_code=503, detail=response)
         return response
+
+    @app.get("/metrics", tags=["health"], dependencies=[Depends(require_metrics_access)])
+    def metrics() -> PlainTextResponse:
+        """Prometheus scrape target. Numbers about the money, not the money itself."""
+        return PlainTextResponse(
+            render(collect(workflow)),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     @app.get("/invoices", tags=["invoices"], dependencies=[Depends(require_api_key)])
     def list_invoices() -> list[dict[str, Any]]:
