@@ -406,29 +406,42 @@ def _build_sink(workflow: APWorkflow) -> Any | None:
     return WebhookSink(url, min_interval_seconds=workflow.settings.alert_min_interval_seconds)
 
 
-def main() -> None:
-    import argparse
+def _autopay_enabled(cli_value: bool | None, configured_value: bool) -> bool:
+    """Let an explicit CLI choice override configuration, otherwise use the configured default."""
+    return configured_value if cli_value is None else cli_value
 
-    from .api import create_app
-    from .settings import get_settings
+
+def _build_parser():
+    import argparse
 
     parser = argparse.ArgumentParser(description="Run the arc-payables background worker.")
     parser.add_argument("--once", action="store_true", help="Run a single pass and exit; exit 1 if it did not finish cleanly")
     parser.add_argument("--interval", type=float, default=None, help="Seconds between passes (default: WORKER_INTERVAL_SECONDS)")
-    parser.add_argument("--autopay", action="store_true", help="Also pay invoices the policy already authorized")
+    parser.add_argument(
+        "--autopay",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Pay invoices the policy already authorized (overrides WORKER_AUTOPAY)",
+    )
     parser.add_argument("--no-rescreen", action="store_true", help="Skip re-screening in this process")
     parser.add_argument("--max-actions", type=int, default=None, help="Cap actions per pass (default: WORKER_MAX_ACTIONS_PER_PASS)")
-    args = parser.parse_args()
+    return parser
 
+
+def main() -> None:
+    from .runtime import build_workflow
+    from .settings import get_settings
+
+    args = _build_parser().parse_args()
     settings = get_settings()
-    # One process, one workflow: the same wiring the API uses, so a pass can never see different
-    # providers or a different policy from the service that serves the console.
-    workflow = create_app(settings=settings).state.workflow
+    # One process, one workflow: the same wiring the API uses, without importing the HTTP app.
+    workflow = build_workflow(settings)
+    autopay = _autopay_enabled(args.autopay, settings.worker_autopay)
 
     if args.once:
         report = run_pass(
             workflow,
-            autopay=args.autopay,
+            autopay=autopay,
             rescreen=not args.no_rescreen,
             max_actions=args.max_actions or settings.worker_max_actions_per_pass,
             alerts_sink=_build_sink(workflow),
@@ -447,11 +460,11 @@ def main() -> None:
             signal.signal(getattr(signal, name), handle_signal)
 
     interval = args.interval or settings.worker_interval_seconds
-    print(f"worker: every {interval:g}s, autopay={'on' if args.autopay else 'off'}", flush=True)
+    print(f"worker: every {interval:g}s, autopay={'on' if autopay else 'off'}", flush=True)
     run_forever(
         workflow,
         interval_seconds=interval,
-        autopay=args.autopay,
+        autopay=autopay,
         rescreen=not args.no_rescreen,
         max_actions=args.max_actions or settings.worker_max_actions_per_pass,
         stop_event=stop,

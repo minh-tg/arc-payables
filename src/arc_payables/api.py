@@ -15,21 +15,14 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .circle_adapter import CircleDeveloperControlledWalletProvider
-from .currency import USDCOnlyConverter
-from .deliberation import build_decision_agent, build_order_planner
-from .domain import InvoiceLine, InvoiceRecord, ScreeningStatus, WorkflowState, usdc_to_units
-from .frappe_adapter import FrappeAccountingConnector
+from .deliberation import build_order_planner
+from .domain import InvoiceLine, InvoiceRecord, usdc_to_units
 from .forecast import build_forecast
 from .monitoring import rescreen_suppliers, supplier_risk_overview
-from .local_payment import LocalKeyPaymentProvider
-from .mock_adapters import MockAccountingConnector, MockPaymentProvider
-from .policy import DeterministicPolicy
 from .prioritisation import PaymentPrioritiser
-from .screening import build_screening_provider
-from .security import EIP712PermitSigner, SignerBackendUnavailable, build_permit_signer
 from .metrics import collect, render
-from .service import APWorkflow, WorkflowError
+from .runtime import DisabledPaymentProvider, build_workflow
+from .service import WorkflowError
 from .settings import Settings, get_settings
 from .store import SQLiteEvidenceStore
 
@@ -112,23 +105,6 @@ class APIError(BaseModel):
     message: str
 
 
-class DisabledPaymentProvider:
-    wallet_address = None
-    guard_address = None
-
-    def get_balance(self):
-        raise RuntimeError("Circle payment configuration is incomplete")
-
-    def screen_address(self, address):
-        return ScreeningStatus.UNAVAILABLE
-
-    def inspect_payment(self, payment):
-        raise RuntimeError("Circle payment configuration is incomplete")
-
-    def submit_authorized(self, payment, on_transaction=None):
-        raise RuntimeError("Circle payment configuration is incomplete")
-
-
 def create_app(
     settings: Settings | None = None,
     store: SQLiteEvidenceStore | None = None,
@@ -137,42 +113,16 @@ def create_app(
     signer=None,
 ) -> FastAPI:
     settings = settings or get_settings()
-    store = store or SQLiteEvidenceStore(settings.database_path)
-    store.initialize()
-
-    if accounting is None:
-        accounting = FrappeAccountingConnector(settings) if settings.accounting_provider == "frappe" else MockAccountingConnector(
-            store,
-            invoice_currency=settings.frappe_invoice_currency or "USD",
-            settlement_currency=settings.settlement_currency,
-            settlement_to_invoice_rate=settings.settlement_to_invoice_rate,
-        )
-    if payment_provider is None:
-        if settings.payment_provider == "circle":
-            if settings.circle_ready:
-                signer = signer or build_permit_signer(settings)
-                payment_provider = CircleDeveloperControlledWalletProvider(settings, signer)
-            else:
-                payment_provider = DisabledPaymentProvider()
-        elif settings.payment_provider == "local":
-            if settings.local_payment_ready:
-                signer = signer or build_permit_signer(settings)
-                payment_provider = LocalKeyPaymentProvider(settings, signer)
-            else:
-                payment_provider = DisabledPaymentProvider()
-        else:
-            payment_provider = MockPaymentProvider(store)
-    if signer is None:
-        signer = getattr(payment_provider, "signer", None)
-    if signer is None:
-        # No payment path is configured: a throwaway in-memory signer keeps the workflow
-        # constructible and cannot be used to move funds.
-        signer = EIP712PermitSigner("0x" + "01".zfill(64))
-    policy = DeterministicPolicy(settings, USDCOnlyConverter())
-    # Anchor the audit chain to the same key that authorizes payments. Without a signer the
-    # chain is still hash-linked, but it cannot be distinguished from a fully rewritten log.
-    store.set_audit_signer(signer)
-    workflow = APWorkflow(store, accounting, payment_provider, signer, policy, settings, screener=build_screening_provider(settings, store))
+    workflow = build_workflow(
+        settings,
+        store=store,
+        accounting=accounting,
+        payment_provider=payment_provider,
+        signer=signer,
+    )
+    store = workflow.store
+    accounting = workflow.accounting
+    payment_provider = workflow.payment_provider
 
     app = FastAPI(
         title=settings.app_name,
