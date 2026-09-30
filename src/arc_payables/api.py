@@ -275,6 +275,22 @@ def create_app(
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
 
+    @app.get("/worker/status", tags=["health"], dependencies=[Depends(require_api_key)])
+    def worker_status() -> dict[str, Any]:
+        """What the background loop did lately, and what it asked a human to look at.
+
+        The worker runs in its own process and records each pass. This reads those records back.
+        The alerts are the ones the latest pass computed and stored, not recomputed here, so this
+        endpoint and the pass history can never disagree about what was raised.
+        """
+        summary = store.worker_summary()
+        detail = ((summary.get("last") or {}).get("detail")) or {}
+        return {
+            **summary,
+            "alerts": detail.get("alerts", []),
+            "alert_delivery": detail.get("alert_delivery", []),
+        }
+
     @app.get("/invoices", tags=["invoices"], dependencies=[Depends(require_api_key)])
     def list_invoices() -> list[dict[str, Any]]:
         return workflow.list_invoices()
