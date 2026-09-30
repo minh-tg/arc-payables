@@ -30,6 +30,19 @@ class Settings(BaseSettings):
     worker_autopay: bool = False
     worker_max_actions_per_pass: int = 25
 
+    # Retrying a broken ledger write forever is noise; not retrying it is a silent leak. Back off
+    # instead, per payment, and keep the reason on the record.
+    writeback_backoff_seconds: int = 60
+    writeback_backoff_max_seconds: int = 3600
+    # How long one writeback holds its claim. An uncertain write keeps the claim, and waits it out
+    # rather than racing the remote call it does not know the outcome of.
+    writeback_lease_seconds: int = 120
+
+    # Alerting is off until a destination is configured. Nothing here invents a channel.
+    alert_webhook_url: str | None = None
+    alert_min_interval_seconds: int = 3600
+    alert_after_consecutive_failures: int = 3
+
     max_invoice_usdc: Decimal = Decimal("1000")
     min_reserve_usdc: Decimal = Decimal("2000")
     max_treasury_snapshot_age_seconds: int = 90

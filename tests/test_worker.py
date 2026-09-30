@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import threading
 import uuid
+from datetime import datetime, timedelta
 from decimal import Decimal
+
+from arc_payables.domain import utcnow
 
 from arc_payables import worker
 from arc_payables.domain import WorkflowState
@@ -85,18 +88,69 @@ def test_an_unconfirmed_payment_is_reconciled_without_a_person(runtime):
     assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ERP_RECORDED.value
 
 
-def test_a_failed_writeback_is_retried_without_a_person(runtime):
+def test_a_lost_ledger_response_is_reconciled_once_the_claim_expires(runtime):
+    """A response that was lost is not a refusal: the write may have committed, so the claim is
+    kept until it expires and the next pass resolves what actually happened."""
     runtime["payment"].fee_units = 10_000
-    runtime["accounting"].fail_next_fee_write = True
+    runtime["accounting"].unsure_next_fee_write = True
     runtime["workflow"].evaluate(runtime["legitimate_id"])
     runtime["workflow"].submit_payment(runtime["legitimate_id"])
-    assert runtime["store"].get_payment(runtime["legitimate_id"])["erp_fee_status"] == "FAILED"
+    assert runtime["store"].get_payment(runtime["legitimate_id"])["erp_fee_status"] == "UNKNOWN"
 
-    report = worker.run_pass(runtime["workflow"])
+    # While the claim is live, the pass waits instead of racing the call it cannot see.
+    waiting = worker.run_pass(runtime["workflow"])
+    assert _step(waiting, "writeback").acted == 0
+    assert _step(waiting, "writeback").detail["waiting"] == 1
+
+    # Once it expires, the same pass finds the entry the lost response was hiding.
+    report = worker.run_pass(runtime["workflow"], now=lambda: utcnow() + timedelta(minutes=5))
     assert _step(report, "writeback").acted == 1
     payment = runtime["store"].get_payment(runtime["legitimate_id"])
     assert payment["erp_fee_status"] == "RECORDED"
+    assert payment["erp_attempts"] == 0
+    assert payment["erp_next_attempt_at"] is None
     assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ERP_RECORDED.value
+
+
+def test_a_failed_writeback_backs_off_instead_of_retrying_every_pass(runtime):
+    """A broken ledger must not be hammered once per pass, and it must not be forgotten either."""
+    runtime["payment"].fee_units = 10_000
+    # A definite refusal: nothing was written, so retrying immediately would only repeat it.
+    runtime["accounting"].fail_next_fee_write = True
+    runtime["workflow"].evaluate(runtime["legitimate_id"])
+    runtime["workflow"].submit_payment(runtime["legitimate_id"])
+
+    payment = runtime["store"].get_payment(runtime["legitimate_id"])
+    assert payment["erp_fee_status"] == "FAILED"
+    assert payment["erp_attempts"] == 1
+    first_due = datetime.fromisoformat(payment["erp_next_attempt_at"])
+    assert timedelta(seconds=50) < (first_due - utcnow()) <= timedelta(seconds=60)
+
+    report = worker.run_pass(runtime["workflow"])
+    writeback = _step(report, "writeback")
+    assert writeback.acted == 0
+    assert writeback.detail["waiting"] == 1
+    assert writeback.detail["waiting_until"][0]["attempts"] == 1
+    # Still FAILED, so the retry is deferred rather than lost.
+    assert runtime["store"].get_payment(runtime["legitimate_id"])["erp_fee_status"] == "FAILED"
+
+    # A second failure doubles the wait. The schedule is the service's, on the real clock; only the
+    # worker's view of time was moved forward in this test.
+    runtime["accounting"].fail_next_fee_write = True
+    worker.run_pass(runtime["workflow"], now=lambda: utcnow() + timedelta(minutes=5))
+    second = runtime["store"].get_payment(runtime["legitimate_id"])
+    assert second["erp_attempts"] == 2
+    doubled = datetime.fromisoformat(second["erp_next_attempt_at"]) - utcnow()
+    assert timedelta(seconds=100) < doubled <= timedelta(seconds=120)
+
+
+def test_the_backoff_schedule_is_the_one_documented():
+    from arc_payables.domain import retry_backoff_seconds
+
+    assert retry_backoff_seconds(0) == 0
+    assert [retry_backoff_seconds(n) for n in range(1, 8)] == [60, 120, 240, 480, 960, 1920, 3600]
+    assert retry_backoff_seconds(99) == 3600          # capped
+    assert retry_backoff_seconds(3, base=10, cap=30) == 30
 
 
 def test_one_broken_invoice_does_not_stop_the_rest(runtime, monkeypatch):
@@ -269,3 +323,55 @@ def test_consecutive_failures_reset_after_a_good_pass(runtime):
     store.record_worker_run(now, now, "ok", {})
     assert store.worker_summary()["consecutive_failures"] == 0
     assert store.worker_summary()["outcomes"] == {"ok": 1, "degraded": 2}
+
+
+def test_a_pass_records_the_alerts_it_would_raise(runtime):
+    """Alerts are part of the pass record even with no destination, so a scrape or a console sees them."""
+    runtime["workflow"].settings.min_reserve_usdc = 6000  # balance is 5,000
+    report = worker.run_pass(runtime["workflow"])
+    codes = {alert["code"] for alert in report.alerts}
+    assert "reserve_breached" in codes
+
+    recorded = runtime["store"].worker_summary()["last"]["detail"]
+    assert {alert["code"] for alert in recorded["alerts"]} == codes
+
+
+def test_a_pass_delivers_alerts_when_a_destination_is_configured(runtime):
+    from arc_payables.alerting import WebhookSink
+
+    runtime["workflow"].settings.min_reserve_usdc = 6000
+    sent = []
+    sink = WebhookSink(
+        "https://alerts.example.test/hook",
+        poster=lambda url, payload: sent.append((url, payload)),
+    )
+    worker.run_pass(runtime["workflow"], alerts_sink=sink)
+    assert len(sent) == 1
+    assert sent[0][0] == "https://alerts.example.test/hook"
+    assert sent[0][1]["alerts"][0]["severity"] == "critical"
+
+
+def test_a_streak_of_degraded_passes_crosses_the_alert_threshold(runtime, monkeypatch):
+    """The threshold counts the pass being reported, not just the ones already recorded."""
+    second_id = _extra_eligible_invoice(runtime)
+    for invoice_id in (runtime["legitimate_id"], second_id):
+        runtime["workflow"].evaluate(invoice_id)
+        runtime["workflow"].submit_payment(invoice_id)
+        _set_payment(runtime, invoice_id, {"confirmation_status": "UNCERTAIN"}, WorkflowState.NEEDS_RECONCILIATION.value)
+
+    def broken(self, invoice_id):
+        raise RuntimeError("provider is down")
+
+    monkeypatch.setattr(APWorkflow, "submit_payment", broken)
+    threshold = runtime["workflow"].settings.alert_after_consecutive_failures
+    assert threshold >= 2
+
+    seen = []
+    for _ in range(threshold):
+        report = worker.run_pass(runtime["workflow"])
+        assert report.outcome == "degraded"
+        seen.append({alert["code"] for alert in report.alerts})
+
+    assert all("worker_failing" not in codes for codes in seen[:-1])
+    assert "worker_failing" in seen[-1]
+    assert runtime["store"].worker_summary()["consecutive_failures"] == threshold

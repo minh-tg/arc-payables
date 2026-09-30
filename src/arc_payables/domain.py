@@ -21,6 +21,18 @@ def is_evm_address(value: str | None) -> bool:
         return False
 
 
+def retry_backoff_seconds(attempts: int, *, base: int = 60, cap: int = 3600) -> int:
+    """How long to wait before retrying something that has failed `attempts` times.
+
+    Deterministic on purpose: no jitter, so a test can assert the schedule and an operator can read
+    it off the record. A misconfigured accounting system should stop filling the log every pass, and
+    it should still be retried, because configuration gets fixed.
+    """
+    if attempts <= 0:
+        return 0
+    return int(min(base * (2 ** (attempts - 1)), cap))
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 

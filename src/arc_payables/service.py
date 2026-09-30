@@ -24,6 +24,7 @@ from .domain import (
     ScreeningStatus,
     TreasurySnapshot,
     WorkflowState,
+    retry_backoff_seconds,
     units_to_usdc,
     utcnow,
 )
@@ -343,6 +344,8 @@ class APWorkflow:
             "erp_entry_id": None,
             "erp_fee_status": None,
             "erp_fee_entry_id": None,
+            "erp_attempts": 0,
+            "erp_next_attempt_at": None,
             "erp_status": "PENDING",
             "decision_evidence_hash": fresh_decision.evidence_hash,
         }
@@ -464,7 +467,7 @@ class APWorkflow:
         if is_frappe and payment.get("fee_units") is None:
             self.store.update_payment(invoice.id, {"erp_status": "DISABLED", "erp_error_code": "NETWORK_FEE_UNAVAILABLE"}, WorkflowState.ERP_PENDING.value, "ERP_WRITEBACK_DISABLED", {"reason": "confirmed network fee was not returned by provider"})
             return "DISABLED"
-        if not self.store.claim_erp_writeback(invoice.id):
+        if not self.store.claim_erp_writeback(invoice.id, lease_seconds=self.settings.writeback_lease_seconds):
             return "IN_PROGRESS"
         mapping = self._payment_mapping()
 
@@ -474,7 +477,7 @@ class APWorkflow:
             try:
                 result = self.accounting.create_payment_entry(invoice, payment["transaction_hash"], mapping)
             except Exception as exc:
-                return self._record_erp_failure(invoice, exc, "erp_status")
+                return self._record_erp_failure(invoice, payment, exc, "erp_status")
             payment_entry_id = result.payment_entry_id
             already_existed = result.already_existed
 
@@ -485,14 +488,34 @@ class APWorkflow:
             except Exception as exc:
                 # The payment is in the ledger; only the fee expense is missing. Record the payment
                 # entry so the retry cannot book it twice, and leave the invoice short of ERP_RECORDED.
+                uncertain = bool(getattr(exc, "uncertain", False))
+                attempts = int(payment.get("erp_attempts") or 0)
                 updates = {
                     "erp_status": "RECORDED",
                     "erp_entry_id": payment_entry_id,
                     "erp_claimed_at": None,
-                    "erp_fee_status": "UNKNOWN" if getattr(exc, "uncertain", False) else "FAILED",
+                    "erp_fee_status": "UNKNOWN" if uncertain else "FAILED",
                     "erp_fee_error_code": str(getattr(exc, "status_code", None) or getattr(exc, "code", None) or type(exc).__name__),
                 }
-                self.store.update_payment(invoice.id, updates, WorkflowState.ERP_PENDING.value, "ERP_FEE_EXPENSE_FAILED", {"payment_entry_id": payment_entry_id, "error_type": type(exc).__name__})
+                if uncertain:
+                    updates["erp_next_attempt_at"] = (
+                        utcnow() + timedelta(seconds=self.settings.writeback_lease_seconds)
+                    ).isoformat()
+                else:
+                    updates["erp_attempts"] = attempts + 1
+                    updates["erp_next_attempt_at"] = self._next_writeback_attempt(attempts + 1)
+                self.store.update_payment(
+                    invoice.id,
+                    updates,
+                    WorkflowState.ERP_PENDING.value,
+                    "ERP_FEE_EXPENSE_FAILED",
+                    {
+                        "payment_entry_id": payment_entry_id,
+                        "error_type": type(exc).__name__,
+                        "attempts": updates.get("erp_attempts", attempts),
+                        "next_attempt_at": updates.get("erp_next_attempt_at"),
+                    },
+                )
                 return "FEE_FAILED"
             fee_entry_id = fee_result.payment_entry_id if fee_result else None
 
@@ -502,6 +525,8 @@ class APWorkflow:
             "erp_claimed_at": None,
             "erp_fee_status": "RECORDED" if fee_units > 0 else "NOT_APPLICABLE",
             "erp_fee_entry_id": fee_entry_id,
+            "erp_attempts": 0,
+            "erp_next_attempt_at": None,
         }
         self.store.update_payment(
             invoice.id,
@@ -517,14 +542,48 @@ class APWorkflow:
         )
         return "RECORDED"
 
-    def _record_erp_failure(self, invoice: InvoiceRecord, exc: Exception, status_field: str) -> str:
+    def _record_erp_failure(self, invoice: InvoiceRecord, payment: dict, exc: Exception, status_field: str) -> str:
+        """Record a failed writeback, and decide when it is worth trying again.
+
+        An uncertain failure is not the same as a refusal. The write may have committed, so the retry
+        must be soon and must reconcile rather than assume; that is why only a definite failure backs
+        off, and why the lease is kept for an uncertain one.
+        """
         error_code = getattr(exc, "status_code", None) or getattr(exc, "code", None) or type(exc).__name__
         uncertain = bool(getattr(exc, "uncertain", False))
+        attempts = int(payment.get("erp_attempts") or 0)
         updates = {status_field: "UNKNOWN" if uncertain else "PENDING", "erp_error_code": str(error_code)}
-        if not uncertain:
+        if uncertain:
+            # The write may have committed and the remote may still be working. Keep the claim, and
+            # come back when it expires rather than racing the call whose outcome is unknown.
+            updates["erp_attempts"] = attempts
+            updates["erp_next_attempt_at"] = (utcnow() + timedelta(seconds=self.settings.writeback_lease_seconds)).isoformat()
+        else:
+            updates["erp_attempts"] = attempts + 1
+            updates["erp_next_attempt_at"] = self._next_writeback_attempt(attempts + 1)
             updates["erp_claimed_at"] = None
-        self.store.update_payment(invoice.id, updates, WorkflowState.ERP_PENDING.value, "ERP_WRITEBACK_UNCERTAIN" if uncertain else "ERP_WRITEBACK_FAILED", {"error_type": type(exc).__name__, "error_code": str(error_code), "uncertain": uncertain})
+        self.store.update_payment(
+            invoice.id,
+            updates,
+            WorkflowState.ERP_PENDING.value,
+            "ERP_WRITEBACK_UNCERTAIN" if uncertain else "ERP_WRITEBACK_FAILED",
+            {
+                "error_type": type(exc).__name__,
+                "error_code": str(error_code),
+                "uncertain": uncertain,
+                "attempts": updates["erp_attempts"],
+                "next_attempt_at": updates.get("erp_next_attempt_at"),
+            },
+        )
         return "UNCERTAIN" if uncertain else "FAILED"
+
+    def _next_writeback_attempt(self, attempts: int) -> str:
+        delay = retry_backoff_seconds(
+            attempts,
+            base=self.settings.writeback_backoff_seconds,
+            cap=self.settings.writeback_backoff_max_seconds,
+        )
+        return (utcnow() + timedelta(seconds=delay)).isoformat()
 
     def _payment_mapping(self) -> PaymentMapping:
         if self.settings.accounting_provider == "frappe":

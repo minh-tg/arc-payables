@@ -70,6 +70,8 @@ class PassReport:
     finished_at: datetime
     steps: list[StepReport]
     stopped_reason: str | None = None
+    alerts: list[dict[str, Any]] = field(default_factory=list)
+    alert_delivery: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def failed_steps(self) -> list[StepReport]:
@@ -88,6 +90,8 @@ class PassReport:
             "outcome": self.outcome,
             "stopped_reason": self.stopped_reason,
             "steps": [step.to_dict() for step in self.steps],
+            "alerts": self.alerts,
+            "alert_delivery": self.alert_delivery,
         }
 
     def summary_line(self) -> str:
@@ -109,6 +113,7 @@ def run_pass(
     autopay: bool = False,
     rescreen: bool = True,
     max_actions: int = 25,
+    alerts_sink: Any | None = None,
     now: Callable[[], datetime] = utcnow,
 ) -> PassReport:
     """Run one pass over every invoice, then the standing jobs. Never raises for one bad row."""
@@ -132,6 +137,13 @@ def run_pass(
         for invoice, state in invoices:
             payment = workflow.store.get_payment(invoice.id)
             if payment is None:
+                continue
+            waiting = _backoff_remaining(payment, now())
+            if waiting is not None:
+                step.detail["waiting"] = step.detail.get("waiting", 0) + 1
+                step.detail.setdefault("waiting_until", []).append(
+                    {"invoice_id": invoice.id, "seconds": waiting, "attempts": int(payment.get("erp_attempts") or 0)}
+                )
                 continue
             if not needs_action(payment, state):
                 step.skipped += 1
@@ -166,8 +178,55 @@ def run_pass(
     report.steps.append(_observe(workflow))
 
     report.finished_at = now()
+    _raise_alerts(workflow, report, alerts_sink)
     _record(workflow, report)
     return report
+
+
+def _backoff_remaining(payment: dict, now: datetime) -> int | None:
+    """Seconds until this payment's writeback is worth retrying, if it is in backoff.
+
+    A definite failure schedules the next attempt; an uncertain one does not, because the write may
+    have committed and finding out is urgent.
+    """
+    next_attempt = payment.get("erp_next_attempt_at")
+    if not next_attempt:
+        return None
+    from .monitoring import _parse  # one date parser, already written and tested
+
+    due = _parse(str(next_attempt))
+    if due is None:
+        return None
+    remaining = int((due - now).total_seconds())
+    return remaining if remaining > 0 else None
+
+
+def _raise_alerts(workflow: APWorkflow, report: PassReport, sink: Any | None) -> None:
+    """Work out what is worth telling someone, record it on the pass, and send if configured."""
+    from .alerting import evaluate_alerts, log_alerts
+    from .metrics import collect
+
+    try:
+        snapshot = collect(workflow)
+    except Exception as exc:  # pragma: no cover - collect reads defensively already
+        report.alert_delivery.append({"code": "snapshot_failed", "error": _bounded(exc)})
+        return
+    # The pass being reported is not recorded yet, so it is added to the streak the store knows.
+    streak = snapshot["worker_consecutive_failures"]
+    consecutive = 0 if report.outcome == "ok" else streak + 1
+    alerts = evaluate_alerts(
+        outcome=report.outcome,
+        consecutive_failures=consecutive,
+        snapshot=snapshot,
+        settings=workflow.settings,
+    )
+    report.alerts = [alert.to_dict() for alert in alerts]
+    if not alerts:
+        return
+    log_alerts(alerts)
+    if sink is None:
+        return
+    report.alert_delivery = sink.send(alerts)
 
 
 def _needs_reconcile(payment: dict, state: str) -> bool:
@@ -319,11 +378,14 @@ def run_forever(
     `sleep` and `on_pass` are injectable so the loop can be tested without waiting and without
     capturing stdout.
     """
+    from .alerting import WebhookSink
+
     stop = stop_event or threading.Event()
     waiter = sleep or (lambda seconds: stop.wait(seconds))
+    sink = _build_sink(workflow)
     while not stop.is_set():
         try:
-            report = run_pass(workflow, autopay=autopay, rescreen=rescreen, max_actions=max_actions)
+            report = run_pass(workflow, autopay=autopay, rescreen=rescreen, max_actions=max_actions, alerts_sink=sink)
         except Exception as exc:  # pragma: no cover - a pass catches its own step failures
             print(f"worker: pass aborted: {_bounded(exc)}", file=sys.stderr)
         else:
@@ -332,6 +394,16 @@ def run_forever(
                 on_pass(report)
         if waiter(interval_seconds):
             break
+
+
+def _build_sink(workflow: APWorkflow) -> Any | None:
+    """The configured destination, or nothing. An unconfigured loop still records its alerts."""
+    url = getattr(workflow.settings, "alert_webhook_url", None)
+    if not url:
+        return None
+    from .alerting import WebhookSink
+
+    return WebhookSink(url, min_interval_seconds=workflow.settings.alert_min_interval_seconds)
 
 
 def main() -> None:
@@ -359,6 +431,7 @@ def main() -> None:
             autopay=args.autopay,
             rescreen=not args.no_rescreen,
             max_actions=args.max_actions or settings.worker_max_actions_per_pass,
+            alerts_sink=_build_sink(workflow),
         )
         print(report.summary_line())
         raise SystemExit(0 if report.outcome == "ok" else 1)
