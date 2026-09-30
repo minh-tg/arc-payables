@@ -82,6 +82,17 @@ Pay a larger invoice only if you fund the wallet from
 [testmint.myproceeds.xyz](https://testmint.myproceeds.xyz/), and then the guard caps must cover the
 amount as well, because they are fixed when the guard is deployed.
 
+## Or let it run itself
+
+```bash
+uv run arc-payables-worker --interval 30 --autopay
+```
+
+That is the same path as above with nobody pressing anything: it reconciles settlements, finishes
+ledger writebacks, re-screens counterparties, and pays only the invoices the policy already marked
+payable. It cannot approve an escalated invoice, and the guard's caps apply to it exactly as they
+apply to you. `GET /metrics` is the scoreboard for it.
+
 ## The flow
 
 ### 1. A payable exists

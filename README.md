@@ -237,6 +237,67 @@ confirmation, because that is the moment a human is accountable for.
 The console is shipped code, so its modules are syntax-checked in the test suite: a JavaScript
 error would otherwise produce a blank page that no server-side test would catch.
 
+## Running unattended
+
+The worker is what makes the rest of this operate without somebody pressing a button.
+
+```bash
+uv run arc-payables-worker --once                  # one pass, for a cron or a smoke test
+uv run arc-payables-worker --interval 30           # passes every 30 seconds until interrupted
+uv run arc-payables-worker --interval 30 --autopay  # also pay what the policy already authorized
+```
+
+A pass does four things and stops:
+
+| Step | What it does |
+| --- | --- |
+| `reconcile` | Finds settlements whose confirmation never arrived, and asks the chain again. Idempotent by design. |
+| `writeback` | Finishes confirmed payments the accounting system has not taken yet, including the case where the payment entry landed and the fee entry did not. |
+| `rescreen` | Re-screens counterparties past their cadence and moves their risk tier. |
+| `observe` | Reports the balance, the reserve headroom and the guard's budgets. Observation is not evidence, so this writes nothing. |
+
+**What it cannot do.** It never approves anything: an escalated invoice still needs a person, and the
+worker has no approval path at all. It runs the same workflow the API serves, so a payment it starts
+produces the same evidence hash, the same permit and the same audit chain as one a person starts. The
+guard's caps bind it exactly as they bind anything else, and `--autopay` only pays invoices the
+deterministic policy already put in `ELIGIBLE` with a `PAY_NOW` decision. Autopay is off unless asked
+for, because deciding to spend unattended is a policy an operator should state rather than inherit.
+
+**What it is built to survive.** One broken invoice does not stop the rest of the queue, one broken
+step does not stop the pass, and a failed pass does not stop the loop. Every pass is recorded, so a
+worker running as its own process is still visible to the API. `--max-actions` caps the work in a
+single pass, and what it defers is picked up by the next one rather than lost.
+
+### Metrics
+
+`GET /metrics` exposes the Prometheus text format. It needs the API key, and it also accepts it as a
+bearer token, because Prometheus cannot send `X-API-Key`:
+
+```yaml
+scrape_configs:
+  - job_name: arc-payables
+    authorization:
+      credentials: <API_KEY>
+    static_configs:
+      - targets: ["127.0.0.1:8000"]
+```
+
+The metrics worth alerting on:
+
+| Metric | Why |
+| --- | --- |
+| `arc_payables_worker_consecutive_failures` | A single degraded pass is noise; a run of them means the loop is not doing its job. |
+| `arc_payables_worker_last_run_timestamp_seconds` | A worker that stopped is worse than no worker, because the operator believes it is running. |
+| `arc_payables_payments_needing_attention{reason="unconfirmed"}` | Settlements nobody has confirmed. |
+| `arc_payables_payments_needing_attention{reason="unrecorded"}` | Money that left but is not in the ledger. |
+| `arc_payables_audit_chain_ok` | Zero means the audit chain no longer verifies, which outranks everything else here. |
+| `arc_payables_reserve_headroom_usdc` | Negative means the reserve floor is already breached. |
+| `arc_payables_guard_paused` | The operator stopped payments, or somebody else did. |
+
+Labels are deliberately bounded. States, statuses, kinds and outcomes are small vocabularies;
+supplier names and invoice ids are not, and a label whose value grows with the data is how a metrics
+endpoint becomes a memory leak.
+
 ## Database and tests
 
 Migrations are in `migrations/`; the service applies them on startup. The DB defaults to `data/arc_payables.sqlite3` (`DATABASE_PATH` overrides it).
