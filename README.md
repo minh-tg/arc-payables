@@ -103,6 +103,20 @@ Run against a fresh database with default settings, the seeded legitimate invoic
 escalates on seven checks, and the audit chain verifies. Only the chain and the ledger are
 simulated on that path, and every response says so.
 
+The console is the fastest way in. Three commands, no key:
+
+```bash
+uv run arc-payables-seed                 # a payable, a blocked invoice, a treasury and a supplier
+uv run uvicorn arc_payables.api:app      # API and console on 127.0.0.1:8000
+# then open http://127.0.0.1:8000/console/
+```
+
+With nothing configured, `/console/`, `/invoices`, `/plan`, `/forecast`, `/suppliers`,
+`/worker/status` and `/audit/verify` all answer without a credential. That is deliberate rather than
+sloppy: the demo providers hold nothing worth protecting, and the API refuses to start an external
+integration at all until a key is configured, so the open path is only ever the local demo. The
+console asks for a key so that the same page works against a configured deployment.
+
 Live components need the operator's own credentials, and none are in this repository:
 
 | Component | Needs | Without it |

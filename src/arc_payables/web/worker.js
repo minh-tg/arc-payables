@@ -22,6 +22,35 @@ function stepSummary(step) {
   return acted;
 }
 
+// Why a step did not act on something. A pass that declines a payable has to say why, or the
+// operator cannot tell a missing FX rate from an outage.
+const MAX_NOTES = 3;
+
+function stepNotes(step) {
+  const detail = step.detail || {};
+  const notes = [];
+  if (step.error) notes.push(step.error);
+
+  const declined = detail.declined || [];
+  for (const item of declined.slice(0, MAX_NOTES)) {
+    notes.push(`${item.external_id}: ${item.reason || item.code}`);
+  }
+  const declinedTotal = Object.values(detail.declined_codes || {}).reduce((sum, n) => sum + n, 0);
+  if (declinedTotal > declined.length) {
+    notes.push(`and ${declinedTotal - declined.length} more declined`);
+  }
+
+  for (const [code, count] of Object.entries(detail.refusals || {})) {
+    notes.push(`refused ${count}× ${code}`);
+  }
+  for (const item of (detail.errors || []).slice(0, MAX_NOTES)) {
+    notes.push(`${item.invoice_id || item.external_id}: ${item.error}`);
+  }
+  if (detail.deferred) notes.push(`${detail.deferred} deferred to the next pass`);
+  if (detail.waiting) notes.push(`${detail.waiting} waiting out a writeback backoff`);
+  return notes;
+}
+
 async function renderWorker(root) {
   const status = await api('/worker/status');
 
@@ -71,22 +100,30 @@ async function renderWorker(root) {
   );
 
   const steps = (last && last.detail && last.detail.steps) || [];
-  const stepRows = steps.map((step) =>
-    h(
+  const stepRows = steps.map((step) => {
+    const notes = stepNotes(step);
+    return h(
       'tr',
       {},
       h('td', {}, step.name),
       h('td', {}, stepSummary(step)),
       h('td', { class: 'num' }, String(step.skipped)),
       h('td', {}, step.failed || step.error ? badge('needs attention', 'bad') : badge('fine', 'good')),
-    ),
-  );
+      h(
+        'td',
+        { class: 'muted' },
+        notes.length
+          ? h('ul', { class: 'tight' }, notes.map((note) => h('li', {}, note)))
+          : '',
+      ),
+    );
+  });
   if (last) {
     root.append(
       panel(
         `Latest pass · ${last.started_at}`,
         h('p', { class: 'muted' }, `Outcome: ${last.outcome}`),
-        table(['Step', 'Acted / examined', 'Skipped', 'State'], stepRows),
+        table(['Step', 'Acted / examined', 'Skipped', 'State', 'Why'], stepRows),
       ),
     );
   }
