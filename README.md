@@ -236,16 +236,38 @@ failure says exactly which limit was hit.
 
 ## Circle platform usage
 
-Used today: **Developer-Controlled Wallets** (the production-shaped payer, in `circle_adapter.py`),
-**USDC** on Arc, and **Contracts** in the sense that the budget is enforced by an on-chain guard
-rather than by configuration.
+Used today, and verified live rather than asserted:
 
-Not yet used, each of which needs a Circle account and credentials that only the operator can
-create: **Paymaster** (sponsoring gas instead of the payer holding it), **App Kit** (Send,
-Unified Balance), **CCTP** and **Gateway** (moving USDC between chains as one balance), **USYC**
-(a yield-bearing reserve) and **EURC** (paying a euro-denominated vendor). The ports already
-exist for the payment and accounting sides, so each is an adapter plus tests rather than a
-redesign.
+* **Developer-Controlled Wallets.** The payer is a Circle SCA (`accountType: SCA`, wallet core
+  `circle_6900_singleowner_v4`) on `ARC-TESTNET`. The adapter reads the wallet back from Circle before
+  it signs anything and refuses a wallet that is not the configured Arc smart account, so a
+  misconfigured address fails closed instead of sending.
+* **USDC** on Arc, settled through the guard.
+* **Contracts.** The budget is enforced by an on-chain guard rather than by configuration, and the
+  service cannot change it.
+* **Gas Station, in effect.** Both Circle settlements debited the wallet exactly the payment amount
+  and nothing else, and the transaction was relayed by a different address carrying a `userOpHash`:
+  the wallet did not pay gas. Circle documents a preconfigured testnet Gas Station policy that
+  sponsors gas for supported wallets, so this is the mechanism the observation matches. The recorded
+  network fee is whatever Circle reports for the settling operation, and it is booked as our own
+  cost either way.
+
+Deliberately not used yet, with the reason each one is a decision rather than a gap:
+
+* **USYC.** Available on Arc Testnet with published contract addresses, but restricted to entities
+  that are not U.S. persons under Regulation S. Subscribing is an onboarding and eligibility step for
+  the operator, not an adapter.
+* **Gateway.** Reachable now, since it takes an API key, a wallet and USDC. It is not wired because a
+  deposit moves treasury funds into a Gateway contract outside the guard, and adding an uncapped
+  money-movement path would weaken the one claim this system rests on. It belongs behind the same
+  kind of stated limit as a payment.
+* **CCTP and App Kit.** Both need a second chain and a wallet on it, which is a real cross-chain
+  deployment rather than a small adapter.
+* **EURC.** The mapping supports one settlement currency at a time and refuses anything without an
+  explicit rate, so a euro vendor is a configuration and FX question first.
+
+Each is an adapter behind an existing port rather than a redesign, and none of them changes the
+policy, the guard, or the audit chain.
 
 ## Operator console
 
