@@ -50,7 +50,7 @@ def test_circle_refuses_any_chain_other_than_arc_testnet():
         provider.get_balance()
 
 
-def test_circle_status_requires_complete_and_never_guesses_fee_denomination():
+def test_circle_status_requires_complete_and_reads_the_reported_fee():
     responses = [
         httpx.Response(200, json={"data": {"transaction": {"state": "CONFIRMED", "txHash": "0xabc", "networkFee": "0.01"}}}),
         httpx.Response(200, json={"data": {"transaction": {"state": "COMPLETE", "txHash": "0xdef", "networkFee": "0.01"}}}),
@@ -63,12 +63,42 @@ def test_circle_status_requires_complete_and_never_guesses_fee_denomination():
     provider = _provider(api_handler=handler)
     pending = provider._circle_status("tx-1")
     assert pending.status.value == "PENDING"
-    assert pending.fee_units is None
-    complete_ambiguous = provider._circle_status("tx-2")
-    assert complete_ambiguous.status.value == "CONFIRMED"
-    assert complete_ambiguous.fee_units is None
+    # Circle documents CONFIRMED as intermediate; a fee it reported is still a real reading.
+    assert pending.fee_units == 10_000
+    complete_scalar = provider._circle_status("tx-2")
+    assert complete_scalar.status.value == "CONFIRMED"
+    assert complete_scalar.fee_units == 10_000
     complete_explicit = provider._circle_status("tx-3")
     assert complete_explicit.fee_units == 10_000
+
+
+def test_circle_reads_the_live_scalar_fee_at_native_precision():
+    """The live Arc Testnet shape: a scalar with 18 decimals, which 6-decimal units cannot produce.
+
+    These are the two real fees from one Circle settlement: the exact-allowance approval and the
+    guard call that followed it. Refusing this scalar left the settlement unbookable, so the
+    ledger writeback disabled itself with NETWORK_FEE_UNAVAILABLE.
+    """
+    assert CircleDeveloperControlledWalletProvider._fee_units(
+        {"networkFee": "0.012782809774011913"}
+    ) == 12_783
+    assert CircleDeveloperControlledWalletProvider._fee_units(
+        {"networkFeeUsdc": {"currency": "USDC", "decimals": 18, "amount": "0.016327586196192114"}}
+    ) == 16_328
+
+
+def test_circle_never_invents_a_fee_it_cannot_read():
+    for payload in (
+        {},
+        {"networkFee": None},
+        {"networkFee": "abc"},
+        {"networkFee": "-0.01"},
+        {"networkFeeUsdc": {"currency": "EUR", "decimals": 6, "amount": "1"}},
+        {"networkFeeUsdc": {"currency": "USDC", "decimals": 7, "amount": "1"}},
+        # A 6-decimal amount the token scale cannot express exactly is not a bookable fee.
+        {"networkFeeUsdc": {"currency": "USDC", "decimals": 6, "amount": "0.0000001"}},
+    ):
+        assert CircleDeveloperControlledWalletProvider._fee_units(payload) is None
 
 
 def test_circle_post_5xx_is_uncertain_but_read_failure_is_not_a_submission():

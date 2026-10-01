@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from typing import Any, Callable
 
 import httpx
@@ -28,6 +28,28 @@ from .settings import Settings
 
 CIRCLE_API_BASE = "https://api.circle.com/v1/w3s"
 CONTRACT_EXECUTION_PATH = "/developer/transactions/contractExecution"
+
+
+def _decimal_or_none(value: Any) -> Decimal | None:
+    """A non-negative finite decimal, or nothing. A fee that cannot be read is not guessed at."""
+    try:
+        amount = Decimal(str(value))
+    except Exception:
+        return None
+    return amount if amount.is_finite() and amount >= 0 else None
+
+
+def _native_units(amount: Decimal) -> int | None:
+    """Native 18-decimal USDC as 6-decimal ERC-20 units, rounded up.
+
+    Arc charges gas in the same USDC balance the token holds, so the native interface reports 18
+    decimals and the token interface reports 6: one micro-USDC is 10**12 wei. Rounding up can only
+    overstate our own cost, and it never reduces the supplier's amount.
+    """
+    if not amount.is_finite() or amount < 0:
+        return None
+    wei = int((amount * Decimal(10) ** 18).to_integral_value(rounding=ROUND_CEILING))
+    return -(-wei // 10**12) if wei > 0 else 0
 
 
 class CircleAdapterError(RuntimeError):
@@ -321,22 +343,51 @@ class CircleDeveloperControlledWalletProvider(PaymentProvider):
 
     @staticmethod
     def _fee_units(transaction: dict) -> int | None:
-        # Arc native USDC is 18-decimal precision, whereas ERC-20 USDC uses 6.
-        # Do not infer denomination or precision from an undocumented scalar field.
-        fee = transaction.get("networkFeeUsdc")
-        if not isinstance(fee, dict) or fee.get("currency") != "USDC" or fee.get("decimals") != 6:
-            return None
-        value = fee.get("amount")
-        if value is None:
+        """The network fee in 6-decimal USDC units, or ``None`` when Circle did not report one.
+
+        Circle has two shapes. The explicit ``networkFeeUsdc`` object states its own currency and
+        decimals, so it is read as written. The scalar ``networkFee`` does not, and this adapter
+        previously refused to read it at all, which left every Circle settlement unbookable with
+        ``NETWORK_FEE_UNAVAILABLE``. A live Arc Testnet operation settled the question: the scalar
+        carries 18 decimal places, which 6-decimal token units cannot produce, and it agrees with
+        native gas accounting, where one micro-USDC is 10**12 wei.
+        """
+        explicit = transaction.get("networkFeeUsdc")
+        if isinstance(explicit, dict):
+            units = CircleDeveloperControlledWalletProvider._stated_fee_units(explicit)
+            if units is not None:
+                return units
+        return CircleDeveloperControlledWalletProvider._native_fee_units(transaction.get("networkFee"))
+
+    @staticmethod
+    def _stated_fee_units(fee: dict) -> int | None:
+        """A fee object that declares its own currency and scale."""
+        if str(fee.get("currency") or "").upper() != "USDC":
             return None
         try:
-            amount = Decimal(str(value))
-            scaled = amount * USDC_SCALE
-            if not amount.is_finite() or scaled != scaled.to_integral_value() or scaled < 0:
-                return None
-            return int(scaled)
-        except Exception:
+            decimals = int(fee.get("decimals"))
+        except (TypeError, ValueError):
             return None
+        amount = _decimal_or_none(fee.get("amount"))
+        if amount is None:
+            return None
+        if decimals == 6:
+            # Only an amount the token scale can express exactly is a fee we can book as written.
+            scaled = amount * USDC_SCALE
+            return int(scaled) if scaled == scaled.to_integral_value() else None
+        if decimals == 18:
+            return _native_units(amount)
+        return None
+
+    @staticmethod
+    def _native_fee_units(value: Any) -> int | None:
+        """A scalar fee in native 18-decimal USDC, rounded up the way the local executor rounds."""
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return CircleDeveloperControlledWalletProvider._stated_fee_units(value)
+        amount = _decimal_or_none(value)
+        return None if amount is None else _native_units(amount)
 
     @staticmethod
     def _checksum(address: str) -> str:
