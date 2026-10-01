@@ -674,6 +674,69 @@ class SQLiteEvidenceStore:
             row = connection.execute("SELECT data_json FROM fixtures WHERE kind=? AND fixture_key=?", (kind, key)).fetchone()
         return json.loads(row["data_json"]) if row else None
 
+    def record_receivable(self, receivable: dict) -> dict:
+        """Insert or refresh one expected inflow, keyed by the accounting system's id.
+
+        Re-ingestion must not duplicate a receipt the forecast already counts, so the
+        external id is the identity and a re-import replaces the row.
+        """
+        row = {
+            "external_id": str(receivable["external_id"]),
+            "customer": str(receivable.get("customer") or ""),
+            "reference": str(receivable.get("reference") or receivable["external_id"]),
+            "amount_units": int(receivable["amount_units"]),
+            "currency": str(receivable.get("currency") or "USDC").upper(),
+            "expected_date": str(receivable["expected_date"]),
+            "source": str(receivable.get("source") or "erp"),
+            "collected_at": receivable.get("collected_at"),
+        }
+        if row["amount_units"] <= 0:
+            raise ValueError("a receivable must carry a positive amount")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    "INSERT INTO receivables(external_id,customer,reference,amount_units,currency,expected_date,source,collected_at,created_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(external_id) DO UPDATE SET customer=excluded.customer,reference=excluded.reference,"
+                    "amount_units=excluded.amount_units,currency=excluded.currency,expected_date=excluded.expected_date,"
+                    "source=excluded.source,collected_at=excluded.collected_at",
+                    (
+                        row["external_id"],
+                        row["customer"],
+                        row["reference"],
+                        row["amount_units"],
+                        row["currency"],
+                        row["expected_date"],
+                        row["source"],
+                        row["collected_at"],
+                        utcnow().isoformat(),
+                    ),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return row
+
+    def list_open_receivables(self) -> list[dict]:
+        """Expected inflows not yet collected, in expected-date order."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT external_id,customer,reference,amount_units,currency,expected_date,source,collected_at "
+                "FROM receivables WHERE collected_at IS NULL ORDER BY expected_date, external_id",
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_receivable_collected(self, external_id: str, collected_at: str | None = None) -> bool:
+        """Stop counting an inflow once the money has arrived. Returns whether it existed."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE receivables SET collected_at=? WHERE external_id=? AND collected_at IS NULL",
+                (collected_at or utcnow().isoformat(), external_id),
+            )
+        return cursor.rowcount > 0
+
     @staticmethod
     def _state(connection: sqlite3.Connection, invoice_id: str) -> str:
         row = connection.execute("SELECT state FROM invoices WHERE id=?", (invoice_id,)).fetchone()

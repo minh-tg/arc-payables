@@ -29,7 +29,7 @@ from .domain import (
     is_evm_address,
     utcnow,
 )
-from .ports import PaymentMapping
+from .ports import PaymentMapping, Receivable
 from .security import EIP712PermitSigner
 from .store import SQLiteEvidenceStore
 
@@ -93,6 +93,27 @@ class MockAccountingConnector:
         if not external_id:
             return None
         return self.store.get_fixture("erp_payable", external_id)
+
+    def list_receivables(self) -> list[Receivable]:
+        """Seeded sales fixtures: the mock's stand-in for open Sales Invoices."""
+        receivables: list[Receivable] = []
+        for row in self.store.list_open_receivables():
+            try:
+                expected = date.fromisoformat(str(row["expected_date"])[:10])
+            except ValueError:
+                continue
+            receivables.append(
+                Receivable(
+                    external_id=str(row["external_id"]),
+                    customer=str(row.get("customer") or ""),
+                    reference=str(row.get("reference") or row["external_id"]),
+                    amount_units=int(row["amount_units"]),
+                    currency=str(row.get("currency") or self.settlement_currency).upper(),
+                    expected_date=expected,
+                    source=str(row.get("source") or "mock"),
+                )
+            )
+        return receivables
 
     def _to_settlement_units(self, erp_units: int) -> int:
         settlement = Decimal(erp_units) / self.rate

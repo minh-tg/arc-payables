@@ -20,6 +20,8 @@ async function renderTreasury(root) {
     h('dd', {}, money(forecast.reserve_floor_usdc)),
     h('dt', {}, 'Due within horizon'),
     h('dd', {}, money(forecast.due_within_horizon_usdc)),
+    h('dt', {}, 'Expected inflows'),
+    h('dd', {}, money(forecast.inflow_within_horizon_usdc)),
     h('dt', {}, 'Coverable'),
     h('dd', {}, money(forecast.coverable_usdc)),
     h('dt', {}, 'Beyond horizon'),
@@ -58,6 +60,26 @@ async function renderTreasury(root) {
       'Obligations, in due-date order',
       h('p', { class: 'muted' }, 'Money owed is counted whether or not the agent may pay it, so a blocked invoice cannot quietly disappear from the forecast.'),
       table(['Invoice', 'Supplier', 'Amount', 'Due', 'Days', 'Coverage', 'Agent', 'Discount', 'Why not payable'], obligationRows),
+    ),
+  );
+
+  const inflowRows = (forecast.inflows || []).map((item) =>
+    h(
+      'tr',
+      {},
+      h('td', {}, item.external_id),
+      h('td', {}, item.customer || '—'),
+      h('td', {}, item.reference || '—'),
+      h('td', { class: 'num' }, money(item.amount_usdc)),
+      h('td', {}, item.expected_date),
+      h('td', { class: 'num' }, String(item.days_until_expected)),
+    ),
+  );
+  root.append(
+    panel(
+      'Expected inflows, in expected-date order',
+      h('p', { class: 'muted' }, 'Money customers owe us, added back to the running balance on the expected date. Inflows never authorize anything.'),
+      table(['Sales invoice', 'Customer', 'Reference', 'Amount', 'Expected', 'Days'], inflowRows),
     ),
   );
 

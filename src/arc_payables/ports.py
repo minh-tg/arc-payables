@@ -82,6 +82,28 @@ class AgentRecommendation:
     can tell a judgement call apart from a missing fact without parsing prose."""
 
 
+@dataclass(frozen=True)
+class Receivable:
+    """Money expected in: an accounting-system sales invoice, not a payment the agent made.
+
+    Inflows never authorize anything. The forecast adds them to the running balance on
+    their expected date so coverage answers what will be there, not just what will leave.
+    """
+
+    external_id: str
+    customer: str
+    reference: str
+    amount_units: int
+    currency: str
+    expected_date: date
+    source: str = "erp"
+    collected_at: str | None = None
+
+
+class ReceivablesProvider(Protocol):
+    def list_receivables(self) -> list[Receivable]: ...
+
+
 class EvidenceStore(Protocol):
     def initialize(self) -> None: ...
     def create_invoice(self, invoice: InvoiceRecord, idempotency_key: str) -> tuple[InvoiceRecord, bool]: ...
@@ -110,6 +132,9 @@ class EvidenceStore(Protocol):
 class AccountingConnector(Protocol):
     def get_invoice_evidence(self, invoice: InvoiceRecord) -> AccountingEvidence: ...
     def import_invoice(self, external_id: str) -> tuple[InvoiceRecord, AccountingEvidence]: ...
+    def list_receivables(self) -> list[Receivable]:
+        """Expected inflows. Defaults to none when the connector has no receivables source."""
+        return []
     def find_payment_entry(self, payment_reference: str) -> dict | None: ...
     def create_payment_entry(
         self,

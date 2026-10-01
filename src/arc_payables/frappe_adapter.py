@@ -29,7 +29,7 @@ from .domain import (
     USDC_SCALE,
     utcnow,
 )
-from .ports import PaymentMapping
+from .ports import PaymentMapping, Receivable
 from .settings import Settings
 
 
@@ -236,6 +236,47 @@ class FrappeAccountingConnector:
             str(raw.get("name") or invoice.purchase_invoice_id),
             source_lines,
         )
+
+    def list_receivables(self) -> list[Receivable]:
+        """Open Sales Invoices: money customers owe us, expected on the due date.
+
+        Only submitted, unpaid documents count. Drafts are not promises and paid ones are
+        already in the balance. A document in another currency is skipped rather than
+        guessed at, because the forecast converts once at the configured rate.
+        """
+        if not self.configured:
+            return []
+        rows = self.list_documents(
+            "Sales Invoice",
+            [["docstatus", "=", 1], ["status", "not in", ["Paid", "Cancelled", "Draft"]]],
+            ["name", "customer", "po_no", "grand_total", "currency", "due_date", "posting_date", "status"],
+            limit=200,
+        )
+        receivables: list[Receivable] = []
+        for row in rows:
+            try:
+                amount = self._settlement_units_from_erp(
+                    self._amount_units(row.get("grand_total")), str(row.get("currency") or "").upper()
+                )
+            except FrappeAdapterError:
+                continue
+            expected = row.get("due_date") or row.get("posting_date")
+            try:
+                expected_date = self._date(expected)
+            except FrappeAdapterError:
+                continue
+            receivables.append(
+                Receivable(
+                    external_id=str(row.get("name")),
+                    customer=str(row.get("customer") or ""),
+                    reference=str(row.get("po_no") or row.get("name")),
+                    amount_units=amount,
+                    currency=self.settings.settlement_currency,
+                    expected_date=expected_date,
+                    source="erp:sales-invoice",
+                )
+            )
+        return receivables
 
     def find_payment_entry(self, payment_reference: str) -> dict | None:
         rows = self.list_documents(

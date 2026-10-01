@@ -28,6 +28,7 @@ arc-payables-fake-circle = "arc_payables.fake_circle:main"
 arc-payables-erpnext-bootstrap = "arc_payables.erpnext_bootstrap:main"
 arc-payables-live-run = "arc_payables.live_run:main"
 arc-payables-rescreen = "arc_payables.monitoring_cli:main"
+arc-payables-receivables = "arc_payables.receivables_cli:main"
 arc-payables-worker = "arc_payables.worker:main"
 
 [tool.hatch.build.targets.wheel]

@@ -38,6 +38,26 @@ DEFAULT_HORIZON_DAYS = 30
 
 
 @dataclass(frozen=True)
+class ExpectedInflow:
+    external_id: str
+    customer: str
+    reference: str
+    amount_units: int
+    expected_date: date
+    days_until_expected: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "external_id": self.external_id,
+            "customer": self.customer,
+            "reference": self.reference,
+            "amount_usdc": units_to_usdc(self.amount_units),
+            "expected_date": self.expected_date.isoformat(),
+            "days_until_expected": self.days_until_expected,
+        }
+
+
+@dataclass(frozen=True)
 class Obligation:
     invoice_id: str
     invoice_number: str
@@ -88,6 +108,8 @@ class Forecast:
     uncovered: tuple[str, ...]
     rationale: str
     notes: tuple[str, ...] = field(default_factory=tuple)
+    inflows: tuple[ExpectedInflow, ...] = ()
+    inflow_total_units: int = 0
 
     @property
     def shortfall(self) -> bool:
@@ -107,6 +129,8 @@ class Forecast:
             "shortfall_usdc": units_to_usdc(self.shortfall_units) if self.shortfall else None,
             "uncovered_invoice_ids": list(self.uncovered),
             "obligations": [item.to_dict() for item in self.obligations],
+            "inflows": [item.to_dict() for item in self.inflows],
+            "inflow_within_horizon_usdc": units_to_usdc(self.inflow_total_units),
             "rationale": self.rationale,
             "notes": list(self.notes),
         }
@@ -176,14 +200,45 @@ def build_forecast(workflow, *, days: int = DEFAULT_HORIZON_DAYS, today: date | 
             )
         )
 
-    # Due-date order, with the same reserve-floor rule the payment plan applies.
+    # Due-date order, with expected inflows added back on their expected date and the same
+    # reserve-floor rule the payment plan applies. Inflows never authorize anything; they only
+    # move the running balance the coverage walk checks against.
+    try:
+        receivables = workflow.accounting.list_receivables()
+    except Exception:
+        receivables = []
+    inflows: list[ExpectedInflow] = []
+    inflow_by_date: dict[date, int] = {}
+    inflow_total = 0
+    for receivable in receivables:
+        if receivable.expected_date > horizon_end:
+            continue
+        inflow_by_date[receivable.expected_date] = inflow_by_date.get(receivable.expected_date, 0) + receivable.amount_units
+        inflow_total += receivable.amount_units
+        inflows.append(
+            ExpectedInflow(
+                external_id=receivable.external_id,
+                customer=receivable.customer,
+                reference=receivable.reference,
+                amount_units=receivable.amount_units,
+                expected_date=receivable.expected_date,
+                days_until_expected=(receivable.expected_date - today).days,
+            )
+        )
+    inflows.sort(key=lambda item: (item.expected_date, item.external_id))
+
     obligations.sort(key=lambda item: (item.due_date, item.invoice_number))
     running = balance.balance_units
     coverable_total = 0
     shortfall_date: date | None = None
     uncovered: list[str] = []
     resolved: list[Obligation] = []
+    inflow_dates = sorted(inflow_by_date)
+    inflow_cursor = 0
     for obligation in obligations:
+        while inflow_cursor < len(inflow_dates) and inflow_dates[inflow_cursor] <= obligation.due_date:
+            running += inflow_by_date[inflow_dates[inflow_cursor]]
+            inflow_cursor += 1
         covered = running - obligation.amount_units >= reserve_units
         if covered:
             running -= obligation.amount_units
@@ -211,6 +266,11 @@ def build_forecast(workflow, *, days: int = DEFAULT_HORIZON_DAYS, today: date | 
         )
     if beyond_horizon:
         notes.append(f"{units_to_usdc(beyond_horizon)} USDC is due beyond the {days} day horizon and is excluded.")
+    if inflow_total:
+        notes.append(
+            f"{units_to_usdc(inflow_total)} USDC of expected inflows fall inside the horizon and are added "
+            "to the running balance on their expected dates."
+        )
     if not any(item.discount_value_units for item in resolved):
         notes.append("No early-payment discounts fall inside the horizon.")
 
@@ -220,6 +280,8 @@ def build_forecast(workflow, *, days: int = DEFAULT_HORIZON_DAYS, today: date | 
         balance_units=balance.balance_units,
         reserve_floor_units=reserve_units,
         obligations=tuple(resolved),
+        inflows=tuple(inflows),
+        inflow_total_units=inflow_total,
         due_total_units=due_total,
         coverable_total_units=coverable_total,
         beyond_horizon_units=beyond_horizon,
