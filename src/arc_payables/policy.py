@@ -13,6 +13,7 @@ from .domain import (
     DecisionAction,
     EvidenceRef,
     InvoiceRecord,
+    PAYABLE_INVOICE_STATUSES,
     PolicyCheck,
     ScreeningStatus,
     TreasurySnapshot,
@@ -211,7 +212,7 @@ class DeterministicPolicy:
         inv = ref(f"invoice:{invoice.id}", "invoice_record", "invoice_id", invoice.id)
         amount_ref = ref(f"invoice:{invoice.id}:amount", "invoice_record", "amount", f"{units_to_usdc(invoice.amount_units)} {invoice.currency.upper()}")
         due_ref = ref(f"invoice:{invoice.id}:due", "invoice_record", "due_date", invoice.due_date.isoformat())
-        status_ok = accounting.invoice_status.upper() in {"SUBMITTED", "UNPAID", "OVERDUE", "PARTLY PAID"}
+        status_ok = accounting.invoice_status.upper() in PAYABLE_INVOICE_STATUSES
         checks.append(PolicyCheck("invoice_payable", status_ok, f"Accounting invoice state is {accounting.invoice_status}.", (inv,)))
         if not status_ok:
             missing.append("A submitted, outstanding Purchase Invoice is required.")
@@ -480,7 +481,7 @@ class DeterministicPolicy:
         duplicate_ok = duplicate_ok
         if accounting.duplicate_invoice_id:
             missing.append("Resolution of duplicate accounting invoice.")
-        if accounting.invoice_status.upper() in {"DRAFT", "CANCELLED", "PAID", "ON HOLD"}:
+        if accounting.invoice_status.upper() not in PAYABLE_INVOICE_STATUSES:
             missing.append("A payable, submitted invoice in ERPNext.")
 
         today_ref = ref(f"treasury:policy:{self.settings.policy_version}", "policy_configuration", "payment_due_window_days", str(self.settings.payment_due_window_days))

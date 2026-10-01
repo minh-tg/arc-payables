@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from .domain import DecisionAction
+from .domain import DecisionAction, PAYABLE_INVOICE_STATUSES
 from .ports import AgentRecommendation
 
 #: Observations that a slower deliberating layer may revisit, because they are trade-offs
@@ -109,7 +109,7 @@ class EvidenceDecisionAgent:
 
         if evidence.duplicate_invoice_id:
             blocker("duplicate_invoice", "duplicate invoice reference exists", "An accounting invoice already carries this supplier invoice reference.")
-        if evidence.invoice_status.upper() not in {"SUBMITTED", "UNPAID", "OVERDUE", "PARTLY PAID"}:
+        if evidence.invoice_status.upper() not in PAYABLE_INVOICE_STATUSES:
             blocker("invoice_not_payable", "accounting invoice is not in a payable state", f"The accounting invoice state is {evidence.invoice_status}.")
         if not context.get("accounting_source_consistent", False):
             blocker("source_mismatch", "invoice does not match the linked accounting source", "The captured invoice and the linked accounting payable disagree on amount, currency, supplier, or lines.")

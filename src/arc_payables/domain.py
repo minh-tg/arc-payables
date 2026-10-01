@@ -11,6 +11,11 @@ USDC_SCALE = 10**USDC_DECIMALS
 ARC_TESTNET_CHAIN_ID = 5_042_002
 ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000"
 
+#: Accounting states in which a payable may be paid. One definition, three readers: the
+#: deterministic policy, the advisory agent, and the connector's own discovery, so discovery
+#: cannot surface something the policy would refuse on its state alone.
+PAYABLE_INVOICE_STATUSES = frozenset({"SUBMITTED", "UNPAID", "OVERDUE", "PARTLY PAID"})
+
 
 def is_evm_address(value: str | None) -> bool:
     if not value or len(value) != 42 or not value.startswith("0x"):
