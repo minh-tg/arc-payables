@@ -406,14 +406,8 @@ The authorization is bound to the evidence hash of the evaluated snapshot, which
 
 **Verified against live systems:** the whole path, on Arc Testnet and against a live ERPNext.
 
-*Arc Testnet, real funds.* `PaymentGuard` is deployed at
-`0x79f4735b5cfb604bb7e3039b48e0e3f41892866b` with immutable budgets of 2 USDC per payment, 5 USDC per
-epoch and 2 USDC per recipient per epoch. Two invoices were then paid through it from a funded
-testnet wallet: 2 USDC and 1 USDC to two different recipients. Each recipient's ERC-20 balance rose
-by exactly the authorized amount, `arc-payables-verify-arc` read the deployed caps back off the chain
-and confirmed the chain id, the USDC bytecode, `decimals() == 6`, `symbol() == USDC`, the guard's
-policy signer and its payment token, and a 250 USDC invoice was refused by the preflight before
-anything was signed because the contract's per-payment cap is 2 USDC.
+*Arc Testnet, real funds.* `PaymentGuard` at
+`0xbe0477081f90e68b6699a585d5d31ad93d96f318` (deploy tx `0xb0e3b5fbc6a41db4dd6243b7454fe9dde31d305674f9e641f8f43d0d005139fe`, block 64882475) carries immutable budgets of 0.05 USDC per payment, 0.20 USDC per epoch and 0.05 USDC per recipient per epoch. An earlier guard at `0x79f4735b5cfb604bb7e3039b48e0e3f41892866b` held 2/5/2 USDC caps and settled three payments (2 USDC, 1 USDC, 0.01 USDC). Each recipient's ERC-20 balance rose by exactly the authorized amount, `arc-payables-verify-arc` read the deployed caps back off the chain and confirmed the chain id, the USDC bytecode, `decimals() == 6`, `symbol() == USDC`, the guard's policy signer and its payment token, and a 250 USDC invoice was refused by the preflight before anything was signed because the old contract's per-payment cap was 2 USDC.
 
 *ERPNext.* Both payments were written back as a Payment Entry for exactly the supplier's amount plus
 a network-fee Journal Entry, and the invoice reached `ERP_RECORDED`. The bootstrap, the balanced GL
