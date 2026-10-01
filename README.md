@@ -292,14 +292,20 @@ same work is available with curl.
 
 | View | What it shows |
 | --- | --- |
+| **Attention** | Everything waiting on a person in one place: escalations, held invoices, uncertain settlements, confirmed payments the ledger has not taken, a breached reserve, a broken audit chain, a paused guard, screenings past cadence, a failing worker. Ranked with the worst first, with the invoice behind each item, and the alerts the last pass raised. It reads the same snapshot the metrics are rendered from, so the screen and a scraper cannot disagree. |
 | **Queue** | The plan's ordering with the reason for each position and the balance after each payment, the invoices that are not payable with their policy outcome, and every invoice's state with a re-evaluate action |
 | **Invoice** | Evidence checks with their result and whether a human may override them, which layer decided with its rationale and confidence, the model/prompt/response hashes when a deliberating layer was used, missing evidence and conflicts, the audit chain with a verification button, and the actions: link, approve, pay |
-| **Treasury & risk** | Forward coverage with the shortfall date, obligations in due-date order, and each counterparty's tier, latest screening, resulting automatic limit and open exposure, with a re-screen action |
+| **Worker** | The last pass, step by step, with the reason each step declined or deferred something, and the alerts it raised |
+| **Treasury & risk** | Forward coverage with the shortfall date, obligations in due-date order, expected inflows, and each counterparty's tier, latest screening, resulting automatic limit and open exposure, with a re-screen action |
+| **Setup** | What this deployment still needs: every setting that matters, whether it is set, and what stops working without it, plus two read-only probes of the ledger and the chain |
 
 Two things the console is deliberate about. It shows the **trusted destination** from the supplier
 record beside the invoice's own payee field, marked untrusted, so the distinction the system rests
 on is visible rather than implied. And it states the exact amount and destination in the payment
-confirmation, because that is the moment a human is accountable for.
+confirmation, because that is the moment a human is accountable for. It also never writes a setting:
+credentials belong in the environment and in mode-600 files, not in a page reachable with one shared
+API key. The Setup view reports a secret as set or missing and never in full, and shows a URL as its
+host with the path removed, because the RPC endpoints shipped with this project carry a token there.
 
 The console is shipped code, so its modules are syntax-checked in the test suite: a JavaScript
 error would otherwise produce a blank page that no server-side test would catch.

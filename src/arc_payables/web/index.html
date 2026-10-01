@@ -97,9 +97,11 @@
     <header>
       <h1>Arc Payables <span>·</span> operator console</h1>
       <nav>
+        <a href="#/attention">Attention</a>
         <a href="#/queue">Queue</a>
         <a href="#/worker">Worker</a>
         <a href="#/treasury">Treasury &amp; risk</a>
+        <a href="#/setup">Setup</a>
       </nav>
       <div class="spacer"></div>
       <div class="credentials">
@@ -125,7 +127,9 @@
     <script type="module">
       import { apiKey, approvalToken, setApiKey, setApprovalToken, startRouter } from './app.js';
       import './queue.js';
+      import './attention.js';
       import './worker.js';
+      import './setup.js';
       import './invoice.js';
       import './treasury.js';
 

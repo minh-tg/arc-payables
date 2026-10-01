@@ -83,6 +83,16 @@ class CircleDeveloperControlledWalletProvider(PaymentProvider):
         self._wallet_verified = False
         self._guard_verified = False
 
+    def verify_configuration(self) -> None:
+        """Prove the wallet, the guard and the chain without sending anything.
+
+        These are exactly the three things ``submit_authorized`` checks before it signs, exposed so a
+        setup screen reports them instead of an operator discovering them at the moment of payment.
+        """
+        self._assert_testnet()
+        self._verify_wallet()
+        self._verify_guard()
+
     def get_balance(self) -> TreasurySnapshot:
         self._assert_testnet()
         self._verify_wallet()

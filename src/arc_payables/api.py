@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .attention import build_attention
 from .deliberation import build_order_planner
 from .domain import InvoiceLine, InvoiceRecord, usdc_to_units
 from .forecast import build_forecast
@@ -24,6 +25,7 @@ from .metrics import collect, render
 from .runtime import DisabledPaymentProvider, build_workflow
 from .service import WorkflowError
 from .settings import Settings, get_settings
+from .setup_check import inventory, live_checks
 from .store import SQLiteEvidenceStore
 
 ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
@@ -224,6 +226,31 @@ def create_app(
             render(collect(workflow)),
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
+
+    @app.get("/attention", tags=["health"], dependencies=[Depends(require_api_key)])
+    def attention() -> dict[str, Any]:
+        """Everything waiting on a person, and the alerts the last pass raised.
+
+        Read-only. It reads the same snapshot the metrics are rendered from, so this view and a
+        scraper cannot disagree about what is wrong. Nothing here resolves anything: acting on an
+        item still goes through the same approval or reconciliation path as by hand.
+        """
+        return build_attention(workflow)
+
+    @app.get("/setup", tags=["health"], dependencies=[Depends(require_api_key)])
+    def setup() -> dict[str, Any]:
+        """What this deployment still needs, and what stops working without it.
+
+        Offline and free. A secret is reported as set or missing and never in full, and a URL is
+        reported as its host with the path removed, because the RPC endpoints handed out with this
+        project carry a token in the path.
+        """
+        return inventory(settings)
+
+    @app.post("/setup/checks", tags=["health"], dependencies=[Depends(require_api_key)])
+    def setup_checks() -> dict[str, Any]:
+        """Probe the ledger and the chain. Reads only: nothing is signed, sent or written."""
+        return live_checks(workflow, settings)
 
     @app.get("/worker/status", tags=["health"], dependencies=[Depends(require_api_key)])
     def worker_status() -> dict[str, Any]:
