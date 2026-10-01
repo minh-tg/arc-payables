@@ -84,6 +84,37 @@ Arc Canteen context and current official docs were checked before choosing the a
 
 Sources used: [Arc RPC endpoints](https://docs.arc.io/arc/references/rpc-endpoints), [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses), [Circle Wallets supported blockchains](https://developers.circle.com/wallets/supported-blockchains), [Circle dev-controlled transfers](https://developers.circle.com/wallets/dev-controlled/transfer-tokens-across-wallets), [Circle entity-secret sample](https://github.com/circlefin/w3s-entity-secret-sample-code), [Frappe REST API](https://docs.frappe.io/framework/user/en/api/rest), [ERPNext Payment Entry](https://docs.frappe.io/erpnext/payment-entry).
 
+## What runs without credentials
+
+A reviewer can run the whole workflow with no accounts, no keys and no network access. The defaults
+are `PAYMENT_PROVIDER=mock`, `ACCOUNTING_PROVIDER=mock` and `SCREENING_PROVIDER=fixture`, and the
+payment guard's own compiled bytecode is exercised on a local EVM and in the Foundry suite.
+
+| Command | What it demonstrates | Credentials |
+| --- | --- | --- |
+| `uv run pytest -q` | The full Python suite, including the executor tests that drive the real guard | none |
+| `forge build && forge test` | The guard's unit tests and invariants | none |
+| `uv run arc-payables-fake-circle` | The real `PaymentGuard` bytecode on a local chain carrying Arc's chain id, behind an emulated Circle W3S API | none |
+| `uv run pytest tests/test_circle_executor.py -q -k budget` | The contract refusing a payment the policy approved | none |
+| seed, then the API or `/console` | Evaluate, decide, pay, write back and verify the audit chain | none |
+
+Run against a fresh database with default settings, the seeded legitimate invoice reaches
+`ELIGIBLE`/`PAY_NOW` with no failing checks and settles to `ERP_RECORDED`, the suspicious invoice
+escalates on seven checks, and the audit chain verifies. Only the chain and the ledger are
+simulated on that path, and every response says so.
+
+Live components need the operator's own credentials, and none are in this repository:
+
+| Component | Needs | Without it |
+| --- | --- | --- |
+| Arc Testnet settlement | A funded wallet, a deployed guard, the policy signing key | The mock provider settles locally |
+| ERPNext writeback | A reachable site and a scoped API user | The mock connector records locally |
+| Circle Developer-Controlled Wallets | API key, entity secret, SCA wallet | The credential-free executor stands in |
+| OpenSanctions screening | An API key | The fixture provider answers, and a live run escalates every invoice |
+
+Each is configuration, not code. What the live runs produced is recorded under
+[Security and integration limitations](#security-and-integration-limitations).
+
 ## Local setup and demo
 
 Requirements: Python 3.11+, `uv`, Foundry (`forge`).
