@@ -224,6 +224,34 @@ def test_api_user_is_verified_and_administrator_is_rejected():
     assert requested == ["/api/method/frappe.auth.get_logged_user"]
 
 
+def test_discovery_asks_the_ledger_for_what_is_still_owed():
+    """Discovery filters on the fact, not on a business status name that can be renamed."""
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = _path(request)
+        if path == "/api/method/frappe.auth.get_logged_user":
+            return httpx.Response(200, json={"message": "ap-agent@example.test"})
+        if path == "/api/resource/Purchase Invoice":
+            seen["filters"] = json.loads(request.url.params["filters"])
+            seen["fields"] = json.loads(request.url.params["fields"])
+            return httpx.Response(200, json={"data": [{"name": "ACC-PINV-1"}, {"name": "ACC-PINV-2"}]})
+        raise AssertionError(f"unexpected request {request.method} {request.url}")
+
+    connector = FrappeAccountingConnector(_settings(), httpx.Client(transport=httpx.MockTransport(handler)))
+
+    assert connector.list_open_payables() == ["ACC-PINV-1", "ACC-PINV-2"]
+    # A draft, a cancelled invoice or a settled one cannot satisfy this filter.
+    assert seen["filters"] == [["docstatus", "=", 1], ["outstanding_amount", ">", 0]]
+    assert seen["fields"] == ["name"]
+
+
+def test_discovery_is_empty_while_the_connector_is_unconfigured():
+    connector = FrappeAccountingConnector(_settings(frappe_api_secret=None))
+    assert connector.configured is False
+    assert connector.list_open_payables() == []
+
+
 def _erp_invoice_doc(currency: str = "USD", grand_total: float = 250, item_amount: float = 250) -> dict:
     return {
         "name": "PINV-1", "supplier": "SUP-1", "bill_no": "SUP-INV-1", "bill_date": "2026-01-01",

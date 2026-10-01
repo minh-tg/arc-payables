@@ -237,6 +237,24 @@ class FrappeAccountingConnector:
             source_lines,
         )
 
+    def list_open_payables(self) -> list[str]:
+        """Submitted Purchase Invoices the company still owes money on.
+
+        The filter is the statement of the fact, not a status vocabulary: a submitted document with
+        a positive outstanding amount is a payable. That keeps discovery from drifting when ERPNext
+        renames a business status, and it cannot surface a draft, a cancelled invoice or a settled
+        one. Recording what an agent may pay is still the policy's decision, not this one.
+        """
+        if not self.configured:
+            return []
+        rows = self.list_documents(
+            "Purchase Invoice",
+            [["docstatus", "=", 1], ["outstanding_amount", ">", 0]],
+            ["name"],
+            limit=200,
+        )
+        return [str(row["name"]) for row in rows if row.get("name")]
+
     def list_receivables(self) -> list[Receivable]:
         """Open Sales Invoices: money customers owe us, expected on the due date.
 

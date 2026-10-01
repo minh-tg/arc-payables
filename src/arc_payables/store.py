@@ -674,6 +674,18 @@ class SQLiteEvidenceStore:
             row = connection.execute("SELECT data_json FROM fixtures WHERE kind=? AND fixture_key=?", (kind, key)).fetchone()
         return json.loads(row["data_json"]) if row else None
 
+    def list_fixtures(self, kind: str) -> list[dict]:
+        """Every fixture of a kind, in insertion order.
+
+        Discovery needs to enumerate what the simulated accounting system holds, which a lookup by
+        key cannot do. Insertion order keeps a pass deterministic and repeatable.
+        """
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT data_json FROM fixtures WHERE kind=? ORDER BY rowid", (kind,)
+            ).fetchall()
+        return [json.loads(row["data_json"]) for row in rows]
+
     def record_receivable(self, receivable: dict) -> dict:
         """Insert or refresh one expected inflow, keyed by the accounting system's id.
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import signal
 import sys
 import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
@@ -111,6 +112,7 @@ def run_pass(
     workflow: APWorkflow,
     *,
     autopay: bool = False,
+    intake: bool = False,
     rescreen: bool = True,
     max_actions: int = 25,
     alerts_sink: Any | None = None,
@@ -168,6 +170,13 @@ def run_pass(
                 if len(step.detail["errors"]) < 5:
                     step.detail["errors"].append({"invoice_id": invoice.id, "error": _bounded(exc)})
         report.steps.append(step)
+
+    if intake:
+        # Discovery runs before autopay so a payable found in this pass can be decided and paid in
+        # the same one, and always after the two repair steps, which owe nothing to the queue.
+        report.steps.append(_intake(workflow, remaining))
+        # Intake adds invoices, so autopay reads the queue again rather than the pre-intake list.
+        invoices = workflow.store.list_invoices()
 
     if autopay:
         report.steps.append(_autopay(workflow, invoices, remaining))
@@ -265,6 +274,77 @@ def _reconcile_payment(workflow: APWorkflow, invoice) -> None:
 
 def _retry_writeback(workflow: APWorkflow, invoice) -> None:
     workflow.retry_erp_writeback(invoice.id)
+
+
+def _intake(workflow: APWorkflow, remaining: int) -> StepReport:
+    """Bring payables the ledger still owes into the local queue, then evaluate them.
+
+    Discovery decides only what to look at. Everything after it is the same path a person would
+    take by hand: the connector imports the payable, and the deterministic policy decides. The
+    worker has no approval path, so an invoice that fails a check escalates for a human, and
+    payment stays the separate autopay decision.
+    """
+    step = StepReport(name="intake")
+    lister = getattr(workflow.accounting, "list_open_payables", None)
+    if lister is None:
+        step.skipped += 1
+        step.detail["reason"] = "the accounting connector cannot enumerate payables"
+        return step
+    try:
+        external_ids = lister()
+    except Exception as exc:
+        step.error = _bounded(exc)
+        step.failed += 1
+        return step
+
+    known = {invoice.purchase_invoice_id for invoice, _state in workflow.store.list_invoices()}
+    for external_id in external_ids:
+        if not external_id or external_id in known:
+            step.skipped += 1
+            continue
+        step.examined += 1
+        if remaining <= 0:
+            step.detail["deferred"] = step.detail.get("deferred", 0) + 1
+            continue
+        try:
+            invoice, _is_new = workflow.import_invoice(str(external_id), _intake_key(str(external_id)))
+            workflow.evaluate(invoice.id)
+            known.add(str(external_id))
+            remaining -= 1
+            step.acted += 1
+        except WorkflowError as exc:
+            # A refusal is an answer, not a fault. The ledger can hold payables this system will not
+            # settle: a foreign currency it has no rate for, a duplicate invoice number, a record
+            # that vanished between the listing and the read. Declining the same ones every pass is
+            # not a failure worth alerting on, so the reason is recorded for the operator instead.
+            step.skipped += 1
+            step.detail.setdefault("declined_codes", {})
+            step.detail["declined_codes"][exc.code] = step.detail["declined_codes"].get(exc.code, 0) + 1
+            step.detail.setdefault("declined", [])
+            if len(step.detail["declined"]) < 5:
+                step.detail["declined"].append({"external_id": external_id, "code": exc.code, "reason": _reason(exc)})
+        except Exception as exc:
+            step.failed += 1
+            step.detail.setdefault("errors", [])
+            if len(step.detail["errors"]) < 5:
+                step.detail["errors"].append({"external_id": external_id, "error": _bounded(exc)})
+    return step
+
+
+def _reason(exc: BaseException) -> str:
+    """What the workflow said, plus the cause it wrapped, bounded for the record.
+
+    ``import_invoice`` flattens every connector failure into one code, so without the cause an
+    operator sees 'accounting_read_failed' and cannot tell a missing FX rate from an outage.
+    """
+    cause = exc.__cause__
+    text = str(exc) if cause is None else f"{exc} Cause: {type(cause).__name__}: {cause}"
+    return text[:MAX_ERROR_CHARS]
+
+
+def _intake_key(external_id: str) -> str:
+    """A stable idempotency key per payable, so a repeated pass cannot capture the same one twice."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"arc-payables:intake:{external_id}"))
 
 
 def _autopay(workflow: APWorkflow, invoices, remaining: int) -> StepReport:
@@ -367,6 +447,7 @@ def run_forever(
     *,
     interval_seconds: float,
     autopay: bool = False,
+    intake: bool = False,
     rescreen: bool = True,
     max_actions: int = 25,
     stop_event: threading.Event | None = None,
@@ -385,7 +466,7 @@ def run_forever(
     sink = _build_sink(workflow)
     while not stop.is_set():
         try:
-            report = run_pass(workflow, autopay=autopay, rescreen=rescreen, max_actions=max_actions, alerts_sink=sink)
+            report = run_pass(workflow, autopay=autopay, intake=intake, rescreen=rescreen, max_actions=max_actions, alerts_sink=sink)
         except Exception as exc:  # pragma: no cover - a pass catches its own step failures
             print(f"worker: pass aborted: {_bounded(exc)}", file=sys.stderr)
         else:
@@ -406,7 +487,7 @@ def _build_sink(workflow: APWorkflow) -> Any | None:
     return WebhookSink(url, min_interval_seconds=workflow.settings.alert_min_interval_seconds)
 
 
-def _autopay_enabled(cli_value: bool | None, configured_value: bool) -> bool:
+def _cli_or_setting(cli_value: bool | None, configured_value: bool) -> bool:
     """Let an explicit CLI choice override configuration, otherwise use the configured default."""
     return configured_value if cli_value is None else cli_value
 
@@ -423,6 +504,12 @@ def _build_parser():
         default=None,
         help="Pay invoices the policy already authorized (overrides WORKER_AUTOPAY)",
     )
+    parser.add_argument(
+        "--intake",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Import and evaluate payables the ledger still owes (overrides WORKER_INTAKE)",
+    )
     parser.add_argument("--no-rescreen", action="store_true", help="Skip re-screening in this process")
     parser.add_argument("--max-actions", type=int, default=None, help="Cap actions per pass (default: WORKER_MAX_ACTIONS_PER_PASS)")
     return parser
@@ -436,12 +523,14 @@ def main() -> None:
     settings = get_settings()
     # One process, one workflow: the same wiring the API uses, without importing the HTTP app.
     workflow = build_workflow(settings)
-    autopay = _autopay_enabled(args.autopay, settings.worker_autopay)
+    autopay = _cli_or_setting(args.autopay, settings.worker_autopay)
+    intake = _cli_or_setting(args.intake, settings.worker_intake)
 
     if args.once:
         report = run_pass(
             workflow,
             autopay=autopay,
+            intake=intake,
             rescreen=not args.no_rescreen,
             max_actions=args.max_actions or settings.worker_max_actions_per_pass,
             alerts_sink=_build_sink(workflow),
@@ -460,11 +549,12 @@ def main() -> None:
             signal.signal(getattr(signal, name), handle_signal)
 
     interval = args.interval or settings.worker_interval_seconds
-    print(f"worker: every {interval:g}s, autopay={'on' if autopay else 'off'}", flush=True)
+    print(f"worker: every {interval:g}s, autopay={'on' if autopay else 'off'}, intake={'on' if intake else 'off'}", flush=True)
     run_forever(
         workflow,
         interval_seconds=interval,
         autopay=autopay,
+        intake=intake,
         rescreen=not args.no_rescreen,
         max_actions=args.max_actions or settings.worker_max_actions_per_pass,
         stop_event=stop,

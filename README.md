@@ -278,14 +278,23 @@ uv run arc-payables-worker --interval 30           # passes every 30 seconds unt
 uv run arc-payables-worker --interval 30 --autopay  # also pay what the policy already authorized
 ```
 
-A pass does four things and stops:
+A pass does five things and stops:
 
 | Step | What it does |
 | --- | --- |
 | `reconcile` | Finds settlements whose confirmation never arrived, and asks the chain again. Idempotent by design. |
 | `writeback` | Finishes confirmed payments the accounting system has not taken yet, including the case where the payment entry landed and the fee entry did not. |
+| `intake` | Reads the payables the ledger still owes, imports the ones nobody has captured, and evaluates each against the policy. Discovery is what makes the queue current without a person. |
 | `rescreen` | Re-screens counterparties past their cadence and moves their risk tier. |
+| `autopay` | Pays the invoices the deterministic policy put in `ELIGIBLE` with a `PAY_NOW` decision. Off unless asked for. |
 | `observe` | Reports the balance, the reserve headroom and the guard's budgets. Observation is not evidence, so this writes nothing. |
+
+Run against a live ledger with autopay on, the whole chain runs in one pass: the pass above found
+three payables nobody had imported, evaluated all three, and paid none of them, because screening has
+no provider configured and the policy therefore requires a person. That refusal is the point. Nothing
+in the pass can turn an escalation into a payment, and a payable it will not settle, such as an
+invoice in a currency the system has no rate for, is recorded as declined with the reason rather than
+counted as a failure.
 
 **What it cannot do.** It never approves anything: an escalated invoice still needs a person, and the
 worker has no approval path at all. It runs the same workflow the API serves, so a payment it starts
@@ -293,6 +302,8 @@ produces the same evidence hash, the same permit and the same audit chain as one
 guard's caps bind it exactly as they bind anything else, and `--autopay` only pays invoices the
 deterministic policy already put in `ELIGIBLE` with a `PAY_NOW` decision. Autopay is off unless asked
 for, because deciding to spend unattended is a policy an operator should state rather than inherit.
+Discovery is a separate switch (`--no-intake`) and is on by default, because reading what a ledger
+owes and deciding it is not the same act as spending it.
 
 **What it is built to survive.** One broken invoice does not stop the rest of the queue, one broken
 step does not stop the pass, and a failed pass does not stop the loop. Every pass is recorded, so a

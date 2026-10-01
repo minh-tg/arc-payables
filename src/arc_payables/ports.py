@@ -135,6 +135,15 @@ class AccountingConnector(Protocol):
     def list_receivables(self) -> list[Receivable]:
         """Expected inflows. Defaults to none when the connector has no receivables source."""
         return []
+
+    def list_open_payables(self) -> list[str]:
+        """External ids of payables the accounting system still owes.
+
+        Discovery only says what to look at. Whether an invoice may be paid is decided by the
+        same policy that governs a hand-imported one, so a connector cannot use this to widen
+        the agent's authority. Defaults to none when a connector has no way to enumerate.
+        """
+        return []
     def find_payment_entry(self, payment_reference: str) -> dict | None: ...
     def create_payment_entry(
         self,

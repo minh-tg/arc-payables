@@ -8,7 +8,7 @@ import pytest
 
 from arc_payables import runtime, settings as settings_module, worker
 from arc_payables.settings import Settings
-from arc_payables.worker import _autopay_enabled, _build_parser
+from arc_payables.worker import _build_parser, _cli_or_setting
 
 
 @pytest.mark.parametrize(
@@ -22,7 +22,7 @@ from arc_payables.worker import _autopay_enabled, _build_parser
 )
 def test_worker_autopay_setting_is_default_and_cli_can_override(arguments, configured, expected):
     args = _build_parser().parse_args(arguments)
-    assert _autopay_enabled(args.autopay, configured) is expected
+    assert _cli_or_setting(args.autopay, configured) is expected
 
 
 def test_worker_entrypoint_builds_workflow_without_importing_http_app(monkeypatch):

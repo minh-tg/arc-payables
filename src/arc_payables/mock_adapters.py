@@ -15,6 +15,7 @@ from .domain import (
     ERPWriteResult,
     InvoiceLine,
     InvoiceRecord,
+    PAYABLE_INVOICE_STATUSES,
     PaymentPermit,
     PaymentStatus,
     PaymentSubmission,
@@ -93,6 +94,14 @@ class MockAccountingConnector:
         if not external_id:
             return None
         return self.store.get_fixture("erp_payable", external_id)
+
+    def list_open_payables(self) -> list[str]:
+        """Seeded payables the simulated ERP still owes, in insertion order."""
+        return [
+            str(payable["invoice_id"])
+            for payable in self.store.list_fixtures("erp_payable")
+            if str(payable.get("status") or "").upper() in PAYABLE_INVOICE_STATUSES
+        ]
 
     def list_receivables(self) -> list[Receivable]:
         """Seeded sales fixtures: the mock's stand-in for open Sales Invoices."""

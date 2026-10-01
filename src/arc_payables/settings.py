@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     # is opt-in, because deciding when to spend unattended is a policy choice and not a default.
     worker_interval_seconds: int = 60
     worker_autopay: bool = False
+    # Discovery is a separate switch from payment. It imports and evaluates what the ledger still
+    # owes, so the queue stays current without a person, but it never approves anything: an invoice
+    # that fails a policy check escalates exactly as a hand-imported one would. Off in `run_pass`
+    # so a direct caller states what it wants; on here so the deployed loop keeps its own queue up
+    # to date. Payment stays governed by `worker_autopay`.
+    worker_intake: bool = True
     worker_max_actions_per_pass: int = 25
 
     # Retrying a broken ledger write forever is noise; not retrying it is a silent leak. Back off
