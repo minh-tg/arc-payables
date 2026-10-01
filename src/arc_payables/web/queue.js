@@ -87,7 +87,8 @@ async function renderQueue(root) {
     }
   };
 
-  const invoiceRows = invoices.map(([invoice, state]) =>
+  // The list endpoint answers with an object per invoice carrying its own state, not a pair.
+  const invoiceRows = invoices.map(({ invoice, state }) =>
     h(
       'tr',
       {},

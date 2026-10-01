@@ -1,4 +1,4 @@
-// Shared shell for the operator console: API client, small DOM helpers, and the router.
+// Shared shell for the operator console: API client, DOM helpers, and the router.
 //
 // No build step and no framework on purpose. The console is a thin, auditable view over the
 // documented API, and anything it shows can also be fetched with curl.
@@ -92,24 +92,43 @@ export function h(tag, attrs = {}, ...children) {
   return node;
 }
 
+// A table that survives a phone. Each cell carries its column name so the stylesheet can reflow the
+// row into a labelled card below the breakpoint, which is how a wide operator table stays readable.
 export function table(headers, rows) {
+  const body = h(
+    'tbody',
+    {},
+    rows.length ? rows : h('tr', {}, h('td', { colspan: headers.length, class: 'empty' }, 'Nothing to show')),
+  );
+  for (const row of body.querySelectorAll('tr')) {
+    [...row.children].forEach((cell, index) => {
+      if (headers[index] !== undefined) cell.setAttribute('data-label', headers[index]);
+    });
+  }
   return h(
-    'table',
-    { class: 'grid' },
-    h('thead', {}, h('tr', {}, headers.map((label) => h('th', {}, label)))),
-    h(
-      'tbody',
-      {},
-      rows.length ? rows : h('tr', {}, h('td', { colspan: headers.length, class: 'empty' }, 'Nothing to show')),
-    ),
+    'div',
+    { class: 'table-wrapper responsive-table' },
+    h('table', {}, h('thead', {}, h('tr', {}, headers.map((label) => h('th', {}, label)))), body),
   );
 }
 
+const BADGE_TONES = {
+  good: 'success',
+  bad: 'critical',
+  warn: 'warning',
+  '': 'neutral',
+  success: 'success',
+  critical: 'critical',
+  warning: 'warning',
+  neutral: 'neutral',
+};
+
 export function badge(text, kind = '') {
-  return h('span', { class: `badge ${kind}` }, text);
+  return h('span', { class: `badge ${BADGE_TONES[kind] || 'neutral'}` }, text);
 }
 
-// State to a colour tone, so a reviewer can read a workflow state at a glance.
+// State to a colour tone, so a reviewer can read a workflow state at a glance. The badge always
+// carries the state text as well, so the colour is reinforcement rather than the only signal.
 export function stateTone(state) {
   if (!state) return '';
   if (['ELIGIBLE', 'CONFIRMED', 'ERP_RECORDED'].includes(state)) return 'good';
@@ -119,7 +138,7 @@ export function stateTone(state) {
 }
 
 export function panel(title, ...content) {
-  return h('section', { class: 'panel' }, h('h2', {}, title), ...content);
+  return h('section', { class: 'card' }, h('h2', {}, title), ...content);
 }
 
 export function errorPanel(error) {
@@ -133,9 +152,9 @@ export function registerView(name, render) {
 }
 
 async function route() {
-  const hash = window.location.hash.replace(/^#\/?/, '') || 'queue';
+  const hash = window.location.hash.replace(/^#\/?/, '') || 'attention';
   const [name, ...rest] = hash.split('/');
-  const render = views.get(name) || views.get('queue');
+  const render = views.get(name) || views.get('attention');
   const root = document.getElementById('view');
   const status = document.getElementById('status');
   root.replaceChildren(h('p', { class: 'muted' }, 'Loading…'));

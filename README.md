@@ -308,6 +308,16 @@ credentials belong in the environment and in mode-600 files, not in a page reach
 API key. The Setup view reports a secret as set or missing and never in full, and shows a URL as its
 host with the path removed, because the RPC endpoints shipped with this project carry a token there.
 
+The look is a dark neutral canvas with one warm accent, semantic status colours that always carry a
+label as well as a colour, monospaced identifiers and amounts, and tables that reflow into labelled
+rows on a narrow screen rather than shrinking. The design system was prototyped in OpenDesign and
+ported into the console's own static files: no framework, no build step, and no external asset.
+
+`script/console-smoke.sh` renders every view in a headless browser against the seeded demo and fails
+if one of them throws. The Python suite can only see that a module parses and its imports resolve,
+which is not enough: a wrong destructure of an API response parses perfectly and dies at render time,
+and one shipped that way until this script caught it.
+
 The console is shipped code, so its modules are syntax-checked in the test suite: a JavaScript
 error would otherwise produce a blank page that no server-side test would catch.
 

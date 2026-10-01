@@ -38,7 +38,9 @@ re-screening on a cadence, and a reconciling worker loop with backoff, alerts an
 
 **Operations.** Prometheus metrics, an operator console with no build step, a supervised single-host
 Compose stack with health checks, and a worker status view that reports the last pass and what it
-tried to raise.
+tried to raise. The console's design system was prototyped in OpenDesign and then ported into the
+application's own static files, and a headless-browser smoke script renders every view so a view that
+parses but throws cannot ship unnoticed.
 
 **Verification.** Three defects that no mock could have found were caught by running it against live
 systems: the native-gas to ERC-20 fee conversion was wrong by 10\*\*6, a misnamed trade limit was
