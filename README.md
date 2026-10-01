@@ -410,7 +410,7 @@ The authorization is bound to the evidence hash of the evaluated snapshot, which
 `0xbe0477081f90e68b6699a585d5d31ad93d96f318` (deploy tx `0xb0e3b5fbc6a41db4dd6243b7454fe9dde31d305674f9e641f8f43d0d005139fe`, block 64882475) carries immutable budgets of 0.05 USDC per payment, 0.20 USDC per epoch and 0.05 USDC per recipient per epoch. An earlier guard at `0x79f4735b5cfb604bb7e3039b48e0e3f41892866b` held 2/5/2 USDC caps and settled three payments (2 USDC, 1 USDC, 0.01 USDC). Each recipient's ERC-20 balance rose by exactly the authorized amount, `arc-payables-verify-arc` read the deployed caps back off the chain and confirmed the chain id, the USDC bytecode, `decimals() == 6`, `symbol() == USDC`, the guard's policy signer and its payment token, and a 250 USDC invoice was refused by the preflight before anything was signed because the old contract's per-payment cap was 2 USDC.
 
 *ERPNext.* Both payments were written back as a Payment Entry for exactly the supplier's amount plus
-a network-fee Journal Entry, and the invoice reached `ERP_RECORDED`. The bootstrap, the balanced GL
+a network-fee Journal Entry, and the invoice reached `ERP_RECORDED`. A worker pass then paid a nano invoice unattended: tx `0x801b2ad9eb90b08e916fa65dea94d2dba70187532f1cc76d102876cccd53333b` sent 0.01 USDC through the nano-cap guard, and the sandbox holds `ACC-PAY-2026-00011` plus fee entry `ACC-JV-2026-00005` behind it. The bootstrap, the balanced GL
 entries and an idempotent re-run were verified in the same sandbox.
 
 The live runs also found three defects that no mock had: the native-gas to ERC-20 fee conversion was

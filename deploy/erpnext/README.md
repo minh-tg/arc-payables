@@ -253,6 +253,15 @@ throwaway chain, then writing the result back through the live connector. What i
 | `ACC-PINV-2026-00008` | now `Paid`, `outstanding_amount` 0 |
 | GL | Dr `Creditors - ADI` 250 / Cr `USDC Wallet - ADI` 250, plus Dr `Network Fees - ADI` 0.01 / Cr `USDC Wallet - ADI` 0.01 |
 
+The worker then paid a nano invoice unattended on Arc Testnet through the nano-cap guard at `0xbe0477081f90e68b6699a585d5d31ad93d96f318`. The pass evaluated `ARC-PAYABLES-DEMO-006` (0.01 USD), approved only the `screening_unavailable` check, and ran autopay with no human in the payment step. The chain confirms receipt and the ledger confirms both documents:
+
+| Document | Content |
+| --- | --- |
+| tx `0x801b2ad9eb90b08e916fa65dea94d2dba70187532f1cc76d102876cccd53333b` | 0.01 USDC to supplier-3, fee 2964 units, guard recipient spend 10000 |
+| `ACC-PAY-2026-00011` | Payment Entry, submitted, `paid_amount` 0.01, `received_amount` 0.01, ref `ARC-TESTNET:0x801b…3333` |
+| `ACC-JV-2026-00005` | Journal Entry, submitted, Dr `Network Fees - ADI` 0.01, Cr `USDC Wallet - ADI` 0.01 |
+| `ACC-PINV-2026-00013` | now `Paid`, `outstanding_amount` 0 |
+
 The measured fee was one micro-USDC, booked as 0.01 because a USD ledger cannot represent less; the
 entry's remark records both figures. Document names appear here because this sandbox is disposable
 and was created for this purpose.
