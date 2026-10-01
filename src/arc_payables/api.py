@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .attention import build_attention
+from .audit_log import list_payments, payment_report, verify_payment
 from .deliberation import build_order_planner
 from .domain import InvoiceLine, InvoiceRecord, usdc_to_units
 from .forecast import build_forecast
@@ -365,6 +366,36 @@ def create_app(
         """
         prioritiser = PaymentPrioritiser(workflow, planner=build_order_planner(settings))
         return prioritiser.plan().to_dict()
+
+    @app.get("/payments", tags=["audit"], dependencies=[Depends(require_api_key)])
+    def list_payments_endpoint(confirmation: str | None = None, ledger: str | None = None) -> dict[str, Any]:
+        """Every payment the agent authorized, newest first, with what became of each one.
+
+        The settlement log. A payment that failed is in here too, with the reason, because a log
+        that only records successes cannot answer the question an operator actually has.
+        """
+        return list_payments(workflow, confirmation=confirmation, ledger=ledger)
+
+    @app.get("/payments/{reference}", tags=["audit"], dependencies=[Depends(require_api_key)])
+    def payment_report_endpoint(reference: str) -> dict[str, Any]:
+        """One payment's whole story: decision, authorization, submission, settlement, ledger.
+
+        Reachable by invoice id, invoice number, payment id or transaction hash, because the thing
+        an operator usually holds is a hash from a block explorer. The raw permit signature is not
+        returned; whether it verifies against the configured signer is.
+        """
+        try:
+            return payment_report(workflow, reference)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail={"code": "payment_not_found", "message": str(exc)}) from exc
+
+    @app.post("/payments/{reference}/verify", tags=["audit"], dependencies=[Depends(require_api_key)])
+    def verify_payment_endpoint(reference: str) -> dict[str, Any]:
+        """Ask the provider and the chain again about one settlement. Reads only; sends nothing."""
+        try:
+            return verify_payment(workflow, reference)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail={"code": "payment_not_found", "message": str(exc)}) from exc
 
     @app.get("/audit/verify", tags=["audit"], dependencies=[Depends(require_api_key)])
     def verify_audit() -> dict[str, Any]:

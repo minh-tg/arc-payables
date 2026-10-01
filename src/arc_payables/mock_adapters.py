@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 import uuid
@@ -395,9 +396,14 @@ class MockPaymentProvider:
         if on_transaction:
             on_transaction("contract_execution", f"mock-{idempotency_key}")
         self._balance_units -= permit.amount_units
+        # A distinct transaction hash. Deriving it from the payment id made the two fields identical
+        # in the double, so a lookup by hash and a lookup by payment id were indistinguishable and a
+        # bug in either would have passed. A real provider returns a hash of the signed transaction,
+        # which is not the id the guard consumes.
+        transaction_hash = "0x" + hashlib.sha256(f"mock-tx:{payment_id}".encode()).hexdigest()
         result = PaymentSubmission(
             PaymentStatus.CONFIRMED,
-            transaction_hash="0x" + (payment_id.removeprefix("0x") * 2)[:64],
+            transaction_hash=transaction_hash,
             provider_transaction_id=f"mock-{idempotency_key}",
             fee_units=self.fee_units,
         )

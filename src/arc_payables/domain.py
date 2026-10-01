@@ -10,6 +10,7 @@ USDC_DECIMALS = 6
 USDC_SCALE = 10**USDC_DECIMALS
 ARC_TESTNET_CHAIN_ID = 5_042_002
 ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000"
+ARC_TESTNET_EXPLORER = "https://testnet.arcscan.app"
 
 #: Accounting states in which a payable may be paid. One definition, three readers: the
 #: deterministic policy, the advisory agent, and the connector's own discovery, so discovery
