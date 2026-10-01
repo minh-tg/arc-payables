@@ -262,6 +262,25 @@ The worker then paid a nano invoice unattended on Arc Testnet through the nano-c
 | `ACC-JV-2026-00005` | Journal Entry, submitted, Dr `Network Fees - ADI` 0.01, Cr `USDC Wallet - ADI` 0.01 |
 | `ACC-PINV-2026-00013` | now `Paid`, `outstanding_amount` 0 |
 
+A Circle Developer-Controlled Wallet on Arc Testnet then settled a second nano invoice through the
+same guard. The Circle operation is `f419795e-6677-5131-85e9-f7db1f429807` and the transaction is
+`0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0`:
+
+| Document | Content |
+| --- | --- |
+| Circle tx `0x0076…1db0` | 0.01 USDC to supplier-3, measured fee 10247 units (0.010247 USDC) |
+| `ACC-PAY-2026-00012` | Payment Entry, submitted, `paid_amount` 0.01, `received_amount` 0.01, ref `ARC-TESTNET:0x0076…1db0`, zero deductions |
+| `ACC-JV-2026-00006` | Journal Entry, submitted, Dr `Network Fees - ADI` 0.02, Cr `USDC Wallet - ADI` 0.02, remark records the measured 0.010247 |
+| `ACC-PINV-2026-00015` | now `Paid`, `outstanding_amount` 0 |
+
+One Circle behaviour worth recording: the first Circle settlement
+(`0x4499e7eb34f5073a871d1477636a26646eaf12431ae6360217fc76b5a01fd57d`) settled on chain but stayed
+unbooked, because the adapter accepted only a `networkFeeUsdc` object while Circle returned a plain
+18-decimal `networkFee` scalar. The service disabled the writeback with `NETWORK_FEE_UNAVAILABLE`
+rather than book an unknown cost. That is the correct fail-closed behaviour, and it is the defect the
+adapter now fixes. Circle's user operations are relayed: the wallet is debited the payment amount and
+Circle sponsors the gas on testnet.
+
 The measured fee was one micro-USDC, booked as 0.01 because a USD ledger cannot represent less; the
 entry's remark records both figures. Document names appear here because this sandbox is disposable
 and was created for this purpose.

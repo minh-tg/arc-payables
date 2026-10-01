@@ -413,17 +413,31 @@ The authorization is bound to the evidence hash of the evaluated snapshot, which
 a network-fee Journal Entry, and the invoice reached `ERP_RECORDED`. A worker pass then paid a nano invoice unattended: tx `0x801b2ad9eb90b08e916fa65dea94d2dba70187532f1cc76d102876cccd53333b` sent 0.01 USDC through the nano-cap guard, and the sandbox holds `ACC-PAY-2026-00011` plus fee entry `ACC-JV-2026-00005` behind it. The bootstrap, the balanced GL
 entries and an idempotent re-run were verified in the same sandbox.
 
-The live runs also found three defects that no mock had: the native-gas to ERC-20 fee conversion was
+*Circle Developer-Controlled Wallets.* A Circle SCA wallet on Arc Testnet settled 0.01 USDC through
+the same guard: tx `0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0` (Circle operation
+`f419795e-6677-5131-85e9-f7db1f429807`), and the recipient's balance rose by exactly the authorized
+amount. The ledger took it as `ACC-PAY-2026-00012` with zero deductions plus fee entry
+`ACC-JV-2026-00006`, and the invoice reached `ERP_RECORDED`. `arc-payables-verify-arc` reads the
+wallet back from Circle and confirms it is the configured `ARC-TESTNET` SCA account before anything
+is signed. On testnet Circle sponsors gas for the user operation, so the wallet is debited the
+payment amount and nothing else.
+
+The live runs also found four defects that no mock had: the native-gas to ERC-20 fee conversion was
 off by a factor of 10\*\*6 (the first payment reported 1 micro-USDC where the chain says 3489, and the
 corrected code then reported 3130 for the second against the chain's 3130), a misnamed trade limit
-was silently ignored because settings accepted unknown fields, and the deployment script used a
-cheatcode this forge build does not have, so it had never actually run.
+was silently ignored because settings accepted unknown fields, the deployment script used a
+cheatcode this forge build does not have so it had never actually run, and the Circle adapter
+accepted only a `networkFeeUsdc` object where Circle returns a plain 18-decimal `networkFee` scalar,
+which left the first Circle settlement unbookable.
 
 **Not verified live:**
 
-- The **Circle Developer-Controlled Wallet** path has still not been exercised. The live payments used
-  the local-key executor, so the Circle HTTP adapter is covered by its tests and the credential-free
-  emulator only. No Circle API credentials, entity secret or wallet set exist for this project.
+- The **Circle Developer-Controlled Wallet** path has now settled real testnet USDC and reached
+  `ERP_RECORDED`, but only on Arc Testnet. Circle's own `transactionScreeningEvaluation` returns no
+  verdict, so address screening stays unavailable and invoices still escalate for a human. The fee
+  recorded is Circle's reported cost of the operation that settled the payment; the exact-allowance
+  approval before it is a separate Circle operation whose fee is not booked, exactly as on the
+  local-key path. There is no mainnet route for either provider.
 - The fee we absorb is booked rounded up to the company currency's smallest unit, because a ledger in USD cannot represent a fraction of a cent. The entry's remark records the measured figure, and the rounding can overstate our own cost by less than one unit per payment. A company whose base currency is the stablecoin needs no rounding.
 - The live writeback above was verified on a **disposable local sandbox**. A production chart of accounts, a least-privilege runtime user, and an accountant's review of the mapping are still the operator's job.
 - Address screening's OpenSanctions provider is implemented behind its interface with deterministic evidence and fail-closed behavior, but no live call has been made (no API key configured), so a real deployment still relies on human review until it is exercised.
