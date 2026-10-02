@@ -28,6 +28,43 @@ Trunk-based: branch from `main` with a short, descriptive name (`feat/operator-c
 `fix/budget-rollover`), keep it short-lived, and open a pull request. CI must be green before
 merge.
 
+## Testing it by hand
+
+Three commands, no credentials, and nothing leaves the machine. The demo adapters are used unless a
+provider is explicitly configured, so everything below is a local simulation.
+
+```bash
+uv run arc-payables-seed                 # a payable, a blocked invoice, a treasury and a supplier
+uv run uvicorn arc_payables.api:app      # API and console on 127.0.0.1:8000
+uv run arc-payables-worker --once --intake --autopay
+```
+
+Then open <http://127.0.0.1:8000/console/>. Straight after seeding the console is mostly empty; the
+worker pass is what fills the settlement log and the invoice's policy checks. `DATABASE_PATH` names
+the database, so `rm -f data/arc_payables.sqlite3` starts over.
+
+Reading, evaluating and paying need no credential locally. Linking an invoice and recording an
+approval do: both are refused with `human_approval_not_configured` until `API_KEY` and
+`APPROVAL_TOKEN` are set, because approving is a human act and the service will not pretend one
+happened.
+
+### Flows worth walking
+
+| Flow | How | What to look for |
+| --- | --- | --- |
+| Refuse a suspicious invoice | Evaluate `demo-invoice-suspicious` | `ESCALATED` with `payee_mismatch` failing, and the destination shown is the verified supplier record rather than the address on the invoice |
+| Pay an authorized one | Pay `demo-invoice-legitimate` | `CONFIRMED`, then `ERP_RECORDED`, with the network fee as its own entry |
+| Watch it run without a person | `uv run arc-payables-worker --once --intake --autopay` | The Worker view lists every step and what it declined, with the reason |
+| A payable that arrives early | `PAYMENT_DUE_WINDOW_DAYS=-1 uv run arc-payables-worker --once --intake` | The discovered payable parks as `WAITING` with only `payment_timing` failing, which is a decision rather than an oversight |
+| Then its due date arrives | `PAYMENT_DUE_WINDOW_DAYS=3 uv run arc-payables-worker --once --intake --autopay` | Intake reconsiders it and it is paid and booked, with nobody evaluating it by hand |
+| The record can be checked | The verify button on an invoice | The hash chain recomputes, or it names the first entry that fails |
+| Refusals | `uv run pytest -q -k "budget or suspicious or reduced"` | Each one shows the system declining instead of trusting |
+
+The console's guided view is part of what is being reviewed. A new session opens with it on: dotted
+terms whose definition opens in place, a plain introduction per view, and the suggested next move
+beside anything that names a problem. The `Explaining:` control in the header turns it off, and the
+words that explain a code stay either way.
+
 ## Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, imperative
