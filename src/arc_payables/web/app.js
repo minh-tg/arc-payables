@@ -129,6 +129,23 @@ export function badge(text, kind = '') {
 
 // State to a colour tone, so a reviewer can read a workflow state at a glance. The badge always
 // carries the state text as well, so the colour is reinforcement rather than the only signal.
+// One labelled figure at a time, arranged by the caller in a `.stats` grid. Money is the hero:
+// the value is the largest type on the page, the unit sits beside it, and the tone is reinforcement.
+export function statGrid(items) {
+  return h(
+    'div',
+    { class: 'stats' },
+    items.map(({ label, value, unit, tone }) =>
+      h(
+        'div',
+        { class: `stat${tone === 'bad' ? ' bad' : tone === 'warn' ? ' warn' : tone === 'good' ? ' ok' : ''}` },
+        h('div', { class: 'label' }, label),
+        h('div', { class: 'value' }, `${value ?? '—'}`, unit ? h('span', { class: 'unit' }, unit) : null),
+      ),
+    ),
+  );
+}
+
 export function stateTone(state) {
   if (!state) return '';
   if (['ELIGIBLE', 'CONFIRMED', 'ERP_RECORDED'].includes(state)) return 'good';

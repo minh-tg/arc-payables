@@ -1,7 +1,7 @@
 // Treasury visibility: forward coverage against what is coming, and the counterparty risk that
 // constrains it. Both are read-only except for re-screening.
 
-import { api, badge, h, panel, refresh, registerView, table } from './app.js';
+import { api, badge, h, panel, refresh, registerView, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -11,21 +11,13 @@ async function renderTreasury(root) {
   const forecast = await api('/forecast?days=30');
   const suppliers = await api('/suppliers');
 
-  const coverage = h(
-    'dl',
-    { class: 'facts' },
-    h('dt', {}, 'Balance'),
-    h('dd', {}, money(forecast.balance_usdc)),
-    h('dt', {}, 'Reserve floor'),
-    h('dd', {}, money(forecast.reserve_floor_usdc)),
-    h('dt', {}, 'Due within horizon'),
-    h('dd', {}, money(forecast.due_within_horizon_usdc)),
-    h('dt', {}, 'Expected inflows'),
-    h('dd', {}, money(forecast.inflow_within_horizon_usdc)),
-    h('dt', {}, 'Coverable'),
-    h('dd', {}, money(forecast.coverable_usdc)),
-    h('dt', {}, 'Beyond horizon'),
-    h('dd', {}, money(forecast.beyond_horizon_usdc)),
+  root.append(
+    statGrid([
+      { label: 'Balance', value: String(forecast.balance_usdc ?? '—'), unit: 'USDC' },
+      { label: 'Reserve floor', value: String(forecast.reserve_floor_usdc ?? '—'), unit: 'USDC' },
+      { label: 'Due within horizon', value: String(forecast.due_within_horizon_usdc ?? '—'), unit: 'USDC' },
+      { label: 'Coverable', value: String(forecast.coverable_usdc ?? '—'), unit: 'USDC' },
+    ]),
   );
 
   root.append(
@@ -34,7 +26,6 @@ async function renderTreasury(root) {
       forecast.shortfall
         ? h('p', { class: 'error' }, `Shortfall of ${money(forecast.shortfall_usdc)} from ${forecast.shortfall_date}: ${forecast.uncovered_invoice_ids.length} obligation(s) the balance cannot cover while keeping the reserve.`)
         : h('p', {}, badge('every obligation in the horizon is covered while keeping the reserve', 'good')),
-      coverage,
       h('p', { class: 'muted' }, forecast.rationale),
       forecast.notes.length ? h('ul', { class: 'tight' }, forecast.notes.map((note) => h('li', {}, note))) : null,
     ),

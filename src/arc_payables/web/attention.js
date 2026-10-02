@@ -1,7 +1,7 @@
 // What needs a person. Read-only: the work waiting on a human and the alerts the last pass raised,
 // taken from the same snapshot the metrics are rendered from, so the two cannot disagree.
 
-import { api, badge, h, panel, registerView, table } from './app.js';
+import { api, badge, h, panel, registerView, statGrid, table } from './app.js';
 
 function tone(severity) {
   if (severity === 'critical') return 'bad';
@@ -53,6 +53,16 @@ function detailTable(item) {
 async function renderAttention(root) {
   const data = await api('/attention');
 
+  const kpis = statGrid([
+    { label: 'Treasury', value: String(data.treasury_usdc ?? '—'), unit: 'USDC' },
+    data.critical === 0 && data.warning === 0
+      ? { label: 'Needs you', value: '0', unit: 'items', tone: 'good' }
+      : { label: 'Needs you', value: String(data.critical + data.warning), unit: 'items' },
+    { label: 'Critical', value: String(data.critical), unit: 'items', tone: data.critical > 0 ? 'bad' : undefined },
+    { label: 'Warning', value: String(data.warning), unit: 'items', tone: data.warning > 0 ? 'warn' : undefined },
+  ]);
+  root.append(kpis);
+
   root.append(
     panel(
       'Waiting on a person',
@@ -88,11 +98,24 @@ async function renderAttention(root) {
   }
   for (const item of data.items) {
     const detail = detailTable(item);
+    const classes = `card finding ${tone(item.severity)}`;
+    const head = h(
+      'div',
+      { class: 'finding-head' },
+      h('span', { class: 'finding-code' }, item.code),
+      badge(item.severity, tone(item.severity)),
+    );
+    const actions = item.code === 'invoice_escalated' || item.code === 'invoice_held'
+      ? h('button', { onclick: () => location.hash = '#/queue' }, 'Review')
+      : null;
     root.append(
-      panel(
-        h('span', {}, `${item.code} `, badge(item.severity, tone(item.severity))),
+      h(
+        'section',
+        { class: classes },
+        head,
         h('p', {}, item.summary),
         detail,
+        actions,
       ),
     );
   }

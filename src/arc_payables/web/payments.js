@@ -4,7 +4,7 @@
 // why. A row links to the invoice for the deep evidence, and the lookup accepts whatever an operator
 // is holding, which is usually a transaction hash from a block explorer.
 
-import { api, badge, h, panel, registerView, table } from './app.js';
+import { api, badge, h, panel, registerView, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -262,26 +262,17 @@ async function renderPayments(root) {
   };
 
   root.append(
+    statGrid([
+      { label: 'Value moved', value: String(totals.value_usdc ?? '—'), unit: 'USDC' },
+      { label: 'Fees absorbed', value: String(totals.fees_usdc ?? '—'), unit: 'USDC' },
+      { label: 'Settled and recorded', value: String(totals.settled ?? 0) },
+      { label: 'Needs attention', value: String((totals.settled_not_recorded ?? 0) + (totals.unconfirmed ?? 0) + (totals.failed ?? 0)), tone: ((totals.settled_not_recorded ?? 0) + (totals.unconfirmed ?? 0) + (totals.failed ?? 0)) > 0 ? 'bad' : 'good' },
+    ]),
+  );
+
+  root.append(
     panel(
       'Settlement log',
-      h(
-        'dl',
-        { class: 'facts' },
-        h('dt', {}, 'Payments'),
-        h('dd', {}, String(log.count)),
-        h('dt', {}, 'Settled and recorded'),
-        h('dd', {}, String(totals.settled ?? 0)),
-        h('dt', {}, 'Settled, not recorded'),
-        h('dd', {}, String(totals.settled_not_recorded ?? 0)),
-        h('dt', {}, 'Unconfirmed'),
-        h('dd', {}, String(totals.unconfirmed ?? 0)),
-        h('dt', {}, 'Failed'),
-        h('dd', {}, String(totals.failed ?? 0)),
-        h('dt', {}, 'Value'),
-        h('dd', {}, money(totals.value_usdc)),
-        h('dt', {}, 'Fees absorbed'),
-        h('dd', {}, money(totals.fees_usdc)),
-      ),
       h('p', { class: 'muted' }, 'A payment that failed is in the log too, with the reason. A log that only holds successes cannot answer the question an operator has.'),
     ),
   );
