@@ -155,6 +155,36 @@ def test_a_view_does_not_import_what_it_does_not_use():
     assert not unused, unused
 
 
+def test_a_column_heading_may_carry_a_term_without_breaking_the_phone_label():
+    """A heading is where the jargon usually is, so a heading may be a term node.
+
+    The phone reflow labels every cell from its column, which needs a string. Reading the label back
+    off the node's text is what keeps that working; script/console-smoke.sh catches the failure in a
+    browser, where '[object HTMLSpanElement]' would actually appear.
+    """
+    app = (WEB_DIR / "app.js").read_text()
+    assert re.search(r"header instanceof Node\s*\?\s*header\.textContent", app)
+
+
+def test_no_panel_is_built_from_guided_text_alone():
+    """Guided text vanishes in normal view, so a panel made only of it becomes an empty card.
+
+    The card keeps its heading and loses everything under it, which reads as a screen that failed to
+    load. Every panel needs at least one child that is rendered whatever the reader's setting is.
+    This catches the exact shape `panel('X', lede(...))`; the invariant is broader than the regex.
+    """
+    pattern = re.compile(
+        r"panel\(\s*(?:'[^']*'|`[^`]*`)\s*,\s*lede\((?:[^()]|\([^()]*\))*\)\s*,?\s*\)",
+        re.DOTALL,
+    )
+    offenders = [
+        module.name
+        for module in sorted(WEB_DIR.glob("*.js"))
+        if module.name != "app.js" and pattern.search(module.read_text())
+    ]
+    assert not offenders, f"these build a card from guided text alone: {offenders}"
+
+
 def test_every_helper_a_view_imports_exists():
     """The modules import from app.js by name; a rename would otherwise fail only in a browser."""
     exported = set(re.findall(r"export (?:async )?function (\w+)", (WEB_DIR / "app.js").read_text()))

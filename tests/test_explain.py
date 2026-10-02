@@ -33,7 +33,7 @@ def test_every_policy_check_the_service_can_return_has_plain_words():
 def test_every_table_says_something_and_never_grants_authority():
     for name in (
         "STATES", "DECISIONS", "SCREENING", "ATTENTION", "OUTCOMES",
-        "CONFIRMATIONS", "STEPS", "ALERTS", "GUARD", "SETUP", "TIERS", "CONCEPTS",
+        "CONFIRMATIONS", "STEPS", "PASSES", "ALERTS", "GUARD", "SETUP", "TIERS", "CONCEPTS",
     ):
         table = getattr(e, name)
         assert table, f"{name} must not be empty"
@@ -49,6 +49,60 @@ def test_the_explanations_point_at_the_real_behaviour():
     assert "verified" in e.CHECKS["wallet_unverified"]["plain"].lower()
     assert "human" in e.STATES["ESCALATED"]["plain"].lower() or "person" in e.STATES["ESCALATED"]["plain"].lower()
     assert "quarter" in e.TIERS["medium"]["plain"]
+
+
+def test_a_pass_outcome_is_never_worded_as_a_payment_outcome():
+    """Both vocabularies contain "failed", and they do not mean the same thing.
+
+    A failed pass stopped the loop. A failed payment is money that did not move. Reading one as the
+    other tells an operator that nothing was sent when the truth is that a loop gave up, so the two
+    are held apart here.
+    """
+    assert set(e.PASSES) == {"ok", "degraded", "failed"}
+    assert e.PASSES["failed"]["plain"] != e.OUTCOMES["failed"]["plain"]
+    assert "pass stopped" in e.PASSES["failed"]["plain"]
+    assert "payment did not go through" in e.OUTCOMES["failed"]["plain"]
+    # A clean pass is not a payment outcome at all, so looking one up must not invent anything.
+    assert "ok" not in e.OUTCOMES
+    assert e.PASSES["ok"].get("action") is None
+
+
+def test_the_worker_reads_pass_outcomes_from_the_pass_table():
+    """The screen must use PASSES for passes and OUTCOMES for payments, not whichever is handy."""
+    worker = (pathlib.Path("src/arc_payables/web") / "worker.js").read_text()
+    assert "plainWords('passes'" in worker
+    assert "plainWords('outcomes'" not in worker
+
+
+def test_every_published_table_reaches_a_screen():
+    """A table the console never renders is a table nobody reads.
+
+    Seven of these were served, tested against the real vocabulary, and shown on no screen at all,
+    so an operator still read 'writeback · 3 failed' with the words for it sitting one HTTP call
+    away. The console has to consume what it publishes.
+    """
+    sources = "\n".join(
+        path.read_text() for path in pathlib.Path("src/arc_payables/web").glob("*.js")
+    )
+    unused = []
+    for name in e.PUBLISHED:
+        kind = name.lower()
+        if name == "CONCEPTS":
+            # Rendered through concept(), keyed by the term rather than by the table.
+            if "concept(" not in sources:
+                unused.append(kind)
+            continue
+        if not any(
+            f"{helper}('{kind}'" in sources
+            for helper in ("explain", "nextStep", "plainWords")
+        ):
+            unused.append(kind)
+    assert not unused, f"published but rendered on no screen: {unused}"
+
+
+def test_the_published_list_matches_the_tables_that_exist():
+    for name in e.PUBLISHED:
+        assert isinstance(getattr(e, name, None), dict), f"PUBLISHED names {name}, which is not a table"
 
 
 def test_an_unknown_code_admits_the_gap_instead_of_inventing_words():

@@ -214,10 +214,7 @@ def create_app(
                     code: {"plain": row["plain"], "action": row.get("action")}
                     for code, row in getattr(plain_words, name).items()
                 }
-                for name in (
-                    "STATES", "DECISIONS", "CHECKS", "SCREENING", "ATTENTION", "OUTCOMES",
-                    "CONFIRMATIONS", "STEPS", "ALERTS", "GUARD", "SETUP", "TIERS", "CONCEPTS",
-                )
+                for name in plain_words.PUBLISHED
             }
         )
 

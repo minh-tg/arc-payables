@@ -122,7 +122,7 @@ def test_the_console_can_read_every_definition_it_names(runtime):
     body = response.json()
     for name in (
         "states", "decisions", "checks", "screening", "attention", "outcomes",
-        "confirmations", "steps", "alerts", "guard", "setup", "tiers", "concepts",
+        "confirmations", "steps", "passes", "alerts", "guard", "setup", "tiers", "concepts",
     ):
         assert body.get(name), f"{name} is missing from the published explanations"
         for code, row in body[name].items():

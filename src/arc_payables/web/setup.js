@@ -2,7 +2,7 @@
 // a setting, because credentials belong in the environment and secret files rather than in a page
 // reachable with one shared API key.
 
-import { api, badge, concept, h, lede, panel, registerView, table } from './app.js';
+import { api, badge, concept, h, lede, panel, plainWords, registerView, table } from './app.js';
 
 function stateBadge(state) {
   if (state === 'set') return badge('set', 'good');
@@ -50,7 +50,7 @@ async function renderSetup(root) {
         'tr',
         {},
         h('td', {}, item.env),
-        h('td', {}, stateBadge(item.state)),
+        h('td', {}, stateBadge(item.state), plainWords('setup', item.state)),
         h('td', {}, item.value === null || item.value === undefined ? '—' : String(item.value)),
         h('td', { class: 'muted' }, item.breaks),
       ),

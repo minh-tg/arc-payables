@@ -281,6 +281,12 @@ function installConcepts() {
 // The listeners are delegated and cheap, and the popover element itself is built lazily.
 installConcepts();
 
+// A heading may be a node, because the worst jargon on a screen is usually a column name. The
+// phone reflow reads a cell's column back off this string, so a node's text is what gets used.
+function headerLabel(header) {
+  return header instanceof Node ? header.textContent : String(header);
+}
+
 // A table that survives a phone. Each cell carries its column name so the stylesheet can reflow the
 // row into a labelled card below the breakpoint, which is how a wide operator table stays readable.
 export function table(headers, rows) {
@@ -291,7 +297,7 @@ export function table(headers, rows) {
   );
   for (const row of body.querySelectorAll('tr')) {
     [...row.children].forEach((cell, index) => {
-      if (headers[index] !== undefined) cell.setAttribute('data-label', headers[index]);
+      if (headers[index] !== undefined) cell.setAttribute('data-label', headerLabel(headers[index]));
     });
   }
   return h(
@@ -372,6 +378,14 @@ export function explain(kind, code) {
 export function explainAction(kind, code) {
   const entry = (explanations && explanations[kind] && explanations[kind][code]) || null;
   return entry && entry.action ? entry.action : '';
+}
+
+// The service's plain words for one code, shown always rather than only while the explanations are
+// on. Reading a screen should not require decoding NEEDS_RECONCILIATION first, whether or not the
+// reader is new here, so this is part of the console rather than part of the guided layer.
+export function plainWords(kind, code) {
+  const text = explain(kind, code);
+  return text ? h('div', { class: 'muted' }, text) : null;
 }
 
 // The backend's suggested next move for one code, shown only while the reader is being walked

@@ -1,7 +1,7 @@
 // Treasury visibility: forward coverage against what is coming, and the counterparty risk that
 // constrains it. Both are read-only except for re-screening.
 
-import { api, badge, h, panel, refresh, registerView, statGrid, table } from './app.js';
+import { api, badge, concept, h, lede, panel, plainWords, refresh, registerView, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -11,10 +11,20 @@ async function renderTreasury(root) {
   const forecast = await api('/forecast?days=30');
   const suppliers = await api('/suppliers');
 
+  // A view-level lede, rendered whatever the deployment publishes. Placed inside a panel that only
+  // appears when a provider reports caps, it would disappear on any deployment without them.
+  root.append(
+    lede(
+      'What the money covers, what is coming, and who may be paid without a person looking. ',
+      'Coverage counts what is owed whether or not the agent may pay it, so a blocked invoice cannot ',
+      'quietly leave the forecast.',
+    ),
+  );
+
   root.append(
     statGrid([
-      { label: 'Balance', value: String(forecast.balance_usdc ?? '—'), unit: 'USDC' },
-      { label: 'Reserve floor', value: String(forecast.reserve_floor_usdc ?? '—'), unit: 'USDC' },
+      { label: 'Balance', value: String(forecast.balance_usdc ?? '—'), unit: 'USDC', concept: 'treasury' },
+      { label: 'Reserve floor', value: String(forecast.reserve_floor_usdc ?? '—'), unit: 'USDC', concept: 'reserve_floor' },
       { label: 'Due within horizon', value: String(forecast.due_within_horizon_usdc ?? '—'), unit: 'USDC' },
       { label: 'Coverable', value: String(forecast.coverable_usdc ?? '—'), unit: 'USDC' },
     ]),
@@ -36,6 +46,11 @@ async function renderTreasury(root) {
     root.append(
       panel(
         'Guard budgets · per payment, per epoch, per recipient',
+        lede(
+          'The ', concept('guard', 'guard'), ' holds these caps on the chain itself, so they apply even '
+          + 'if everything above this contract is wrong. A budget cannot be edited in place, and a '
+          + 'refund does not give back what it spent.',
+        ),
         table(
           ['Budget', 'Cap', 'Used', ''],
           [
@@ -126,8 +141,18 @@ async function renderTreasury(root) {
       h('td', {}, item.supplier_id),
       h('td', {}, item.name || '—'),
       h('td', {}, item.wallet ? `${item.wallet}${item.wallet_verified ? '' : ' (unverified)'}` : '—'),
-      h('td', {}, item.risk_tier ? badge(item.risk_tier, item.risk_tier === 'low' ? 'good' : item.risk_tier === 'high' ? 'bad' : 'warn') : '—'),
-      h('td', {}, item.latest_screening ? `${item.latest_screening.status} · ${item.latest_screening.checked_at}` : 'never screened'),
+      h(
+        'td',
+        {},
+        item.risk_tier ? badge(item.risk_tier, item.risk_tier === 'low' ? 'good' : item.risk_tier === 'high' ? 'bad' : 'warn') : '—',
+        plainWords('tiers', item.risk_tier),
+      ),
+      h(
+        'td',
+        {},
+        item.latest_screening ? `${item.latest_screening.status} · ${item.latest_screening.checked_at}` : 'never screened',
+        plainWords('screening', item.latest_screening && item.latest_screening.status),
+      ),
       h('td', { class: 'num' }, item.automatic_limit_usdc ? money(item.automatic_limit_usdc) : '—'),
       h('td', { class: 'num' }, String(item.open_invoices)),
       h('td', { class: 'num' }, money(item.open_amount_usdc)),
@@ -138,7 +163,19 @@ async function renderTreasury(root) {
       'Counterparty risk',
       h('p', { class: 'muted' }, 'The tier scales the automatic limit rather than gating the counterparty: an unclear result buys a smaller unattended payment, and a flagged one still needs a human.'),
       h('div', { class: 'credentials' }, rescreen),
-      table(['Supplier', 'Name', 'Wallet', 'Tier', 'Latest screening', 'Automatic limit', 'Open', 'Exposure'], riskRows),
+      table(
+        [
+          'Supplier',
+          'Name',
+          concept('wallet', 'Wallet'),
+          concept('tier', 'Tier'),
+          concept('screening', 'Latest screening'),
+          'Automatic limit',
+          'Open',
+          'Exposure',
+        ],
+        riskRows,
+      ),
     ),
   );
 }

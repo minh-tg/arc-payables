@@ -2,7 +2,7 @@
 // actions a human can take. The destination is read from the trusted supplier record, never from
 // the invoice.
 
-import { api, badge, explain, h, panel, refresh, registerView, stateTone, table } from './app.js';
+import { api, badge, concept, explain, h, lede, panel, plainWords, refresh, registerView, stateTone, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -27,7 +27,11 @@ async function renderInvoice(root, [invoiceId]) {
   root.append(
     panel(
       `Invoice ${invoice.invoice_number}`,
-      h('p', { class: 'muted' }, explain('state', detail.state)),
+      lede(
+        'One invoice end to end. The destination comes from the supplier record a human verified, ',
+        'never from the invoice itself, and the invoice cannot name where its own money goes.',
+      ),
+      h('p', { class: 'muted' }, explain('states', detail.state)),
       h(
         'dl',
         { class: 'facts' },
@@ -39,7 +43,7 @@ async function renderInvoice(root, [invoiceId]) {
         h('dd', {}, invoice.due_date),
         h('dt', {}, 'Supplier'),
         h('dd', {}, `${invoice.supplier_id}${supplier && supplier.name ? ` · ${supplier.name}` : ''}`),
-        h('dt', {}, 'Trusted destination'),
+        h('dt', {}, concept('wallet', 'Trusted destination')),
         h(
           'dd',
           {},
@@ -49,7 +53,7 @@ async function renderInvoice(root, [invoiceId]) {
         ),
         h('dt', {}, 'Payee on the captured invoice'),
         h('dd', { class: 'muted' }, invoice.invoice_payee_address || 'none (untrusted field, never a destination)'),
-        h('dt', {}, 'Linked ERP payable'),
+        h('dt', {}, concept('ledger', 'Linked ERP payable')),
         h('dd', {}, invoice.purchase_invoice_id || 'not linked'),
       ),
     ),
@@ -92,6 +96,7 @@ async function renderInvoice(root, [invoiceId]) {
     root.append(
       panel(
         `Decision · ${decision.action}`,
+        h('p', {}, plainWords('decisions', decision.action)),
         h(
           'dl',
           { class: 'facts' },
@@ -133,7 +138,7 @@ async function renderInvoice(root, [invoiceId]) {
 
     const checks = decision.policy_checks || [];
     const checkRows = checks.map((check) => {
-      const words = explain('check', check.code);
+      const words = explain('checks', check.code);
       return h(
         'tr',
         {},
@@ -143,7 +148,7 @@ async function renderInvoice(root, [invoiceId]) {
         h('td', {}, h('div', {}, check.detail), h('div', { class: 'muted' }, words)),
       );
     });
-    root.append(panel('Evidence checks', table(['Check', 'Result', 'Review', 'Detail'], checkRows)));
+    root.append(panel('Evidence checks', lede('Each rule the policy applied, and whether it passed. A failing rule that a human may override is the only thing standing between this invoice and payment.'), table(['Check', 'Result', 'Review', 'Detail'], checkRows)));
 
     const acknowledgeable = checks.filter((check) => !check.passed && check.requires_human && check.overridable);
     const boxes = acknowledgeable.map((check) =>
@@ -213,6 +218,11 @@ async function renderInvoice(root, [invoiceId]) {
     root.append(
       panel(
         'Human review',
+        lede(
+          'Approval is the ', concept('approval_token', 'approval token'), ' at work: a second '
+          + 'credential a person supplies, which is why the API key on its own can never approve ',
+          + 'anything.',
+        ),
         h('p', { class: 'muted' }, 'Approval acknowledges specific checks and is bound to the evidence hash; it can never change the destination or the amount.'),
         boxes.length ? h('div', { class: 'checks' }, boxes) : h('p', { class: 'muted' }, 'No overridable checks are currently failing.'),
         h('div', { class: 'credentials' }, reviewer, note, approve, evaluate, pay),
@@ -269,7 +279,11 @@ async function renderInvoice(root, [invoiceId]) {
     ),
   );
   root.append(
-    panel('Audit chain', h('div', { class: 'credentials' }, verify, verdict), table(['When', 'Event', 'State', 'Entry hash', 'Signature'], eventRows)),
+    panel(
+      concept('audit_chain', 'Audit chain'),
+      h('div', { class: 'credentials' }, verify, verdict),
+      table(['When', 'Event', 'State', 'Entry hash', 'Signature'], eventRows),
+    ),
   );
 }
 

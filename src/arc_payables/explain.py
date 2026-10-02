@@ -234,6 +234,20 @@ STEPS: dict[str, dict[str, Any]] = {
     "observe": _row("Reads the treasury balance, the reserve headroom and the guard's budgets. Writes nothing."),
 }
 
+#: How a worker pass itself ended. A pass outcome is not a payment outcome: "failed" here means
+#: the loop stopped, not that money did not move, and the two must not be read as the same word.
+PASSES: dict[str, dict[str, Any]] = {
+    "ok": _row("Every step finished. Nothing was left half done."),
+    "degraded": _row(
+        "A step did not finish, so part of the work did not happen this time. The loop carried on.",
+        "Open the step that needs attention below, fix the cause, and confirm the next pass is clean.",
+    ),
+    "failed": _row(
+        "The pass stopped early, so nothing after the stop was attempted.",
+        "Read the stop reason, fix the cause, and run a pass again.",
+    ),
+}
+
 #: Every alert a pass can raise.
 ALERTS: dict[str, dict[str, Any]] = {
     "worker_failing": _row(
@@ -347,6 +361,27 @@ CONCEPTS: dict[str, dict[str, Any]] = {
         "If the chain stops verifying, the record of what happened cannot be trusted and payments should stop.",
     ),
 }
+
+
+#: Every table this module publishes to the console, in the order they are served. The console's
+#: test suite walks this list and fails if a table reaches no screen at all, which is how seven of
+#: these sat served, tested and rendered nowhere until it existed.
+PUBLISHED: tuple[str, ...] = (
+    "STATES",
+    "DECISIONS",
+    "CHECKS",
+    "SCREENING",
+    "ATTENTION",
+    "OUTCOMES",
+    "CONFIRMATIONS",
+    "STEPS",
+    "PASSES",
+    "ALERTS",
+    "GUARD",
+    "SETUP",
+    "TIERS",
+    "CONCEPTS",
+)
 
 
 def look_up(table: dict[str, dict[str, Any]], code: str) -> dict[str, Any]:

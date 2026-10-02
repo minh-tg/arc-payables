@@ -19,8 +19,6 @@ cd "$(dirname "$0")/.."
 
 PORT="${PORT:-8096}"
 VIEWS=(attention queue payments worker treasury setup)
-# The views that carry the guided layer. Every other view is expected to render without it.
-GUIDED_VIEWS=" attention queue setup "
 WORKDIR="$(mktemp -d)"
 DB="$WORKDIR/demo.sqlite3"
 LOG="$WORKDIR/api.log"
@@ -37,8 +35,21 @@ if ! command -v chromium >/dev/null; then
   exit 2
 fi
 
+# The fixture is pinned to the demo adapters. A developer with live credentials exported would
+# otherwise have this script, which only exists to look at screens, move real testnet money.
+MOCK="PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock"
+
 DATABASE_PATH="$DB" uv run arc-payables-seed >/dev/null
-DATABASE_PATH="$DB" uv run uvicorn arc_payables.api:app --port "$PORT" >"$LOG" 2>&1 &
+# Drive one pass before rendering. An empty table cannot show a wrong destructure, which is the
+# failure this script exists to catch, and most of the console is empty straight after seeding: no
+# decisions, no payments, no worker steps. One pass fills the settlement log, the invoice's policy
+# checks and the worker's six steps, so the checks below have rows to look at.
+if ! env $MOCK DATABASE_PATH="$DB" uv run arc-payables-worker --once --autopay --intake >/dev/null; then
+  echo "the demo worker pass failed, so the views would render empty" >&2
+  exit 3
+fi
+
+env $MOCK DATABASE_PATH="$DB" uv run uvicorn arc_payables.api:app --port "$PORT" >"$LOG" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 40); do
@@ -47,7 +58,21 @@ for _ in $(seq 1 40); do
 done
 curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null
 
-INVOICE_ID="$(curl -fsS "http://127.0.0.1:$PORT/invoices" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["invoice"]["id"])')"
+# The evaluated invoice, not the first one: the first is usually still RECEIVED, with no decision,
+# no policy checks and therefore no table for these checks to inspect.
+INVOICE_ID="$(curl -fsS "http://127.0.0.1:$PORT/invoices" | python3 -c '
+import json,sys
+rows = json.load(sys.stdin)
+evaluated = [row for row in rows if row["state"] not in ("RECEIVED", "EVIDENCE_CHECKING")]
+print((evaluated or rows)[0]["invoice"]["id"])')"
+
+# Fail loudly if the fixture came out empty, rather than passing every check vacuously.
+SETTLED="$(curl -fsS "http://127.0.0.1:$PORT/payments" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["payments"]))')"
+if [ "$SETTLED" -lt 1 ]; then
+  echo "the demo produced no payments, so the settlement log and its outcome words go unchecked" >&2
+  exit 3
+fi
+echo "demo fixture: seeded, one worker pass, $SETTLED payment(s) in the settlement log"
 
 # The definitions a term can be drawn from. Any term not in this list draws an empty popover.
 CONCEPT_KEYS="$WORKDIR/concept-keys.txt"
@@ -65,6 +90,9 @@ for view in "${VIEWS[@]}" "invoice/$INVOICE_ID"; do
   cards="$(printf '%s' "$dom" | grep -o 'class="card"' | wc -l || true)"
   ledes="$(printf '%s' "$dom" | grep -o 'class="lede"' | wc -l || true)"
   terms="$(printf '%s' "$dom" | grep -o 'data-concept="[a-z_]*"' | sed 's/.*="//; s/"$//' | sort -u || true)"
+  # A column heading may now be a term node, so the phone reflow label could silently become
+  # "[object HTMLSpanElement]" and only a browser would ever show it.
+  objects="$(printf '%s' "$dom" | grep -o 'data-label="\[object' | wc -l || true)"
   if [ -n "$terms" ]; then
     term_count="$(printf '%s\n' "$terms" | wc -l)"
     undefined="$(printf '%s\n' "$terms" | comm -23 - "$CONCEPT_KEYS" | tr '\n' ' ' || true)"
@@ -72,7 +100,10 @@ for view in "${VIEWS[@]}" "invoice/$INVOICE_ID"; do
     term_count=0
     undefined=""
   fi
-  case "$GUIDED_VIEWS" in *" $view "*) guided=1 ;; *) guided=0 ;; esac
+  case "$view" in
+    attention|queue|payments|worker|treasury|setup|invoice*) guided=1 ;;
+    *) guided=0 ;;
+  esac
 
   if printf '%s' "$dom" | grep -q 'Request failed'; then
     reason="$(printf '%s' "$dom" | sed -n 's/.*Request failed<\/strong><div>\([^<]*\).*/\1/p' | head -1 || true)"
@@ -83,6 +114,9 @@ for view in "${VIEWS[@]}" "invoice/$INVOICE_ID"; do
     failures=$((failures + 1))
   elif [ -n "$undefined" ]; then
     printf '%-14s %-7s %-6s %s\n' "$view" "$cards" "$term_count" "FAILED: a term has no definition: $undefined"
+    failures=$((failures + 1))
+  elif [ "$objects" -gt 0 ]; then
+    printf '%-14s %-7s %-6s %s\n' "$view" "$cards" "$term_count" "FAILED: a column label rendered as a node"
     failures=$((failures + 1))
   elif [ "$guided" -eq 1 ] && { [ "$term_count" -lt 1 ] || [ "$ledes" -lt 1 ]; }; then
     printf '%-14s %-7s %-6s %s\n' "$view" "$cards" "$term_count" "FAILED: guided view rendered no explanations"

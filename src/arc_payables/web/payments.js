@@ -4,10 +4,17 @@
 // why. A row links to the invoice for the deep evidence, and the lookup accepts whatever an operator
 // is holding, which is usually a transaction hash from a block explorer.
 
-import { api, badge, h, panel, registerView, statGrid, table } from './app.js';
+import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
+}
+
+// An outcome that asks something of a person gets the next move beside it; a settled one does not.
+const PROBLEM_OUTCOMES = ['settled_not_recorded', 'unconfirmed', 'failed', 'rejected'];
+
+function outcomeWords(code) {
+  return PROBLEM_OUTCOMES.includes(code) ? nextStep('outcomes', code) : null;
 }
 
 function outcomeTone(item) {
@@ -61,6 +68,7 @@ function reportPanels(report) {
     panel(
       'Outcome',
       h('p', {}, outcomeBadge(report.outcome), ' ', report.outcome.summary),
+      plainWords('outcomes', report.outcome.code),
       report.outcome.reason ? h('p', { class: 'muted' }, `Reason: ${report.outcome.reason}`) : null,
       h(
         'dl',
@@ -86,8 +94,8 @@ function reportPanels(report) {
         'dl',
         { class: 'facts' },
         h('dt', {}, 'Confirmation'),
-        h('dd', {}, settlement.confirmation_status || '—'),
-        h('dt', {}, 'Fee we booked'),
+        h('dd', {}, settlement.confirmation_status || '—', plainWords('confirmations', settlement.confirmation_status)),
+        h('dt', {}, concept('network_fee', 'Fee we booked')),
         h('dd', {}, money(settlement.fee_usdc)),
         h('dt', {}, 'Settled at'),
         h('dd', {}, settlement.settled_at || '—'),
@@ -107,6 +115,7 @@ function reportPanels(report) {
     panel(
       'Authorization',
       h('p', { class: 'muted' }, 'The permit binds the amount and the destination to one evidence hash. The signature itself is not returned here, because a read-only screen should not hand back material that could authorize anything.'),
+      plainWords('guard', 'permit'),
       h(
         'dl',
         { class: 'facts' },
@@ -136,6 +145,7 @@ function reportPanels(report) {
   panels.push(
     panel(
       'Ledger writeback',
+      h('p', { class: 'muted' }, 'Money can move on the chain before the books accept it. Writing back is idempotent, so a retry cannot pay anyone twice.'),
       h(
         'dl',
         { class: 'facts' },
@@ -203,7 +213,7 @@ function reportPanels(report) {
 
   panels.push(
     panel(
-      'Audit chain',
+      concept('audit_chain', 'Audit chain'),
       h(
         'p',
         {},
@@ -245,7 +255,7 @@ async function renderPayments(root) {
         h('td', {}, row.supplier_id),
         h('td', { class: 'num' }, money(row.amount_usdc)),
         h('td', {}, row.recipient || '—'),
-        h('td', {}, row.confirmation_status),
+        h('td', {}, row.confirmation_status, plainWords('confirmations', row.confirmation_status)),
         h('td', {}, row.erp_status || '—'),
         h('td', { class: 'num' }, row.fee_usdc ? money(row.fee_usdc) : '—'),
         h(
@@ -253,27 +263,49 @@ async function renderPayments(root) {
           {},
           row.explorer_url ? h('a', { href: row.explorer_url, target: '_blank', rel: 'noreferrer' }, `${row.transaction_hash.slice(0, 12)}…`) : '—',
         ),
-        h('td', {}, outcomeBadge(row.outcome)),
+        h('td', {}, outcomeBadge(row.outcome), plainWords('outcomes', row.outcome.code), outcomeWords(row.outcome.code)),
       ),
     );
     tableHost.replaceChildren(
-      table(['Invoice', 'Supplier', 'Amount', 'Recipient', 'Confirmation', 'Ledger', 'Fee', 'Transaction', 'Outcome'], rows),
+      table(
+        [
+          'Invoice',
+          'Supplier',
+          'Amount',
+          'Recipient',
+          'Confirmation',
+          concept('ledger', 'Ledger'),
+          concept('network_fee', 'Fee'),
+          'Transaction',
+          'Outcome',
+        ],
+        rows,
+      ),
     );
   };
 
   root.append(
     statGrid([
       { label: 'Value moved', value: String(totals.value_usdc ?? '—'), unit: 'USDC' },
-      { label: 'Fees absorbed', value: String(totals.fees_usdc ?? '—'), unit: 'USDC' },
+      { label: 'Fees absorbed', value: String(totals.fees_usdc ?? '—'), unit: 'USDC', concept: 'network_fee' },
       { label: 'Settled and recorded', value: String(totals.settled ?? 0) },
       { label: 'Needs attention', value: String((totals.settled_not_recorded ?? 0) + (totals.unconfirmed ?? 0) + (totals.failed ?? 0)), tone: ((totals.settled_not_recorded ?? 0) + (totals.unconfirmed ?? 0) + (totals.failed ?? 0)) > 0 ? 'bad' : 'good' },
     ]),
   );
 
   root.append(
+    lede(
+      'What has left the treasury, and whether the books have caught up with it. A payment can '
+      + 'settle on the chain before the ',
+      concept('ledger', 'ledger'),
+      ' accepts it, so the two are shown side by side.',
+    ),
+  );
+
+  root.append(
     panel(
       'Settlement log',
-      h('p', { class: 'muted' }, 'A payment that failed is in the log too, with the reason. A log that only holds successes cannot answer the question an operator has.'),
+      h('p', { class: 'muted' }, 'A payment that failed is in the log too, with the reason. A log that only holds successes cannot answer the question an operator actually has.'),
     ),
   );
 
@@ -305,7 +337,10 @@ async function renderPayments(root) {
   root.append(
     panel(
       'Look up one payment',
-      h('p', { class: 'muted' }, 'The whole story of one payment: the outcome, the authorization, the settlement, the ledger entry and the audit chain. Paste a transaction hash straight out of a block explorer.'),
+      lede(
+        'The whole story of one payment: the outcome, the authorization, the settlement, the ledger ',
+        'entry and the audit chain. Paste a transaction hash straight out of a block explorer.',
+      ),
       h('div', { class: 'credentials' }, lookupInput, lookup),
       reportHost,
     ),

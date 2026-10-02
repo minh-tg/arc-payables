@@ -111,6 +111,18 @@ uv run uvicorn arc_payables.api:app      # API and console on 127.0.0.1:8000
 # then open http://127.0.0.1:8000/console/
 ```
 
+Straight after seeding the console is thin: two invoices still waiting to be looked at, an empty
+settlement log, and a worker that has never run. One more command fills every screen, and it is what
+the smoke script does before it renders anything:
+
+```bash
+uv run arc-payables-worker --once --autopay --intake
+```
+
+That one pass captures a payable, evaluates it against the policy, pays it through the mock
+provider, writes it back to the ledger, and records the six steps it took. Nothing leaves the
+machine: the demo adapters are selected unless a provider is explicitly configured.
+
 With nothing configured, `/console/`, `/invoices`, `/plan`, `/forecast`, `/suppliers`,
 `/worker/status` and `/audit/verify` all answer without a credential. That is deliberate rather than
 sloppy: the demo providers hold nothing worth protecting, and the API refuses to start an external
@@ -325,12 +337,23 @@ vocabulary, and the choice lasts the tab. The glossary covers the money itself, 
 for, because that is the first thing a new operator has to read and the last thing anyone thinks to
 explain.
 
+There are two layers here, and they are deliberately separate. The **plain words for a code** are
+part of the console, not a beginner mode: `NEEDS_RECONCILIATION` is translated on every screen for
+everyone, because reading a screen should not require decoding it first. What the guided view adds is
+the rest: the terms, the introductions, and the suggested next move. Every table of words the
+service publishes has to reach a screen, and a test fails when one does not, because seven of them
+once sat served, tested and rendered nowhere while operators read the raw codes they explained.
+
 `script/console-smoke.sh` renders every view in a headless browser against the seeded demo and fails
 if one of them throws. The Python suite can only see that a module parses and its imports resolve,
 which is not enough: a wrong destructure of an API response parses perfectly and dies at render time,
-and one shipped that way until this script caught it. It also checks the one thing about the guided
-view that no server-side test can reach: that every term a page draws has a definition behind it,
-because a term with no definition renders an empty popover and throws nothing at all.
+and one shipped that way until this script caught it. It drives one worker pass before rendering,
+because an empty table cannot show a wrong destructure and most of the console is empty straight
+after seeding, and it fails outright if that pass produced nothing. The demo adapters are pinned, so
+a machine with live credentials exported cannot be made to move money by a script that exists to look
+at screens. It also checks the one thing about the guided view that no server-side test can reach:
+that every term a page draws has a definition behind it, because a term with no definition renders an
+empty popover and throws nothing at all.
 
 The console is shipped code, so its modules are syntax-checked in the test suite: a JavaScript
 error would otherwise produce a blank page that no server-side test would catch.
