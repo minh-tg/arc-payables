@@ -228,7 +228,7 @@ CONFIRMATIONS: dict[str, dict[str, Any]] = {
 STEPS: dict[str, dict[str, Any]] = {
     "reconcile": _row("Asks the chain again about settlements whose confirmation never arrived, or could not be read at the time."),
     "writeback": _row("Finishes confirmed payments the ledger has not accepted yet, fee entry included."),
-    "intake": _row("Reads what the ledger still owes, captures what nobody imported, and evaluates it."),
+    "intake": _row("Reads what the ledger still owes, captures what nobody imported, evaluates it, and re-evaluates anything it parked until a due date."),
     "autopay": _row("Pays only what policy already authorized. Never approves anything."),
     "rescreen": _row("Re-screens counterparties past their cadence and moves their risk tier."),
     "observe": _row("Reads the treasury balance, the reserve headroom and the guard's budgets. Writes nothing."),

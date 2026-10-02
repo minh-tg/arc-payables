@@ -13,7 +13,7 @@ import pytest
 from arc_payables.currency import USDCOnlyConverter
 from arc_payables.domain import DecisionAction, InvoiceRecord, ScreeningStatus, USDC_SCALE, WorkflowState
 from arc_payables.mock_adapters import MockAccountingConnector, MockPaymentProvider
-from arc_payables.policy import DeterministicPolicy
+from arc_payables.policy import DeterministicPolicy, payment_window
 from arc_payables.seed import APPROVED_WALLET, ATTACKER_WALLET, SUPPLIER_ID, seed_demo
 from arc_payables.service import APWorkflow, WorkflowError
 from arc_payables.settings import Settings
@@ -269,6 +269,27 @@ def test_duplicate_accounting_invoice_is_held(runtime):
     result = runtime["workflow"].evaluate(invoice.id)
     assert result["decision"]["action"] == DecisionAction.HOLD.value
     assert "duplicate_invoice" in {check["code"] for check in result["decision"]["policy_checks"] if not check["passed"]}
+
+
+def test_the_reconsideration_window_is_the_window_the_policy_waits_on(runtime):
+    """The worker re-evaluates on this rule, so it has to be the policy's own.
+
+    They are one function, and this pins them together by observation: an invoice is parked exactly
+    while the window says it is not yet timely. If the two drifted, an invoice would either wait for
+    ever or be re-evaluated on every pass for ever.
+    """
+    today = date.today()
+    invoice_id = runtime["legitimate_id"]
+    # 5 days is the interesting one: outside the configured window, and inside a drifted one.
+    for due_in_days, parked in ((30, True), (5, True), (1, False)):
+        invoice = replace(runtime["store"].get_invoice(invoice_id), due_date=today + timedelta(days=due_in_days))
+        runtime["store"].update_invoice_record(invoice, "TEST_DUE_DATE")
+
+        result = runtime["workflow"].evaluate(invoice_id)
+        due_soon, discount_due = payment_window(runtime["settings"], invoice, today)
+
+        assert (due_soon or discount_due) is not parked, f"due in {due_in_days} days"
+        assert (result["state"] == WorkflowState.WAITING.value) is parked, f"due in {due_in_days} days"
 
 
 def test_discount_can_justify_early_pay_but_reserve_still_blocks(runtime):

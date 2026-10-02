@@ -8,6 +8,8 @@ policy refused.
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import date, timedelta
 from decimal import Decimal
 
 from arc_payables import worker
@@ -19,6 +21,112 @@ IMPORTABLE = "PINV-ACME-2026-003"
 
 def _step(report, name):
     return next(step for step in report.steps if step.name == name)
+
+
+def _set_due_date(runtime, invoice_id: str, due) -> None:
+    """Move a payable's due date, which is what time passing means to the policy."""
+    invoice = runtime["store"].get_invoice(invoice_id)
+    runtime["store"].update_invoice_record(replace(invoice, due_date=due), "TEST_DUE_DATE")
+
+
+def _park_then_come_due(runtime, invoice_id: str, *, due_in_days: int = 1) -> None:
+    """Put a payable in the state time creates: decided as waiting, and now due.
+
+    The due date moves without a second evaluation, which is exactly the situation between passes.
+    The decision is from before, and only the calendar has changed since.
+    """
+    today = date.today()
+    _set_due_date(runtime, invoice_id, today + timedelta(days=30))
+    assert runtime["workflow"].evaluate(invoice_id)["state"] == WorkflowState.WAITING.value
+    _set_due_date(runtime, invoice_id, today + timedelta(days=due_in_days))
+
+
+def test_a_payable_waiting_for_its_due_date_becomes_payable_without_a_person(runtime):
+    """The case that otherwise waits for ever.
+
+    A payable normally arrives before it is due, gets decided as waiting, and then nothing looked at
+    it again: discovery only ever examines payables it has never seen. So the day it became payable,
+    the only way forward was a person pressing evaluate.
+    """
+    worker.run_pass(runtime["workflow"], intake=True, rescreen=False)  # capture everything first
+    _park_then_come_due(runtime, runtime["legitimate_id"])
+
+    report = worker.run_pass(runtime["workflow"], intake=True, rescreen=False)
+
+    intake = _step(report, "intake")
+    assert intake.acted == 1
+    assert intake.detail["reconsidered"][0]["was"] == WorkflowState.WAITING.value
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ELIGIBLE.value
+    # Evaluating is not authority to pay: that stays the separate autopay decision.
+    assert runtime["store"].get_payment(runtime["legitimate_id"]) is None
+
+
+def test_a_payable_that_is_not_due_yet_is_left_waiting(runtime):
+    """Waiting is a decision. The worker must not talk itself out of it."""
+    worker.run_pass(runtime["workflow"], intake=True, rescreen=False)
+    today = date.today()
+    invoice_id = runtime["legitimate_id"]
+    _set_due_date(runtime, invoice_id, today + timedelta(days=30))
+    assert runtime["workflow"].evaluate(invoice_id)["state"] == WorkflowState.WAITING.value
+
+    report = worker.run_pass(runtime["workflow"], intake=True, rescreen=False)
+
+    intake = _step(report, "intake")
+    assert intake.acted == 0
+    assert "reconsidered" not in intake.detail
+    assert runtime["store"].get_state(invoice_id) == WorkflowState.WAITING.value
+    assert runtime["store"].get_payment(invoice_id) is None
+
+
+def test_coming_due_is_deferred_not_skipped_when_the_budget_is_spent(runtime):
+    """A pass that ran out of actions has to say so, rather than leaving it for the next one silently."""
+    worker.run_pass(runtime["workflow"], intake=True, rescreen=False)
+    _park_then_come_due(runtime, runtime["legitimate_id"])
+
+    report = worker.run_pass(runtime["workflow"], intake=True, rescreen=False, max_actions=0)
+
+    intake = _step(report, "intake")
+    assert intake.acted == 0
+    assert intake.detail["deferred"] >= 1
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.WAITING.value
+
+
+def test_a_held_payable_is_never_reconsidered(runtime):
+    """A person parked it. The worker does not get to disagree, however the dates look."""
+    worker.run_pass(runtime["workflow"], intake=True, rescreen=False)
+    today = date.today()
+    invoice_id = runtime["legitimate_id"]
+    _set_due_date(runtime, invoice_id, today)
+    runtime["store"].set_state(invoice_id, WorkflowState.HELD.value, "TEST_HELD")
+    events = len(runtime["store"].events(invoice_id))
+
+    worker.run_pass(runtime["workflow"], intake=True, rescreen=False)
+
+    assert runtime["store"].get_state(invoice_id) == WorkflowState.HELD.value
+    assert len(runtime["store"].events(invoice_id)) == events, "a held invoice was written to"
+
+
+def test_the_whole_chain_runs_from_arrival_to_paid_once_due(runtime):
+    """Find it early, wait, then pay it and book it when the date arrives, with nobody watching."""
+    worker.run_pass(runtime["workflow"], intake=True, rescreen=False)
+    _park_then_come_due(runtime, runtime["legitimate_id"])
+
+    report = worker.run_pass(runtime["workflow"], intake=True, autopay=True, rescreen=False)
+
+    assert _step(report, "intake").acted == 1
+    assert _step(report, "autopay").acted == 1
+    invoice_id = runtime["legitimate_id"]
+    assert runtime["store"].get_state(invoice_id) == WorkflowState.ERP_RECORDED.value
+    assert runtime["store"].get_payment(invoice_id)["confirmation_status"] == "CONFIRMED"
+
+
+def test_a_payable_imported_this_pass_is_not_decided_twice(runtime):
+    """Reconsideration reads the queue as it stood before discovery, so new work is not redone."""
+    report = worker.run_pass(runtime["workflow"], intake=True, rescreen=False)
+
+    intake = _step(report, "intake")
+    assert intake.acted == 1, "only the newly discovered payable was acted on"
+    assert "reconsidered" not in intake.detail
 
 
 def _external_ids(store) -> set[str]:

@@ -374,7 +374,7 @@ A pass does five things and stops:
 | --- | --- |
 | `reconcile` | Finds settlements whose confirmation never arrived, or could not be read at the time, and asks the chain again. Repairs a record, and never rebroadcasts a payment that already left. Idempotent by design. |
 | `writeback` | Finishes confirmed payments the accounting system has not taken yet, including the case where the payment entry landed and the fee entry did not. A network fee the provider could not name at settlement is asked for again rather than written off, and a failure to name it is a deferral with a backoff, never a permanent disable. |
-| `intake` | Reads the payables the ledger still owes, imports the ones nobody has captured, and evaluates each against the policy. Discovery is what makes the queue current without a person. |
+| `intake` | Reads the payables the ledger still owes, imports the ones nobody has captured, and evaluates each against the policy. It also re-evaluates a payable it parked until a due date once that date enters the payment window, so an invoice that arrived early becomes payable on its own. Discovery is what makes the queue current without a person. |
 | `rescreen` | Re-screens counterparties past their cadence and moves their risk tier. |
 | `autopay` | Pays the invoices the deterministic policy put in `ELIGIBLE` with a `PAY_NOW` decision. Off unless asked for. |
 | `observe` | Reports the balance, the reserve headroom and the guard's budgets. Observation is not evidence, so this writes nothing. |

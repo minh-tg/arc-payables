@@ -1,10 +1,11 @@
 """The background pass: what happens when nobody is asking.
 
 Every other entry point in this project is a person or a test calling something. This is the part
-that runs on a timer, and it exists because three things otherwise wait forever:
+that runs on a timer, and it exists because four things otherwise wait forever:
 
 * a settlement whose confirmation never came back stays unconfirmed,
 * a confirmed payment the ledger rejected stays unrecorded,
+* a payable that arrived before its due date stays parked once the date arrives,
 * a screening taken months ago stays at its old risk tier.
 
 A pass does the work it can do without a decision, records what it did, and stops. It never approves
@@ -312,7 +313,10 @@ def _intake(workflow: APWorkflow, remaining: int) -> StepReport:
         step.failed += 1
         return step
 
-    known = {invoice.purchase_invoice_id for invoice, _state in workflow.store.list_invoices()}
+    # What was already here before this pass, so the reconsideration below never counts a payable
+    # that this same pass just discovered and evaluated.
+    existing = workflow.store.list_invoices()
+    known = {invoice.purchase_invoice_id for invoice, _state in existing}
     for external_id in external_ids:
         if not external_id or external_id in known:
             step.skipped += 1
@@ -343,7 +347,64 @@ def _intake(workflow: APWorkflow, remaining: int) -> StepReport:
             step.detail.setdefault("errors", [])
             if len(step.detail["errors"]) < 5:
                 step.detail["errors"].append({"external_id": external_id, "error": _bounded(exc)})
+    _reconsider(workflow, step, remaining, existing)
     return step
+
+
+def _reconsider(workflow: APWorkflow, step: StepReport, remaining: int, existing: list) -> None:
+    """Re-evaluate payables the queue is holding until their due date.
+
+    Discovery only looks at payables it has never seen, and every other step here repairs work a
+    decision already authorized. Nothing looked at a payable parked in WAITING ever again, so an
+    invoice that arrived before it was due waited for a person to press evaluate on the day it
+    became payable. Payables normally arrive before their due date, so that was the ordinary case
+    rather than an edge one.
+
+    Only the timing is reconsidered, and only when the policy's own window says the answer can have
+    changed, so an invoice is never paid early. Every other state belongs to somebody else: HELD and
+    ESCALATED to a person, the payment states to the reconcile and writeback steps, and the worker
+    never overrides a human or a decision.
+
+    The snapshot is the queue as it stood before this pass discovered anything, because a payable
+    imported moments ago was just evaluated against this same clock and would only be decided twice.
+    """
+    from datetime import date
+
+    from .domain import WorkflowState
+    from .policy import payment_window
+
+    # The policy decides on `date.today()`, so the trigger that anticipates it has to read the same
+    # calendar. `utcnow().date()` is a different day either side of midnight, which would have this
+    # re-evaluating an invoice the policy is about to park again.
+    today = date.today()
+    for invoice, state in existing:
+        if state != WorkflowState.WAITING.value:
+            continue
+        due_soon, discount_due = payment_window(workflow.settings, invoice, today)
+        if not (due_soon or discount_due):
+            # Genuinely not due yet. Waiting is a decision, not an oversight.
+            step.skipped += 1
+            continue
+        step.examined += 1
+        if remaining <= 0:
+            step.detail["deferred"] = step.detail.get("deferred", 0) + 1
+            continue
+        try:
+            workflow.evaluate(invoice.id)
+            remaining -= 1
+            step.acted += 1
+            step.detail.setdefault("reconsidered", [])
+            if len(step.detail["reconsidered"]) < 5:
+                step.detail["reconsidered"].append({"invoice_id": invoice.id, "was": state})
+        except WorkflowError as exc:
+            step.skipped += 1
+            step.detail.setdefault("declined_codes", {})
+            step.detail["declined_codes"][exc.code] = step.detail["declined_codes"].get(exc.code, 0) + 1
+        except Exception as exc:
+            step.failed += 1
+            step.detail.setdefault("errors", [])
+            if len(step.detail["errors"]) < 5:
+                step.detail["errors"].append({"invoice_id": invoice.id, "error": _bounded(exc)})
 
 
 def _reason(exc: BaseException) -> str:

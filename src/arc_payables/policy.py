@@ -178,6 +178,25 @@ def _human_ack(approval: dict | list | None, code: str) -> bool:
     return bool(latest.get("approved")) and code in latest.get("acknowledged_checks", [])
 
 
+def payment_window(settings: Settings, invoice: InvoiceRecord, today: date) -> tuple[bool, bool]:
+    """Whether this invoice is inside the payment window, and whether a discount is expiring.
+
+    Returns `(due_soon, discount_due)`. The policy waits exactly while both are false, and the worker
+    re-evaluates a waiting invoice on exactly this condition, so both callers share one rule. A
+    second copy in the worker could drift from the decision it exists to anticipate, and an invoice
+    would then either wait for ever or be re-evaluated on every pass for ever.
+    """
+    horizon = today + timedelta(days=settings.payment_due_window_days)
+    due_soon = invoice.due_date <= horizon
+    discount_due = bool(
+        invoice.discount_deadline
+        and today <= invoice.discount_deadline <= horizon
+        and invoice.discount_percent
+        and Decimal(invoice.discount_percent) > settings.discount_min_percent
+    )
+    return due_soon, discount_due
+
+
 class DeterministicPolicy:
     def __init__(self, settings: Settings, converter: CurrencyConverter):
         self.settings = settings
@@ -485,13 +504,7 @@ class DeterministicPolicy:
             missing.append("A payable, submitted invoice in ERPNext.")
 
         today_ref = ref(f"treasury:policy:{self.settings.policy_version}", "policy_configuration", "payment_due_window_days", str(self.settings.payment_due_window_days))
-        from datetime import timedelta
-        discount_due = bool(
-            invoice.discount_deadline
-            and today <= invoice.discount_deadline <= today + timedelta(days=self.settings.payment_due_window_days)
-            and invoice.discount_percent
-            and Decimal(invoice.discount_percent) > self.settings.discount_min_percent
-        )
+        due_soon, discount_due = payment_window(self.settings, invoice, today)
         terms_ref = ref(f"invoice:{invoice.id}:terms", "invoice_record", "payment_terms", invoice.payment_terms or "not supplied")
         discount_ref = ref(f"invoice:{invoice.id}:discount", "invoice_record", "discount_deadline", invoice.discount_deadline.isoformat() if invoice.discount_deadline else None)
         if invoice.discount_percent and invoice.discount_deadline and discount_due:
@@ -499,7 +512,6 @@ class DeterministicPolicy:
             checks.append(discount_check)
         else:
             checks.append(PolicyCheck("early_discount", True, "No eligible early-payment discount is recorded.", (terms_ref, discount_ref)))
-        due_soon = invoice.due_date <= today + timedelta(days=self.settings.payment_due_window_days)
         checks.append(PolicyCheck("payment_timing", due_soon or discount_due, "Invoice is due within the configured payment window or an eligible discount is available." if due_soon or discount_due else "Invoice is not due soon; preserve cash and wait.", (due_ref, terms_ref, discount_ref, today_ref)))
 
         non_overridable_blockers = []
