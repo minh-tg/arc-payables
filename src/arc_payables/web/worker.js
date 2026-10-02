@@ -1,7 +1,7 @@
 // The worker's face: recent passes, whether they finished cleanly, and what they asked
 // a human to look at. Read-only. Alerts are recorded on the pass, not recomputed here.
 
-import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, table } from './app.js';
+import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, table } from './app.js';
 
 function levelTone(level) {
   if (level === 'critical') return 'bad';
@@ -53,6 +53,13 @@ function stepNotes(step) {
 
 async function renderWorker(root) {
   const status = await api('/worker/status');
+  root.append(
+    sectionHeading({
+      eyebrow: 'Background pass',
+      title: 'Worker',
+      count: (status.last && status.last.detail && status.last.detail.steps ? status.last.detail.steps.length : 0),
+    }),
+  );
 
   const last = status.last;
   const facts = h(

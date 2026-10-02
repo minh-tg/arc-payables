@@ -18,7 +18,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PORT="${PORT:-8096}"
-VIEWS=(attention queue payments worker treasury setup)
+VIEWS=(overview attention queue payments audit worker treasury setup)
 WORKDIR="$(mktemp -d)"
 DB="$WORKDIR/demo.sqlite3"
 LOG="$WORKDIR/api.log"
@@ -101,7 +101,7 @@ for view in "${VIEWS[@]}" "invoice/$INVOICE_ID"; do
     undefined=""
   fi
   case "$view" in
-    attention|queue|payments|worker|treasury|setup|invoice*) guided=1 ;;
+    overview|attention|queue|payments|audit|worker|treasury|setup|invoice*) guided=1 ;;
     *) guided=0 ;;
   esac
 

@@ -4,7 +4,7 @@
 // why. A row links to the invoice for the deep evidence, and the lookup accepts whatever an operator
 // is holding, which is usually a transaction hash from a block explorer.
 
-import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, statGrid, table } from './app.js';
+import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -248,6 +248,7 @@ function reportPanels(report) {
 
 async function renderPayments(root) {
   const log = await api('/payments');
+  root.append(sectionHeading({ eyebrow: 'Payment history', title: 'Settlements', count: (log.payments || []).length }));
   const totals = log.totals || {};
   let filter = 'all';
   const tableHost = h('div', {});

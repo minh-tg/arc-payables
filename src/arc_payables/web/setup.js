@@ -2,7 +2,7 @@
 // a setting, because credentials belong in the environment and secret files rather than in a page
 // reachable with one shared API key.
 
-import { api, badge, concept, h, lede, panel, plainWords, registerView, table } from './app.js';
+import { api, badge, concept, h, lede, panel, plainWords, registerView, sectionHeading, table } from './app.js';
 
 function stateBadge(state) {
   if (state === 'set') return badge('set', 'good');
@@ -13,6 +13,7 @@ function stateBadge(state) {
 
 async function renderSetup(root) {
   const data = await api('/setup');
+  root.append(sectionHeading({ eyebrow: 'Configuration', title: 'Setup', count: (data.groups || []).length }));
 
   root.append(
     panel(

@@ -65,6 +65,40 @@ terms whose definition opens in place, a plain introduction per view, and the su
 beside anything that names a problem. The `Explaining:` control in the header turns it off, and the
 words that explain a code stay either way.
 
+### Watching the agent
+
+The default layer is `heuristics`, which is a deterministic rules engine, so the stock demo calls no
+model and says so on the Overview screen. To watch the planner work, point it at any
+OpenAI-compatible endpoint (a local model is enough, no vendor account), and give it a trade-off to
+reason about:
+
+```bash
+export DECISION_LAYER=dual_process
+export PLANNER_BASE_URL=http://127.0.0.1:11434/v1    # ollama, vLLM, llama.cpp or a hosted gateway
+export PLANNER_MODEL=<the model that endpoint serves>
+export MIN_RESERVE_USDC=4900                         # the demo treasury holds 5000, so cash is tight
+uv run arc-payables-worker --once --intake
+```
+
+The reserve floor is the lever: it turns the payment into a trade-off between paying now and keeping
+cash, which is the one kind of question the planner is asked. Three things then show it:
+
+* the Overview activity log names the layer and whether it is model-backed,
+* the invoice's decision panel gains a deliberation entry with the model, the latency, and the
+  prompt and response hashes, and the same decision is in the audit record at
+  `GET /invoices/<invoice-id>`,
+* `GET /payments/<reference>` carries the decision behind a payment, when there is a payment to ask
+  about.
+
+What the planner is asked is a hesitation, and a hesitation is not an authorization. Every case that
+reaches it ends as an escalation or a wait, because that is what the fast layer was unsure about, so
+the trace appears on an invoice awaiting a person rather than on one that settled. The clean invoice
+that pays itself never consults a model at all. That is the design working as intended, and it is
+worth knowing before trying to demonstrate the agent on the happy path.
+
+A malformed, slow or off-list answer is rejected and the fast layer's answer stands, so a planner
+that is down or confused changes nothing except the recorded trace.
+
 ## Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, imperative

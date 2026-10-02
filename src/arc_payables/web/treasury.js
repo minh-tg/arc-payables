@@ -1,7 +1,7 @@
 // Treasury visibility: forward coverage against what is coming, and the counterparty risk that
 // constrains it. Both are read-only except for re-screening.
 
-import { api, badge, concept, h, lede, panel, plainWords, refresh, registerView, statGrid, table } from './app.js';
+import { api, badge, concept, h, lede, panel, plainWords, refresh, registerView, sectionHeading, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -10,6 +10,7 @@ function money(value) {
 async function renderTreasury(root) {
   const forecast = await api('/forecast?days=30');
   const suppliers = await api('/suppliers');
+  root.append(sectionHeading({ eyebrow: 'Coverage and risk', title: 'Treasury and risk', count: suppliers.length }));
 
   // A view-level lede, rendered whatever the deployment publishes. Placed inside a panel that only
   // appears when a provider reports caps, it would disappear on any deployment without them.

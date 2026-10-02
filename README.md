@@ -302,11 +302,17 @@ policy, the guard, or the audit chain.
 step, and it contains no data of its own. Every call it makes is an authenticated API call, so the
 same work is available with curl.
 
+The sidebar leads with the four destinations the console is organised around, then the operational
+screens below them. The header names the screen you are on, and the activity panel on Overview prints
+the pass as it ran and states which decision layer is answering, including whether a model is in it.
+
 | View | What it shows |
 | --- | --- |
+| **Overview** | Due within the horizon, the guard's limit, and how many things are waiting on a person, then the exceptions preview and the agent activity log: each step of the last pass with what it acted on, skipped and failed, the alerts it raised, and which decision layer decided |
 | **Attention** | Everything waiting on a person in one place: escalations, held invoices, uncertain settlements, confirmed payments the ledger has not taken, a breached reserve, a broken audit chain, a paused guard, screenings past cadence, a failing worker. Ranked with the worst first, with the invoice behind each item, and the alerts the last pass raised. It reads the same snapshot the metrics are rendered from, so the screen and a scraper cannot disagree. |
 | **Queue** | The plan's ordering with the reason for each position and the balance after each payment, the invoices that are not payable with their policy outcome, and every invoice's state with a re-evaluate action |
 | **Payments** | The settlement log: every payment the agent authorized with its outcome, totals, and filters, plus a lookup for one payment by invoice id, invoice number, payment id or transaction hash. The lookup returns the whole story, and an explicit re-check asks the provider and the chain again and compares the fee it reports with the fee we booked. |
+| **Audit chain** | Whether the whole hash chain still verifies, recomputed on demand rather than trusted, and one row per settlement linking to the per-invoice chain where every event is listed in order with its entry hash and signature |
 | **Invoice** | Evidence checks with their result and whether a human may override them, which layer decided with its rationale and confidence, the model/prompt/response hashes when a deliberating layer was used, missing evidence and conflicts, the audit chain with a verification button, and the actions: link, approve, pay |
 | **Worker** | The last pass, step by step, with the reason each step declined or deferred something, and the alerts it raised |
 | **Treasury & risk** | Forward coverage with the shortfall date, obligations in due-date order, expected inflows, and each counterparty's tier, latest screening, resulting automatic limit and open exposure, with a re-screen action |
@@ -488,6 +494,24 @@ The advisory layer is optional and selectable; the deterministic policy is alway
 | `policy` | No advisory opinion at all. The deterministic checks are the only view, and the audit record says so. |
 | `heuristics` (default) | The fast, explainable layer: named observations about evidence gaps and trade-offs, each with a reason and a confidence. No model call. |
 | `dual_process` | The fast layer first; a bounded planner is consulted only for genuine trade-offs. |
+
+A planner also has to be configured before it can be reached: `DECISION_LAYER=dual_process` plus
+`PLANNER_BASE_URL` and `PLANNER_MODEL` pointing at any OpenAI-compatible endpoint. On the fast layer
+alone, or on a clean invoice, no model is called at all, and the Overview screen states which of the
+two is running rather than leaving it to be assumed.
+
+Two things reach it:
+
+* **The decision**, and only for a trade-off between acceptable outcomes: an amount above the
+automatic limit, pressure on the treasury reserve, or an invoice that is not due yet. A missing fact
+is never sent, because a slower opinion cannot supply evidence that does not exist.
+* **The queue order**, when two or more invoices are payable at once. With one payable there is
+nothing to sequence, so the heuristic order stands unchallenged.
+
+Both of those are hesitations rather than authorizations, and every case that reaches the planner
+ends as an escalation or a wait. The clean invoice that pays itself is the one that never consults a
+model. That is deliberate, and it means a demonstration of the deliberating layer shows a decision
+awaiting a person rather than an autonomous payment.
 
 What the planner may and may not do:
 

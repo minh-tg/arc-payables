@@ -330,13 +330,117 @@ export function statGrid(items) {
   return h(
     'div',
     { class: 'stats' },
-    items.map(({ label, value, unit, tone, concept: term }) =>
+    items.map(({ label, value, unit, tone, concept: term, note, icon: glyph }) =>
       h(
         'div',
         { class: `stat${tone === 'bad' ? ' bad' : tone === 'warn' ? ' warn' : tone === 'good' ? ' ok' : ''}` },
-        h('div', { class: 'label' }, term ? concept(term, label) : label),
+        h(
+          'div',
+          { class: 'stat-head' },
+          h('div', { class: 'label' }, term ? concept(term, label) : label),
+          glyph ? h('span', { class: 'stat-icon' }, icon(glyph)) : null,
+        ),
         h('div', { class: 'value' }, `${value ?? '—'}`, unit ? h('span', { class: 'unit' }, unit) : null),
+        note ? h('div', { class: 'note' }, note) : null,
       ),
+    ),
+  );
+}
+
+/**
+ * The page heading: a small uppercase eyebrow, the title, and how many rows are behind it.
+ *
+ * Every view opens with one, so a reader always knows which screen they are on and what it is
+ * counting. The mock this console follows made the same move, and it is the cheapest way to stop a
+ * long table looking like it starts in the middle of nowhere.
+ */
+export function sectionHeading({ eyebrow, title, count, trailing = null }) {
+  return h(
+    'div',
+    { class: 'section-heading' },
+    h(
+      'div',
+      { class: 'section-heading-copy' },
+      eyebrow ? h('div', { class: 'section-eyebrow' }, eyebrow) : null,
+      h('h2', { class: 'section-title' }, title),
+    ),
+    count === undefined && !trailing
+      ? null
+      : h(
+          'div',
+          { class: 'section-heading-side' },
+          count === undefined ? null : h('span', { class: 'section-count' }, `${count} rows`),
+          trailing,
+        ),
+  );
+}
+
+// The icon set, inline. No sprite sheet and no downloaded pack: the console may not load an
+// external asset, and seven small paths cost less than the rule that would have to break.
+const ICONS = {
+  layout: ['rect|3|3|18|18|2', 'line|3|9|21|9', 'line|9|21|9|9'],
+  alert: ['path|M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z', 'line|12|9|12|13', 'line|12|17|12.01|17'],
+  activity: ['polyline|22 12 18 12 15 21 9 3 6 12 2 12'],
+  settings: ['circle|12|12|3', 'path|M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'],
+  wallet: ['path|M21 12V7H5a2 2 0 0 1 0-4h14v4', 'path|M3 5v14a2 2 0 0 0 2 2h16v-5', 'path|M18 12a2 2 0 0 0 0 4h4v-4Z'],
+  shield: ['path|M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'],
+  fileText: ['path|M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', 'polyline|14 2 14 8 20 8', 'line|16|13|8|13', 'line|16|17|8|17'],
+  list: ['line|8|6|21|6', 'line|8|12|21|12', 'line|8|18|21|18', 'line|3|6|3.01|6', 'line|3|12|3.01|12', 'line|3|18|3.01|18'],
+  cpu: ['rect|4|4|16|16|2', 'rect|9|9|6|6', 'line|9|1|9|4', 'line|15|1|15|4', 'line|9|20|9|23', 'line|15|20|15|23', 'line|20|9|23|9', 'line|20|14|23|14', 'line|1|9|4|9', 'line|1|14|4|14'],
+  check: ['polyline|20 6 9 17 4 12'],
+};
+
+/** One inline SVG. Unknown names fall back to the grid icon rather than rendering nothing. */
+export function icon(name, size = 18) {
+  const parts = ICONS[name] || ICONS.layout;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const [key, value] of Object.entries({ width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) {
+    svg.setAttribute(key, value);
+  }
+  for (const part of parts) {
+    const [tag, ...rest] = part.split('|');
+    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    if (tag === 'polyline') {
+      node.setAttribute('points', rest[0]);
+    } else if (tag === 'path') {
+      node.setAttribute('d', rest[0]);
+    } else {
+      const names = { rect: ['x', 'y', 'width', 'height', 'rx'], circle: ['cx', 'cy', 'r'], line: ['x1', 'y1', 'x2', 'y2'] }[tag] || [];
+      rest.forEach((value, index) => names[index] && node.setAttribute(names[index], value));
+    }
+    svg.append(node);
+  }
+  return svg;
+}
+
+/**
+ * A terminal-looking activity list: time, level, message.
+ *
+ * The level is a word as well as a colour, because a log that can only be read by hue is unreadable
+ * to anyone who cannot separate the hues.
+ */
+export function logPanel(entries) {
+  const lines = entries.length
+    ? entries.map(({ time, level, message }) =>
+        h(
+          'div',
+          { class: 'log-line' },
+          h('span', { class: 'log-time' }, time || ''),
+          h('span', { class: `log-level log-level-${level || 'info'}` }, `[${String(level || 'info').toUpperCase()}]`),
+          h('span', { class: 'log-msg' }, message),
+        ),
+      )
+    : h('div', { class: 'log-line' }, h('span', { class: 'log-time' }, ''), h('span', {}), h('span', { class: 'log-msg' }, 'Nothing recorded yet.'));
+  return h(
+    'div',
+    { class: 'log-container' },
+    ...lines,
+    h(
+      'div',
+      { class: 'log-line' },
+      h('span', { class: 'log-time log-prompt' }, '>'),
+      h('span', {}),
+      h('span', { class: 'log-cursor' }, '_'),
     ),
   );
 }
@@ -400,6 +504,20 @@ export function nextStep(kind, code) {
 
 const views = new Map();
 
+// What the header calls each view. The nav labels the same destinations; these are the page titles,
+// which say what the screen is rather than what it is called in the sidebar.
+const TITLES = {
+  overview: 'Overview',
+  attention: 'Exceptions',
+  queue: 'Queue',
+  payments: 'Settlements',
+  audit: 'Audit chain',
+  worker: 'Worker',
+  treasury: 'Treasury and risk',
+  setup: 'Setup',
+  invoice: 'Invoice',
+};
+
 export function registerView(name, render) {
   views.set(name, render);
 }
@@ -434,11 +552,13 @@ export async function refreshShell() {
 }
 
 async function route() {
-  const hash = window.location.hash.replace(/^#\/?/, '') || 'attention';
+  const hash = window.location.hash.replace(/^#\/?/, '') || 'overview';
   const [name, ...rest] = hash.split('/');
-  const render = views.get(name) || views.get('attention');
+  const render = views.get(name) || views.get('overview');
   const root = document.getElementById('view');
   const status = document.getElementById('status');
+  const title = document.getElementById('page-title');
+  if (title) title.textContent = TITLES[name] || TITLES.overview;
   hideTip(); // the term a reader was pointing at is about to be replaced
   root.replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
   status.replaceChildren(

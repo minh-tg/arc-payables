@@ -1,7 +1,7 @@
 // What needs a person. Read-only: the work waiting on a human and the alerts the last pass raised,
 // taken from the same snapshot the metrics are rendered from, so the two cannot disagree.
 
-import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, statGrid, table } from './app.js';
+import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
 
 function tone(severity) {
   if (severity === 'critical') return 'bad';
@@ -52,6 +52,7 @@ function detailTable(item) {
 
 async function renderAttention(root) {
   const data = await api('/attention');
+  root.append(sectionHeading({ eyebrow: 'Action queue', title: 'Exceptions', count: (data.items || []).length }));
 
   const kpis = statGrid([
     { label: 'Treasury', value: String(data.treasury_usdc ?? '—'), unit: 'USDC', concept: 'treasury' },

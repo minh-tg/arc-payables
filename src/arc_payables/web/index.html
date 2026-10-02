@@ -14,49 +14,62 @@
       }
     </script>
     <style>
-      /* Two themes, one token system. Light is the default because the operator chose it; dark stays
-         for low-light review, and every semantic colour carries a text label so neither theme
-         depends on hue alone. */
+      /* Theme-independent geometry, so a token cannot end up defined in one theme only. */
+      :root {
+        --radius: 8px;
+        --radius-sm: 6px;
+      }
+
+      /* One flat surface system, two themes. Light is the default. Nothing is conveyed by hue alone:
+         every status carries its word, and the activity log prints its level as text. */
       :root, :root[data-theme='light'] {
         --bg: oklch(98% 0.005 250);
-        --bg-lift: radial-gradient(900px 420px at 10% -12%, oklch(92% 0.03 270), transparent 62%);
-        --card-top: oklch(100% 0 0);
-        --card-bottom: oklch(98.5% 0.004 250);
+        --surface: oklch(100% 0 0);
+        --surface-sunken: oklch(97% 0.004 250);
         --fg: oklch(22% 0.02 240);
         --muted: oklch(50% 0.018 240);
-        --line: oklch(90% 0.008 240);
-        --line-strong: oklch(82% 0.012 240);
+        --border: oklch(90% 0.008 240);
+        --border-strong: oklch(82% 0.012 240);
         --accent: oklch(58% 0.16 145);
-        --accent-soft: oklch(95% 0.03 150);
+        --accent-hover: oklch(52% 0.16 145);
+        --accent-soft: oklch(96% 0.02 145);
+        --accent-soft-border: oklch(88% 0.08 145);
         --accent-ink: oklch(38% 0.13 150);
         --accent-2: oklch(65% 0.14 200);
         --ok: oklch(55% 0.15 150);
         --ok-soft: oklch(95% 0.05 150);
-        --ok-ink: oklch(38% 0.13 150);
+        --ok-ink: oklch(40% 0.12 150);
         --warn: oklch(65% 0.15 80);
         --warn-soft: oklch(95% 0.05 80);
-        --warn-ink: oklch(42% 0.13 80);
+        --warn-ink: oklch(40% 0.12 80);
         --bad: oklch(50% 0.18 25);
         --bad-soft: oklch(95% 0.05 25);
-        --bad-ink: oklch(42% 0.15 25);
-        --hover: oklch(96% 0.006 250);
-        --shadow: 0 18px 40px -26px oklch(40% 0.03 240), 0 2px 10px -6px oklch(55% 0.03 240);
-        --row-hover: oklch(96.5% 0.006 250);
+        --bad-ink: oklch(40% 0.12 25);
+        --row-hover: oklch(99% 0 0);
         --input-bg: oklch(100% 0 0);
         --code-bg: oklch(96% 0.007 240);
+        --line: var(--border);
+        --line-strong: var(--border-strong);
+        --card-top: var(--surface);
+        --card-bottom: var(--surface);
         --timeline-line: oklch(84% 0.012 240);
+        --log-bg: oklch(15% 0.01 240);
+        --log-fg: oklch(85% 0.01 240);
+        --log-muted: oklch(60% 0.01 240);
+        --shadow: 0 10px 24px -18px oklch(40% 0.03 240);
       }
       :root[data-theme='dark'] {
         --bg: #0a0f1e;
-        --bg-lift: radial-gradient(900px 420px at 10% -12%, rgba(124, 92, 255, 0.20), transparent 62%), radial-gradient(760px 380px at 92% -8%, rgba(34, 211, 238, 0.12), transparent 60%);
-        --card-top: #151d33;
-        --card-bottom: #121a2d;
+        --surface: #151d33;
+        --surface-sunken: #101728;
         --fg: #eef2ff;
         --muted: #94a3b8;
-        --line: rgba(148, 163, 184, 0.16);
-        --line-strong: rgba(148, 163, 184, 0.28);
+        --border: rgba(148, 163, 184, 0.18);
+        --border-strong: rgba(148, 163, 184, 0.32);
         --accent: #7c5cff;
-        --accent-soft: rgba(124, 92, 255, 0.16);
+        --accent-hover: #8f73ff;
+        --accent-soft: rgba(124, 92, 255, 0.14);
+        --accent-soft-border: rgba(124, 92, 255, 0.38);
         --accent-ink: #cdbcff;
         --accent-2: #22d3ee;
         --ok: #22c55e;
@@ -68,12 +81,18 @@
         --bad: #f43f5e;
         --bad-soft: rgba(244, 63, 94, 0.16);
         --bad-ink: #ffb3c1;
-        --hover: rgba(255, 255, 255, 0.045);
-        --shadow: 0 18px 40px -26px rgba(0, 0, 0, 0.95), 0 2px 10px -6px rgba(0, 0, 0, 0.7);
-        --row-hover: rgba(124, 92, 255, 0.07);
+        --row-hover: rgba(124, 92, 255, 0.06);
         --input-bg: rgba(255, 255, 255, 0.03);
         --code-bg: rgba(255, 255, 255, 0.03);
+        --line: var(--border);
+        --line-strong: var(--border-strong);
+        --card-top: var(--surface);
+        --card-bottom: var(--surface);
         --timeline-line: rgba(148, 163, 184, 0.28);
+        --log-bg: #060a14;
+        --log-fg: #cbd5e1;
+        --log-muted: #64748b;
+        --shadow: 0 12px 28px -20px rgba(0, 0, 0, 0.95);
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -83,424 +102,429 @@
         color: var(--fg);
         font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
         font-size: 14px;
-        line-height: 1.55;
+        line-height: 1.5;
         -webkit-font-smoothing: antialiased;
-        display: flex;
-        min-height: 100dvh;
-        position: relative;
-      }
-      body::before {
-        content: '';
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        background: var(--bg-lift);
-        z-index: 0;
       }
 
       .mono, code, .hash { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
       .amount, td.num, th.num { text-align: right; font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
 
-      h1, h2, h3, h4 { font-weight: 600; letter-spacing: -0.015em; }
-      h1 { font-size: 26px; line-height: 1.2; margin-bottom: 6px; }
-      h2 { font-size: 13px; line-height: 1.3; margin: 0 0 14px; color: var(--muted); font-weight: 500; }
-      h3 { font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 10px; }
-      p { margin-bottom: 10px; }
-      p:last-child { margin-bottom: 0; }
-      strong { font-weight: 600; }
+      /* The sidebar is a fixed column on a wide screen and a scrolled row on a phone. */
+      .app-layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100dvh; }
 
-      *:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; border-radius: 6px; }
-
-      #app { display: flex; width: 100%; flex-direction: column; position: relative; z-index: 1; }
-
-      nav {
+      .sidebar {
+        background: var(--surface);
+        border-right: 1px solid var(--border);
         display: flex;
-        flex-direction: row;
-        align-items: center;
-        gap: 2px;
-        overflow-x: auto;
-        background: var(--bg);
-        border-bottom: 1px solid var(--line);
-        padding: 0 16px;
-        scrollbar-width: none;
+        flex-direction: column;
+        padding: 16px 8px;
+        gap: 4px;
+        position: sticky;
+        top: 0;
+        height: 100dvh;
+        overflow-y: auto;
       }
-      nav::-webkit-scrollbar { display: none; }
 
-      .brand {
-        padding: 18px 22px 18px 4px;
-        font-weight: 600;
-        font-size: 15px;
-        letter-spacing: -0.02em;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        white-space: nowrap;
+      .brand-line { display: flex; align-items: center; gap: 10px; padding: 0 8px 16px; }
+      .brand-mark {
+        width: 24px; height: 24px; border-radius: 4px; flex-shrink: 0;
+        background: var(--accent); color: oklch(100% 0 0);
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 13px;
       }
-      .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px 2px var(--accent-soft); }
-      .brand em { font-style: normal; color: var(--muted); font-weight: 500; }
+      .brand-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
+      .brand-sub { font-size: 11px; color: var(--muted); }
 
-      nav a {
-        padding: 18px 12px;
-        color: var(--muted);
-        white-space: nowrap;
-        font-weight: 500;
-        font-size: 13.5px;
-        text-decoration: none;
-        border-bottom: 2px solid transparent;
-        transition: color 140ms ease, border-color 140ms ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
+      .agent-line {
+        display: flex; align-items: center; gap: 8px;
+        padding: 0 8px 12px; font-size: 12px; color: var(--muted);
       }
-      nav a:hover { color: var(--fg); }
-      nav a.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
-      nav a .count {
-        font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px;
+      .agent-status-label { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+      .agent-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+      .agent-dot.ok { background: var(--ok); animation: pulse-opacity 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+      .agent-dot.bad { background: var(--bad); animation: pulse-opacity 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+      .agent-dot.warn { background: var(--warn); animation: pulse-opacity 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+      @keyframes pulse-opacity { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+      .live-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse-opacity 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+      .nav-group { display: flex; flex-direction: column; gap: 2px; }
+      .nav-group + .nav-group { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+      .nav-group-label {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--muted); padding: 0 8px 6px;
+      }
+
+      nav a.nav-item {
+        display: flex; align-items: center; gap: 10px;
+        padding: 7px 8px; border-radius: var(--radius-sm);
+        color: var(--muted); font-size: 13.5px; font-weight: 500;
+        text-decoration: none; border: 1px solid transparent; border-bottom: 1px solid transparent;
+      }
+      nav a.nav-item:hover { color: var(--fg); background: var(--bg); }
+      nav a.nav-item.active {
+        color: var(--fg); background: var(--accent-soft); border-color: var(--accent-soft-border);
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
+      nav a.nav-item.active svg { color: var(--accent); }
+      nav a.nav-item svg { flex-shrink: 0; }
+      nav a .count, .nav-count {
+        margin-left: auto; min-width: 22px; justify-content: center;
+        display: inline-flex; align-items: center;
+        font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 7px;
         background: var(--bad-soft); color: var(--bad-ink); border: 1px solid transparent;
       }
 
-      .nav-end { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 10px 0 10px 16px; }
+      .nav-end {
+        margin-top: auto; display: flex; flex-direction: column; gap: 6px;
+        padding: 14px 8px 0; border-top: 1px solid var(--border);
+      }
       .nav-end input {
-        background: var(--input-bg);
-        color: var(--fg);
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 7px 11px;
-        font: inherit;
-        font-size: 12px;
-        font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-        min-width: 170px;
-        transition: border-color 140ms ease;
+        background: var(--input-bg); color: var(--fg);
+        border: 1px solid var(--border); border-radius: var(--radius-sm);
+        padding: 7px 9px; font: inherit; font-size: 12px;
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        width: 100%;
       }
-      .nav-end input:hover { border-color: var(--line-strong); }
-      #status { white-space: nowrap; font-size: 12px; }
+      .nav-end input:hover { border-color: var(--border-strong); }
+      .nav-end .row { display: flex; gap: 6px; }
+      #status { font-size: 11.5px; padding: 0 2px; }
 
-      .agent-line { display: flex; align-items: center; gap: 10px; padding: 0 4px 12px 4px; font-size: 12px; color: var(--muted); }
-      .agent-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-      .agent-dot.ok { background: var(--ok); box-shadow: 0 0 10px 1px var(--ok-soft); }
-      .agent-dot.bad { background: var(--bad); box-shadow: 0 0 10px 1px var(--bad-soft); }
-      .agent-dot.warn { background: var(--warn); box-shadow: 0 0 10px 1px var(--warn-soft); }
-      .balance-pill {
-        margin-left: auto;
-        font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-variant-numeric: tabular-nums;
-        font-size: 12px; font-weight: 600;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        padding: 4px 12px;
-        white-space: nowrap;
+      .main-content { display: flex; flex-direction: column; min-width: 0; }
+
+      .header {
+        position: sticky; top: 0; z-index: 10;
+        background: var(--surface); border-bottom: 1px solid var(--border);
+        padding: 14px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 16px;
       }
-
-      #theme-toggle {
-        background: transparent;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 6px 10px;
-        font-size: 13px;
-        cursor: pointer;
-        color: var(--muted);
+      .page-title { font-size: 18px; font-weight: 600; letter-spacing: -0.015em; }
+      .header-meta { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--muted); }
+      .header-meta .pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
+        font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums;
+        font-size: 12px; font-weight: 600; color: var(--fg);
       }
-      #theme-toggle:hover { color: var(--fg); border-color: var(--line-strong); }
+      .balance-pill { margin-left: 0; }
 
-      main { flex: 1; padding: 28px 18px; overflow-y: auto; }
-      #view { max-width: 1240px; margin: 0 auto; padding-bottom: 72px; }
+      main { flex: 1; padding: 24px; overflow-y: auto; }
+      #view { max-width: 1200px; margin: 0 auto; }
       .view { display: none; }
       .view.active { display: block; }
 
-      @media (min-width: 900px) {
-        #app { flex-direction: row; }
-        nav {
-          width: 248px;
-          flex-shrink: 0;
-          flex-direction: column;
-          align-items: stretch;
-          border-bottom: none;
-          border-right: 1px solid var(--line);
-          padding: 26px 0;
-          height: 100dvh;
-          position: sticky;
-          top: 0;
-        }
-        .brand { padding: 0 22px 18px; }
-        .agent-line { padding: 0 22px 18px; }
-        nav a { padding: 10px 22px; border-bottom: none; border-left: 2px solid transparent; margin: 1px 0; }
-        nav a.active { border-bottom-color: transparent; border-left-color: var(--accent); background: var(--accent-soft); }
-        .nav-end { margin: auto 0 0; flex-direction: column; align-items: stretch; padding: 16px 22px 0; gap: 10px; }
-        .nav-end input { min-width: 0; width: 100%; }
-        main { padding: 38px 44px; }
+      /* A view opens with an eyebrow, its title and a row count, so a long table never looks like it
+         began somewhere off screen. */
+      .section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+      .section-heading-copy { min-width: 0; }
+      .section-eyebrow {
+        color: var(--muted); font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px;
       }
+      .section-title { font-size: 20px; line-height: 1.25; font-weight: 600; letter-spacing: -0.015em; }
+      .section-heading-side { display: flex; align-items: center; gap: 12px; }
+      .section-count { color: var(--muted); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; white-space: nowrap; }
+
+      /* Two columns where there is room for two, one where there is not. */
+      .split { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+      .split > * { min-width: 0; }
+
+      .stack { display: flex; flex-direction: column; gap: 18px; }
+      .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .credentials { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
       .card {
-        position: relative;
-        background: linear-gradient(180deg, var(--card-top) 0%, var(--card-bottom) 100%);
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        box-shadow: var(--shadow);
-        padding: 20px 22px;
-        margin-bottom: 18px;
-      }
-      .card::before {
-        content: '';
-        position: absolute;
-        inset: 0 0 auto;
-        height: 1px;
-        border-radius: 16px 16px 0 0;
-        background: linear-gradient(90deg, rgba(127, 140, 160, 0.22), transparent 70%);
-      }
-      :root[data-theme='dark'] .card::before {
-        background: linear-gradient(90deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 70%);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-bottom: 16px;
       }
       .card:last-child { margin-bottom: 0; }
-      .card h2 { font-size: 12.5px; color: var(--muted); }
+      .card > h2 { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
 
-      .stats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 18px; }
-      .stat {
-        position: relative;
-        background: linear-gradient(180deg, var(--card-top) 0%, var(--card-bottom) 100%);
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        box-shadow: var(--shadow);
-        padding: 18px 20px;
+      .stats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 18px; }
+      .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+      .stat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+      .stat .label {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--muted);
       }
-      .stat::before {
-        content: '';
-        position: absolute; inset: 0 0 auto; height: 1px;
-        border-radius: 16px 16px 0 0;
-        background: linear-gradient(90deg, rgba(127, 140, 160, 0.22), transparent 70%);
+      .stat-icon { color: var(--muted); display: inline-flex; }
+      .stat .value {
+        font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums;
+        font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; margin-top: 8px;
+        overflow-wrap: anywhere;
       }
-      .stat .label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
-      .stat .value { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; font-size: 38px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; }
-      .stat .value .unit { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
+      .stat .value .unit { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
       .stat .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
       .stat.bad { border-color: var(--bad); }
-      .stat.bad .value { color: var(--bad-ink); }
+      .stat.bad .value, .stat.bad .label, .stat.bad .stat-icon { color: var(--bad-ink); }
       .stat.warn { border-color: var(--warn); }
       .stat.ok .value { color: var(--ok-ink); }
 
       .badge {
         display: inline-flex; align-items: center; gap: 6px;
-        padding: 3px 10px; border-radius: 999px;
-        font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
-        white-space: nowrap; border: 1px solid transparent;
+        padding: 2px 8px; border-radius: 999px;
+        font-size: 11.5px; font-weight: 500; white-space: nowrap; border: 1px solid transparent;
       }
-      .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-      .badge.critical { background: var(--bad-soft); color: var(--bad-ink); border-color: var(--bad); }
-      .badge.warning { background: var(--warn-soft); color: var(--warn-ink); border-color: var(--warn); }
-      .badge.success { background: var(--ok-soft); color: var(--ok-ink); border-color: var(--ok); }
-      .badge.neutral { background: var(--code-bg); color: var(--muted); border-color: var(--line); }
+      .badge.critical { background: var(--bad-soft); color: var(--bad-ink); }
+      .badge.warning { background: var(--warn-soft); color: var(--warn-ink); }
+      .badge.success { background: var(--ok-soft); color: var(--ok-ink); }
+      .badge.neutral { background: var(--code-bg); color: var(--muted); border-color: var(--border); }
 
-      .table-wrapper {
-        overflow-x: auto; margin-bottom: 18px;
-        border: 1px solid var(--line); border-radius: 12px;
-        background: transparent;
-      }
+      .table-wrapper { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
       table { width: 100%; border-collapse: collapse; text-align: left; }
-      th, td { padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      th, td { padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
       th {
         position: sticky; top: 0; z-index: 1;
-        background: var(--code-bg);
-        color: var(--muted);
-        font-size: 11.5px; font-weight: 500; letter-spacing: 0.02em; white-space: nowrap;
+        background: var(--surface); color: var(--muted);
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
       }
+      td { font-size: 13.5px; }
       tr:last-child td { border-bottom: none; }
-      tbody tr { transition: background 140ms ease; }
       tbody tr:hover td { background: var(--row-hover); }
       td.empty { color: var(--muted); }
 
       /* Guard usage as a bar, because a number beside a maximum reads instantly. */
-      .meter { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; min-width: 110px; }
-      .meter > i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+      .meter { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; min-width: 110px; }
+      .meter > i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
       .meter.hot > i { background: var(--warn); }
       .meter.full > i { background: var(--bad); }
 
       .truncate { max-width: 170px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
 
+      /* The activity log. Dark in both themes, the way a terminal is, with the level printed as a
+         word so the colour is reinforcement rather than the only signal. */
+      .log-container {
+        background: var(--log-bg); color: var(--log-fg);
+        font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px; padding: 14px; border-radius: var(--radius-sm);
+        overflow-y: auto; max-height: 340px;
+      }
+      .log-line { display: grid; grid-template-columns: 68px 58px minmax(0, 1fr); gap: 12px; align-items: baseline; margin-bottom: 4px; }
+      .log-time { color: var(--log-muted); font-variant-numeric: tabular-nums; }
+      .log-level-info { color: oklch(75% 0.15 200); }
+      .log-level-warn { color: oklch(80% 0.15 80); }
+      .log-level-error { color: oklch(70% 0.15 25); }
+      .log-msg { word-break: break-word; }
+      .log-prompt { color: var(--accent); }
+      .log-cursor { color: var(--accent); animation: pulse-opacity 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
       /* Guided view. A term carries a dotted underline because that is the oldest signal for "there
          is a definition here", and the popover is one shared element on the document, so it is never
          clipped by the table that raised it. */
-      .lede {
-        color: var(--muted);
-        font-size: 13.5px;
-        max-width: 78ch;
-        margin: 0 0 14px;
-      }
+      .lede { color: var(--muted); font-size: 13.5px; max-width: 78ch; margin: 0 0 14px; }
       .lede strong { color: var(--fg); font-weight: 600; }
-      /* The suggested next move, shown only while the explanations are on. */
-      .guide-note {
-        color: var(--muted);
-        font-size: 12.5px;
-        margin: 8px 0 0;
-      }
+      .guide-note { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
       .guide-note-label { color: var(--fg); font-weight: 600; }
-      .term {
-        border-bottom: 1px dotted var(--line-strong);
-        cursor: help;
-      }
+      .term { border-bottom: 1px dotted var(--border-strong); cursor: help; }
       .term:hover, .term[aria-expanded='true'] { border-bottom-color: var(--accent); color: var(--fg); }
       .concept-tip {
-        position: fixed;
-        z-index: 60;
+        position: fixed; z-index: 60;
         max-width: min(360px, calc(100vw - 24px));
-        background: var(--card-top);
-        border: 1px solid var(--line-strong);
-        border-radius: 12px;
-        box-shadow: var(--shadow);
-        padding: 12px 14px;
-        font-size: 13px;
-        line-height: 1.5;
+        background: var(--surface); border: 1px solid var(--border-strong);
+        border-radius: var(--radius); box-shadow: var(--shadow);
+        padding: 12px 14px; font-size: 13px; line-height: 1.5;
         pointer-events: none;
       }
       .concept-tip[hidden] { display: none; }
-      .concept-tip-action {
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: 1px solid var(--line);
-        color: var(--muted);
-      }
+      .concept-tip-action { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); color: var(--muted); }
       .concept-tip-action[hidden] { display: none; }
 
-      a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid var(--line-strong); transition: color 140ms ease, border-color 140ms ease; }
+      a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid var(--border-strong); }
       a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+      nav a.nav-item { border-bottom: 1px solid transparent; }
 
-      button {
-        background: var(--input-bg);
-        color: var(--fg);
-        border: 1px solid var(--line-strong);
-        padding: 8px 14px; border-radius: 10px;
-        font-family: inherit; font-size: 13px; font-weight: 500;
-        cursor: pointer;
-        transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
-        display: inline-flex; align-items: center; justify-content: center;
+      button, .btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        background: var(--surface); color: var(--fg);
+        border: 1px solid var(--border); border-radius: var(--radius-sm);
+        padding: 7px 14px; font-family: inherit; font-size: 13px; font-weight: 500;
+        cursor: pointer; transition: background-color 140ms ease, border-color 140ms ease;
       }
-      button:hover:not(:disabled) { border-color: var(--accent); box-shadow: 0 0 22px -10px var(--accent); }
-      button:active:not(:disabled) { transform: translateY(1px); }
+      button:hover:not(:disabled), .btn:hover { border-color: var(--border-strong); background: var(--bg); }
       button:disabled { opacity: 0.45; cursor: default; }
-      button.primary { background: var(--accent); border-color: var(--accent); color: oklch(100% 0 0); }
-      :root[data-theme='dark'] button.primary { color: #fff; }
-      button.primary:hover:not(:disabled) { filter: brightness(1.1); border-color: var(--accent); }
+      .btn-primary { background: var(--accent); border-color: var(--accent); color: oklch(100% 0 0); }
+      .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+      .btn-secondary { background: var(--surface); border-color: var(--border); color: var(--fg); }
+      :root[data-theme='dark'] .btn-primary { color: #0a0f1e; }
 
       input {
-        background: var(--input-bg);
-        color: var(--fg);
-        border: 1px solid var(--line);
-        padding: 11px 14px; border-radius: 10px;
-        font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px;
+        background: var(--input-bg); color: var(--fg);
+        border: 1px solid var(--border); border-radius: var(--radius-sm);
+        padding: 9px 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px;
         width: 100%; max-width: 560px; outline: none;
-        transition: border-color 140ms ease, box-shadow 140ms ease;
       }
-      input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-
-      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-      .credentials { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-      .stack { display: flex; flex-direction: column; gap: 18px; }
-      .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
-      .lede { color: var(--muted); font-size: 13.5px; }
+      input:focus { border-color: var(--accent); }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 
       dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0 18px; margin: 0; }
-      dl.facts dt, dl.facts dd { padding: 7px 0; border-bottom: 1px solid var(--line); }
+      dl.facts dt, dl.facts dd { padding: 7px 0; border-bottom: 1px solid var(--border); }
       dl.facts dt { color: var(--muted); white-space: nowrap; font-size: 13px; }
-      dl.facts dd { margin: 0; text-align: right; font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; font-size: 13px; overflow-wrap: anywhere; }
+      dl.facts dd { margin: 0; text-align: right; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 13px; overflow-wrap: anywhere; }
       dl.facts dt:last-of-type, dl.facts dd:last-of-type { border-bottom: none; }
 
       .muted { color: var(--muted); }
       .text-danger { color: var(--bad-ink); }
       .warn-text { color: var(--warn-ink); }
-      .error {
-        border: 1px solid var(--bad);
-        background: var(--bad-soft);
-        border-radius: 12px; padding: 16px 18px; margin-bottom: 18px;
-      }
+      .error { border: 1px solid var(--bad); background: var(--bad-soft); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; }
       ul.tight { margin: 0; padding-left: 18px; color: var(--muted); }
-      ul.tight li { margin-bottom: 5px; }
-      details summary { cursor: pointer; color: var(--muted); margin-bottom: 10px; }
+      ul.tight li { margin-bottom: 4px; }
+      details summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
       details summary:hover { color: var(--fg); }
 
       .checks { display: flex; flex-direction: column; gap: 8px; }
       .check { display: flex; gap: 8px; align-items: center; }
 
-      .timeline { border-left: 2px solid var(--timeline-line); margin-left: 8px; padding-left: 22px; list-style: none; }
-      .timeline li { position: relative; margin-bottom: 11px; font-size: 12.5px; }
+      .timeline { border-left: 1px solid var(--timeline-line); margin-left: 6px; padding-left: 18px; list-style: none; }
+      .timeline li { position: relative; margin-bottom: 10px; font-size: 12.5px; }
       .timeline li:last-child { margin-bottom: 0; }
       .timeline li::before {
-        content: ''; position: absolute; left: -28px; top: 5px; width: 8px; height: 8px; border-radius: 50%;
-        background: var(--bg); border: 2px solid var(--timeline-line);
+        content: ''; position: absolute; left: -23px; top: 5px; width: 7px; height: 7px; border-radius: 50%;
+        background: var(--surface); border: 1px solid var(--timeline-line);
       }
-      .timeline li.signed::before { border-color: var(--ok); background: var(--ok); box-shadow: 0 0 10px 1px var(--ok-soft); }
+      .timeline li.signed::before { border-color: var(--ok); background: var(--ok); }
 
-      .card.finding { border-left: 3px solid var(--line-strong); }
+      /* An audit entry: what happened, when, and whether it was signed. */
+      .audit-timeline { margin-top: 12px; border-top: 1px solid var(--border); }
+      .audit-entry {
+        display: grid; grid-template-columns: minmax(180px, 1fr) 170px 90px;
+        gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border);
+      }
+      .audit-entry-name { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; }
+      .audit-entry-time { color: var(--muted); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; }
+      .signed-marker { color: var(--ok-ink); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; }
+
+      .card.finding { border-left: 3px solid var(--border-strong); }
       .card.finding.critical { border-left-color: var(--bad); }
       .card.finding.warning { border-left-color: var(--warn); }
-      .card.finding .finding-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-      .card.finding .finding-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
-      .card.finding .finding-code { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
+      .card.finding .finding-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+      .card.finding .finding-code { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: var(--muted); }
 
-      footer { max-width: 1240px; margin: 0 auto; padding: 0 18px 34px; color: var(--muted); font-size: 12px; }
+      footer { max-width: 1200px; margin: 0 auto; padding: 8px 24px 28px; color: var(--muted); font-size: 12px; }
       .testnet { border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 8px; }
 
-      /* Below the breakpoint a wide table is unreadable, so each row becomes a labelled card. */
+      /* Below the breakpoint the sidebar becomes a row and a wide table becomes labelled cards. */
       @media (max-width: 899px) {
+        .app-layout { grid-template-columns: 1fr; }
+        .sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+        .nav-group { flex-direction: row; flex-wrap: wrap; }
+        .nav-group + .nav-group { margin-top: 8px; padding-top: 8px; }
+        .nav-end { flex-direction: row; flex-wrap: wrap; }
+        .nav-end input { max-width: 220px; }
+        main { padding: 16px; }
+        .header { padding: 12px 16px; }
+        footer { padding: 8px 16px 24px; }
+
         .responsive-table table, .responsive-table thead, .responsive-table tbody,
         .responsive-table th, .responsive-table td, .responsive-table tr { display: block; width: 100%; }
         .responsive-table thead tr { position: absolute; top: -9999px; left: -9999px; }
-        .responsive-table tr { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; background: var(--input-bg); padding: 6px 0; }
+        .responsive-table tr { border-bottom: 1px solid var(--border); padding: 4px 0; }
+        .responsive-table tr:last-child { border-bottom: none; }
         .responsive-table td {
-          border: none; border-bottom: 1px solid var(--line); position: relative;
-          padding: 12px 16px 12px 42%; text-align: right; min-height: 44px; display: flex; justify-content: flex-end; align-items: center;
+          border: none; border-bottom: 1px solid var(--border); position: relative;
+          padding: 10px 16px 10px 42%; text-align: right; min-height: 40px;
+          display: flex; justify-content: flex-end; align-items: center;
         }
         .responsive-table td::before {
-          content: attr(data-label); position: absolute; left: 16px; top: 14px; width: 35%; text-align: left;
-          font-size: 11px; letter-spacing: 0.02em; color: var(--muted); font-weight: 500;
+          content: attr(data-label); position: absolute; left: 16px; top: 12px; width: 35%; text-align: left;
+          font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .responsive-table td:last-child { border-bottom: 0; }
         .responsive-table .truncate { max-width: 100%; }
         dl.facts { grid-template-columns: 1fr; }
         dl.facts dd { text-align: left; }
-        .stat .value { font-size: 32px; }
+        .log-line { grid-template-columns: 58px 50px minmax(0, 1fr); gap: 8px; }
+        .audit-entry { grid-template-columns: 1fr; gap: 4px; }
+        .stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+        .split { grid-template-columns: 1fr; }
       }
     </style>
   </head>
   <body>
-    <div id="app">
-      <nav>
-        <div class="brand"><span class="dot"></span> Arc Payables <em>· console</em></div>
-        <div class="agent-line"><span class="agent-dot" id="agent-dot"></span><span id="agent-text">Checking…</span><span class="balance-pill mono" id="balance-pill" title="Treasury balance, read from the forecast">—</span></div>
-        <a href="#/attention">Attention<span class="count" id="attention-count" hidden></span></a>
-        <a href="#/queue">Queue</a>
-        <a href="#/payments">Payments</a>
-        <a href="#/worker">Worker</a>
-        <a href="#/treasury">Treasury &amp; risk</a>
-        <a href="#/setup">Setup</a>
+    <div class="app-layout">
+      <nav class="sidebar">
+        <div class="brand-line">
+          <span class="brand-mark">A</span>
+          <span>
+            <span class="brand-name">Arc Payables</span>
+            <span class="brand-sub" style="display:block">operator console</span>
+          </span>
+        </div>
+        <div class="agent-line">
+          <span class="agent-status-label">Agent status</span>
+          <span class="agent-dot" id="agent-dot" style="margin-left:auto"></span>
+          <span id="agent-text">Checking…</span>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item" href="#/overview" data-icon="layout">Overview</a>
+          <a class="nav-item" href="#/attention" data-icon="alert">Exceptions<span class="count" id="attention-count" hidden></span></a>
+          <a class="nav-item" href="#/payments" data-icon="activity">Settlements</a>
+          <a class="nav-item" href="#/audit" data-icon="fileText">Audit chain</a>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-label">Operations</div>
+          <a class="nav-item" href="#/queue" data-icon="list">Queue</a>
+          <a class="nav-item" href="#/worker" data-icon="cpu">Worker</a>
+          <a class="nav-item" href="#/treasury" data-icon="shield">Treasury &amp; risk</a>
+          <a class="nav-item" href="#/setup" data-icon="settings">Setup</a>
+        </div>
+
         <div class="nav-end">
           <input id="api-key" type="password" placeholder="API key (X-API-Key)" autocomplete="off" />
           <input id="approval-token" type="password" placeholder="Approval token" autocomplete="off" />
-          <div class="row"><button id="theme-toggle" type="button" title="Switch between light and dark">Theme: light</button></div>
-          <div class="row"><button id="guide-toggle" type="button">Explaining: on</button></div>
+          <div class="row">
+            <button id="theme-toggle" type="button" title="Switch between light and dark">Theme: light</button>
+            <button id="guide-toggle" type="button" title="Explain the terms, or stop explaining them">Explaining: on</button>
+          </div>
           <div id="status"></div>
         </div>
       </nav>
 
-      <main>
-        <div id="view"></div>
-        <footer>
-          <p class="testnet">
-            Arc Testnet only. This console can move testnet USDC and nothing else, and the destination
-            can only ever be a human-verified supplier wallet.
-          </p>
-          <p>Credentials live in this browser tab's session storage only. Everything shown here is also available from the documented HTTP API.</p>
-        </footer>
-      </main>
+      <div class="main-content">
+        <header class="header">
+          <h1 class="page-title" id="page-title">Overview</h1>
+          <div class="header-meta">
+            <span>Arc Testnet</span>
+            <span class="pill mono" id="balance-pill" title="Treasury balance, read from the forecast">—</span>
+          </div>
+        </header>
+        <main>
+          <div id="view"></div>
+          <footer>
+            <p class="testnet">
+              Arc Testnet only. This console can move testnet USDC and nothing else, and the destination
+              can only ever be a human-verified supplier wallet.
+            </p>
+            <p>Credentials live in this browser tab's session storage only. Everything shown here is also available from the documented HTTP API.</p>
+          </footer>
+        </main>
+      </div>
     </div>
 
     <script type="module">
-      import { apiKey, approvalToken, guided, refreshShell, setApiKey, setApprovalToken, setGuided, setTheme, startRouter, theme } from './app.js';
+      import { apiKey, approvalToken, guided, icon, refreshShell, setApiKey, setApprovalToken, setGuided, setTheme, startRouter, theme } from './app.js';
+      import './overview.js';
       import './queue.js';
       import './attention.js';
       import './payments.js';
+      import './audit.js';
       import './worker.js';
       import './setup.js';
       import './invoice.js';
       import './treasury.js';
+
+      // The nav is static markup, so the icons are drawn into it once rather than duplicated here.
+      for (const link of document.querySelectorAll('nav a[data-icon]')) {
+        link.prepend(icon(link.getAttribute('data-icon'), 16));
+      }
 
       const keyField = document.getElementById('api-key');
       const tokenField = document.getElementById('approval-token');

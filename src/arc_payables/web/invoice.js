@@ -2,7 +2,7 @@
 // actions a human can take. The destination is read from the trusted supplier record, never from
 // the invoice.
 
-import { api, badge, concept, explain, h, lede, panel, plainWords, refresh, registerView, stateTone, table } from './app.js';
+import { api, badge, concept, explain, h, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -23,6 +23,7 @@ async function renderInvoice(root, [invoiceId]) {
   const invoice = detail.invoice;
   const decision = detail.decision;
   const supplier = suppliers.find((item) => item.supplier_id === invoice.supplier_id);
+  root.append(sectionHeading({ eyebrow: 'Evidence', title: `Invoice ${invoice.invoice_number}`, count: (detail.decision && detail.decision.policy_checks ? detail.decision.policy_checks.length : 0) }));
 
   root.append(
     panel(

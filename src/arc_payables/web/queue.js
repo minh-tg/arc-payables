@@ -1,6 +1,6 @@
 // The payable queue: what the agent would pay first, and why, plus every invoice's state.
 
-import { api, badge, concept, h, lede, nextStep, panel, refresh, registerView, stateTone, table } from './app.js';
+import { api, badge, concept, h, lede, nextStep, panel, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -8,6 +8,7 @@ function money(value) {
 
 async function renderQueue(root) {
   const [plan, invoices] = await Promise.all([api('/plan'), api('/invoices')]);
+  root.append(sectionHeading({ eyebrow: 'Plan', title: 'Queue', count: invoices.length }));
 
   root.append(
     panel(

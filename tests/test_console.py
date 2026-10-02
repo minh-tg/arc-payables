@@ -185,6 +185,50 @@ def test_no_panel_is_built_from_guided_text_alone():
     assert not offenders, f"these build a card from guided text alone: {offenders}"
 
 
+def test_every_nav_destination_has_a_view_and_every_view_is_loaded():
+    """A nav item leading nowhere, or a view module the shell never imports, fails silently.
+
+    A registered view whose module is not imported simply never registers, and its route falls back
+    to the landing page without an error. A nav link with no view beside it is worse: it looks like
+    a screen and behaves like a reload.
+    """
+    html = (WEB_DIR / "index.html").read_text()
+    registered = set()
+    for module in sorted(WEB_DIR.glob("*.js")):
+        registered |= set(re.findall(r"registerView\('([a-z]+)'", module.read_text()))
+    loaded = set(re.findall(r"import '\./([a-z]+)\.js'", html))
+    linked = set(re.findall(r'href="#/([a-z]+)"', html))
+
+    assert linked <= registered, f"nav links with no view behind them: {sorted(linked - registered)}"
+    assert registered <= loaded, f"views the shell never imports: {sorted(registered - loaded)}"
+    # The four destinations the console is organised around.
+    assert {"overview", "attention", "payments", "audit"} <= linked
+
+
+def test_every_token_the_stylesheet_uses_is_defined_for_both_themes():
+    """A token defined in one theme only is a rule that silently loses its value in the other.
+
+    The light block is `:root, :root[data-theme='light']`, so a token missing from the dark block
+    still resolves while the light block happens to carry it. That makes the omission invisible until
+    somebody narrows the light selector, which is exactly the kind of change a theme invites.
+    """
+    html = (WEB_DIR / "index.html").read_text()
+    shared = re.search(r"\n      :root \{(.*?)\n      \}", html, re.DOTALL)
+    light = re.search(r":root, :root\[data-theme='light'\] \{(.*?)\n      \}", html, re.DOTALL)
+    dark = re.search(r":root\[data-theme='dark'\] \{(.*?)\n      \}", html, re.DOTALL)
+    assert shared and light and dark, "the three token blocks should all be present"
+
+    def names(block):
+        return set(re.findall(r"(--[a-z0-9-]+):", block))
+
+    declared = names(shared.group(1)) | names(light.group(1)) | names(dark.group(1))
+    used = set(re.findall(r"var\((--[a-z0-9-]+)\)", html))
+    assert not used - declared, f"used but never defined: {sorted(used - declared)}"
+    # Anything that varies by theme has to be stated in both, or the theme change half-applies.
+    for name in sorted(used & names(light.group(1))):
+        assert name in names(dark.group(1)), f"{name} is set for light and not for dark"
+
+
 def test_every_helper_a_view_imports_exists():
     """The modules import from app.js by name; a rename would otherwise fail only in a browser."""
     exported = set(re.findall(r"export (?:async )?function (\w+)", (WEB_DIR / "app.js").read_text()))
