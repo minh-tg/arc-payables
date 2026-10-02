@@ -97,6 +97,64 @@ def test_the_inline_page_script_parses(tmp_path):
         _parses_as_module(tmp_path, script)
 
 
+def test_the_console_never_writes_markup():
+    """Everything shown comes from the API, so it is inserted as a text node and never as markup.
+
+    The guided view reads its definitions from the backend, which makes this rule load-bearing
+    rather than stylistic: a term's definition is untrusted content like everything else.
+    """
+    sources = sorted(WEB_DIR.glob("*.js")) + [WEB_DIR / "index.html"]
+    offenders = [
+        path.name
+        for path in sources
+        if re.search(r"\b(innerHTML|outerHTML|insertAdjacentHTML|document\.write)\b", path.read_text())
+    ]
+    assert not offenders, f"these write markup instead of text: {offenders}"
+
+
+def test_the_shell_offers_the_guided_view_switch():
+    """The beginner view has to be switchable off, and the switch has to be wired to the preference."""
+    html = (WEB_DIR / "index.html").read_text()
+    assert 'id="guide-toggle"' in html
+    assert "Explaining:" in html
+    assert "setGuided(" in html and "guided()" in html
+    app = (WEB_DIR / "app.js").read_text()
+    for name in ("concept", "conceptText", "conceptAction", "guided", "lede", "nextStep", "setGuided"):
+        assert f"function {name}(" in app, f"app.js must export {name}"
+
+
+def test_every_class_the_guided_view_writes_has_a_style():
+    """A renamed class leaves a term that looks like body text and a popover with no box.
+
+    Nothing else would notice: the markup still renders, the words are still there, and the page
+    simply stops looking like it has explanations on it.
+    """
+    app = (WEB_DIR / "app.js").read_text()
+    html = (WEB_DIR / "index.html").read_text()
+    written = set(re.findall(r"class: '([a-z-]+)", app))
+    # These carry the look: a term has to read as a term, and the popover has to have a box.
+    for name in ("term", "lede", "concept-tip", "concept-tip-action", "guide-note"):
+        assert name in written, f"app.js should still write .{name}"
+        assert f".{name}" in html, f"index.html has no rule for .{name}"
+    # Whatever the popover looks up has to be something it wrote, or it fills nothing at all.
+    for name in set(re.findall(r"querySelector(?:All)?\('\.([a-z-]+)'\)", app)):
+        assert name in written, f"app.js looks up .{name} but never writes it"
+
+
+def test_a_view_does_not_import_what_it_does_not_use():
+    """An unused import is the residue of a helper that was meant to be wired up and was not."""
+    unused = []
+    for module in sorted(WEB_DIR.glob("*.js")):
+        if module.name == "app.js":
+            continue
+        text = module.read_text()
+        for names in re.findall(r"import \{([^}]+)\} from '\./app\.js'", text):
+            for name in (item.strip() for item in names.split(",")):
+                if name and len(re.findall(rf"\b{re.escape(name)}\b", text)) < 2:
+                    unused.append(f"{module.name} imports {name} and never uses it")
+    assert not unused, unused
+
+
 def test_every_helper_a_view_imports_exists():
     """The modules import from app.js by name; a rename would otherwise fail only in a browser."""
     exported = set(re.findall(r"export (?:async )?function (\w+)", (WEB_DIR / "app.js").read_text()))

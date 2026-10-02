@@ -9,6 +9,7 @@
 const KEY_STORAGE = 'arc_payables.apiKey';
 const APPROVAL_STORAGE = 'arc_payables.approvalToken';
 const THEME_STORAGE = 'arc_payables.theme';
+const GUIDE_STORAGE = 'arc_payables.guide';
 
 export function theme() {
   return sessionStorage.getItem(THEME_STORAGE) || document.documentElement.dataset.theme || 'light';
@@ -27,6 +28,40 @@ export function setTheme(value) {
 
 export function apiKey() {
   return sessionStorage.getItem(KEY_STORAGE) || '';
+}
+
+// Guided mode. A first-time operator may never have held a stablecoin, so a new session opens with
+// the explanations switched on: a plain lede on each view, and every domain term underlined so it
+// can be read where it stands. Turning it off is remembered for the tab, because a reader who has
+// learned the words should not have to dismiss them again on every screen.
+export function guided() {
+  try {
+    return sessionStorage.getItem(GUIDE_STORAGE) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+export function setGuided(value) {
+  const next = value === true;
+  try {
+    sessionStorage.setItem(GUIDE_STORAGE, next ? 'on' : 'off');
+  } catch {
+    /* session storage may be unavailable; the page still holds the choice for this render */
+  }
+  return next;
+}
+
+/** The definition of one domain term, in the backend's words, or empty until they have loaded. */
+export function conceptText(code) {
+  const entry = (explanations.concepts && explanations.concepts[code]) || null;
+  return entry && entry.plain ? entry.plain : '';
+}
+
+/** What the backend suggests reading next for that term, when it wrote something. */
+export function conceptAction(code) {
+  const entry = (explanations.concepts && explanations.concepts[code]) || null;
+  return entry && entry.action ? entry.action : '';
 }
 
 export function setApiKey(value) {
@@ -108,6 +143,144 @@ export function h(tag, attrs = {}, ...children) {
   return node;
 }
 
+// A domain term the reader may not know, underlined so it can be read on the spot. This is the
+// whole beginner layer: the definition is fetched from the service rather than written here, so the
+// console cannot describe the system differently from the way the system behaves.
+//
+// In normal view the word is plain text again. A reader who knows the vocabulary is not asked to
+// walk past an explanation on every line.
+export function concept(code, label = code) {
+  if (!guided()) return label;
+  return h(
+    'span',
+    {
+      class: 'term',
+      'data-concept': code,
+      tabindex: '0',
+      role: 'button',
+      'aria-describedby': TIP_ID,
+      'aria-expanded': 'false',
+    },
+    label,
+  );
+}
+
+// The plain-language introduction to a view, shown only while the reader is still being walked
+// through. Returns nothing in normal view, so callers can append it unconditionally.
+export function lede(...children) {
+  if (!guided()) return null;
+  return h('p', { class: 'lede' }, ...children);
+}
+
+// One popover for the whole page, positioned in the viewport rather than inside a card. A tooltip
+// nested in a scrolling table would be clipped by it, and a table is exactly where a reader meets
+// an unfamiliar word.
+const TIP_ID = 'concept-tip';
+let tip = null;
+let tipOwner = null;
+
+function tipElement() {
+  if (!tip) {
+    tip = h(
+      'div',
+      { class: 'concept-tip', id: TIP_ID, role: 'tooltip', hidden: true },
+      h('div', { class: 'concept-tip-plain' }),
+      h('div', { class: 'concept-tip-action' }),
+    );
+    document.body.append(tip);
+  }
+  return tip;
+}
+
+function hideTip() {
+  if (tipOwner) tipOwner.setAttribute('aria-expanded', 'false');
+  tipOwner = null;
+  if (tip) tip.hidden = true;
+}
+
+// Draw whatever the reader is currently asking about. Called again when the definitions arrive, so a
+// term pointed at during the first moment of a page load is not silently ignored: the request is
+// remembered, and it is answered as soon as there are words to answer it with.
+function drawTip() {
+  if (!tipOwner) return;
+  if (!tipOwner.isConnected) {
+    // The view was re-rendered out from under the reader.
+    hideTip();
+    return;
+  }
+  const plain = conceptText(tipOwner.getAttribute('data-concept'));
+  if (!plain) {
+    // Still loading, or a genuine gap in the glossary. Keep the request; show nothing meanwhile.
+    if (tip) tip.hidden = true;
+    tipOwner.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  const node = tipElement();
+  node.querySelector('.concept-tip-plain').textContent = plain;
+  const action = node.querySelector('.concept-tip-action');
+  action.textContent = conceptAction(tipOwner.getAttribute('data-concept'));
+  action.hidden = !action.textContent;
+  node.hidden = false;
+  tipOwner.setAttribute('aria-expanded', 'true');
+  placeTip(node, tipOwner);
+}
+
+function placeTip(node, owner) {
+  const anchor = owner.getBoundingClientRect();
+  const box = node.getBoundingClientRect();
+  const gap = 8;
+  const left = Math.max(gap, Math.min(anchor.left + anchor.width / 2 - box.width / 2, window.innerWidth - box.width - gap));
+  const below = anchor.bottom + gap;
+  const above = anchor.top - box.height - gap;
+  const top = below + box.height <= window.innerHeight - gap || above < gap
+    ? Math.min(below, Math.max(gap, window.innerHeight - box.height - gap))
+    : above;
+  node.style.left = `${Math.round(left)}px`;
+  node.style.top = `${Math.round(top)}px`;
+}
+
+function showTip(owner) {
+  tipOwner = owner;
+  drawTip();
+}
+
+// Delegated once, on the document, so a re-rendered view needs no listeners of its own.
+function installConcepts() {
+  const termIn = (event) => (event.target instanceof Element ? event.target.closest('[data-concept]') : null);
+  document.addEventListener('pointerover', (event) => {
+    if (event.pointerType === 'touch') return; // a tap is a click; let that path decide
+    const owner = termIn(event);
+    if (owner) showTip(owner);
+  });
+  document.addEventListener('pointerout', (event) => {
+    if (event.pointerType === 'touch') return;
+    if (termIn(event) === tipOwner) hideTip();
+  });
+  document.addEventListener('focusin', (event) => {
+    const owner = termIn(event);
+    if (owner) showTip(owner);
+    else hideTip();
+  });
+  document.addEventListener('focusout', (event) => {
+    if (termIn(event) === tipOwner) hideTip();
+  });
+  // A tap, or Enter on a focused term. Both land here, so touch and keyboard share one path.
+  document.addEventListener('click', (event) => {
+    const owner = termIn(event);
+    if (owner) showTip(owner);
+    else hideTip();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') hideTip();
+  });
+  window.addEventListener('scroll', hideTip, true);
+  window.addEventListener('resize', hideTip);
+}
+
+// Installed at import rather than from startRouter, so a term is live wherever the helpers are used.
+// The listeners are delegated and cheap, and the popover element itself is built lazily.
+installConcepts();
+
 // A table that survives a phone. Each cell carries its column name so the stylesheet can reflow the
 // row into a labelled card below the breakpoint, which is how a wide operator table stays readable.
 export function table(headers, rows) {
@@ -151,11 +324,11 @@ export function statGrid(items) {
   return h(
     'div',
     { class: 'stats' },
-    items.map(({ label, value, unit, tone }) =>
+    items.map(({ label, value, unit, tone, concept: term }) =>
       h(
         'div',
         { class: `stat${tone === 'bad' ? ' bad' : tone === 'warn' ? ' warn' : tone === 'good' ? ' ok' : ''}` },
-        h('div', { class: 'label' }, label),
+        h('div', { class: 'label' }, term ? concept(term, label) : label),
         h('div', { class: 'value' }, `${value ?? '—'}`, unit ? h('span', { class: 'unit' }, unit) : null),
       ),
     ),
@@ -187,6 +360,7 @@ fetch('/explanations.json')
   .then((response) => (response.ok ? response.json() : {}))
   .then((loaded) => {
     explanations = loaded || {};
+    drawTip();
   })
   .catch(() => {});
 
@@ -198,6 +372,16 @@ export function explain(kind, code) {
 export function explainAction(kind, code) {
   const entry = (explanations && explanations[kind] && explanations[kind][code]) || null;
   return entry && entry.action ? entry.action : '';
+}
+
+// The backend's suggested next move for one code, shown only while the reader is being walked
+// through. It is additive by design: a summary already says what happened, so this line only ever
+// adds what to do about it, and it disappears entirely once the reader knows the vocabulary.
+export function nextStep(kind, code) {
+  if (!guided()) return null;
+  const action = explainAction(kind, code);
+  if (!action) return null;
+  return h('p', { class: 'guide-note' }, h('span', { class: 'guide-note-label' }, 'What to do next: '), action);
 }
 
 const views = new Map();
@@ -241,6 +425,7 @@ async function route() {
   const render = views.get(name) || views.get('attention');
   const root = document.getElementById('view');
   const status = document.getElementById('status');
+  hideTip(); // the term a reader was pointing at is about to be replaced
   root.replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
   status.replaceChildren(
     apiKey() ? h('span', { class: 'muted' }, 'API key set') : h('span', { class: 'warn-text' }, 'No API key set'),

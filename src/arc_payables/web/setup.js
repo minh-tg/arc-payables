@@ -2,7 +2,7 @@
 // a setting, because credentials belong in the environment and secret files rather than in a page
 // reachable with one shared API key.
 
-import { api, badge, h, panel, registerView, table } from './app.js';
+import { api, badge, concept, h, lede, panel, registerView, table } from './app.js';
 
 function stateBadge(state) {
   if (state === 'set') return badge('set', 'good');
@@ -17,6 +17,10 @@ async function renderSetup(root) {
   root.append(
     panel(
       'Configuration',
+      lede(
+        'A setting that is missing is not a warning about something that might happen. It is the ',
+        'reason a named piece of the system is not working right now.',
+      ),
       h(
         'p',
         {},
@@ -105,6 +109,10 @@ async function renderSetup(root) {
   root.append(
     panel(
       'Live checks',
+      lede(
+        'These ask the accounting system and the chain what they actually hold, rather than what the ',
+        'settings say they should. The ', concept('guard', 'guard'), ' is the contract that caps payments.',
+      ),
       h(
         'p',
         { class: 'muted' },

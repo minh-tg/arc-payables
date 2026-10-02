@@ -110,6 +110,27 @@ def test_setup_endpoints_need_the_key_and_are_documented(runtime):
     assert "/setup" in spec["paths"] and "/setup/checks" in spec["paths"] and "/attention" in spec["paths"]
 
 
+def test_the_console_can_read_every_definition_it_names(runtime):
+    """The guided view renders only what this payload publishes.
+
+    Dropping a table from here removes a whole feature from the browser and fails nothing else, so
+    the payload is pinned to the vocabulary the console asks for. It is fetched without a key, which
+    is how the console actually reaches it.
+    """
+    response = _client(runtime).get("/explanations.json")
+    assert response.status_code == 200
+    body = response.json()
+    for name in (
+        "states", "decisions", "checks", "screening", "attention", "outcomes",
+        "confirmations", "steps", "alerts", "guard", "setup", "tiers", "concepts",
+    ):
+        assert body.get(name), f"{name} is missing from the published explanations"
+        for code, row in body[name].items():
+            assert row.get("plain"), f"{name}.{code} was published with no words"
+    # A beginner reads this one first, so its absence is a broken guided view rather than a gap.
+    assert "digital dollar" in body["concepts"]["usdc"]["plain"]
+
+
 def test_the_live_checks_report_a_mock_deployment_as_nothing_to_reach(runtime):
     outcome = live_checks(runtime["workflow"], runtime["settings"])
 

@@ -1,6 +1,6 @@
 // The payable queue: what the agent would pay first, and why, plus every invoice's state.
 
-import { api, badge, h, panel, refresh, registerView, stateTone, table } from './app.js';
+import { api, badge, concept, h, lede, nextStep, panel, refresh, registerView, stateTone, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -12,12 +12,17 @@ async function renderQueue(root) {
   root.append(
     panel(
       'Treasury',
+      lede(
+        'This is what the agent would pay, in the order it would pay it. Every invoice is priced in ',
+        concept('usdc', 'USDC'),
+        ', a digital dollar, so nothing here depends on an exchange rate.',
+      ),
       h(
         'dl',
         { class: 'facts' },
         h('dt', {}, 'Balance'),
         h('dd', {}, money(plan.balance_usdc)),
-        h('dt', {}, 'Reserve floor'),
+        h('dt', {}, concept('reserve_floor', 'Reserve floor')),
         h('dd', {}, money(plan.reserve_floor_usdc)),
         h('dt', {}, 'Spendable'),
         h('dd', {}, money(plan.spendable_usdc)),
@@ -72,7 +77,9 @@ async function renderQueue(root) {
       h('td', {}, h('a', { href: `#/invoice/${entry.invoice_id}` }, entry.invoice_number)),
       h('td', { class: 'num' }, money(entry.amount_usdc)),
       h('td', {}, entry.decision_action ? badge(entry.decision_action, stateTone(entry.decision_action)) : '—'),
-      h('td', {}, entry.reason),
+      // "Not payable now" is where a first-time operator meets ESCALATE and has no idea what to do
+      // about it, so the guided view answers that beside the reason.
+      h('td', {}, entry.reason, nextStep('decisions', entry.decision_action)),
     ),
   );
   root.append(panel('Not payable now', table(['Invoice', 'Amount', 'Policy', 'Reason'], excludedRows)));
@@ -104,7 +111,18 @@ async function renderQueue(root) {
       ),
     ),
   );
-  root.append(panel('All invoices', table(['ID', 'Number', 'Amount', 'Due', 'State', ''], invoiceRows)));
+
+  root.append(
+    panel(
+      'All invoices',
+      lede(
+        'Every invoice, whatever state it is in, with the row that says why. The state is the ',
+        concept('policy_check', 'policy'),
+        ' result, not a human judgement.',
+      ),
+      table(['ID', 'Number', 'Amount', 'Due', 'State', ''], invoiceRows),
+    ),
+  );
 }
 
 registerView('queue', renderQueue);

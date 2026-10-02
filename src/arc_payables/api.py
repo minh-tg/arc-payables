@@ -202,7 +202,9 @@ def create_app(
 
         The console fetches this once and renders the words beside the codes. Publishing the table
         means the pages can never drift from the behaviour: a check renamed without updating its
-        explanation is caught by a test that walks the real vocabulary.
+        explanation is caught by a test that walks the real vocabulary. CONCEPTS rides along for the
+        same reason: the definitions of USDC, the guard, and the rest are written here rather than
+        in the page, so the console carries no copy of its own to fall out of date.
         """
         from . import explain as plain_words
 
@@ -214,7 +216,7 @@ def create_app(
                 }
                 for name in (
                     "STATES", "DECISIONS", "CHECKS", "SCREENING", "ATTENTION", "OUTCOMES",
-                    "CONFIRMATIONS", "STEPS", "ALERTS", "GUARD", "SETUP", "TIERS",
+                    "CONFIRMATIONS", "STEPS", "ALERTS", "GUARD", "SETUP", "TIERS", "CONCEPTS",
                 )
             }
         )

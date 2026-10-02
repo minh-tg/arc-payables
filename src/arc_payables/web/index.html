@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Arc Payables · operator console</title>
     <script>
-      // Apply the saved theme before first paint so the page never flashes the wrong one.
+      // Apply the saved theme before first paint so the page never flashes the wrong one. This reads
+      // the same store app.js writes: session storage, scoped to the tab like the credentials.
       try {
-        document.documentElement.dataset.theme = localStorage.getItem('arc_payables.theme') || 'light';
+        document.documentElement.dataset.theme = sessionStorage.getItem('arc_payables.theme') || 'light';
       } catch (e) {
         document.documentElement.dataset.theme = 'light';
       }
@@ -314,6 +315,50 @@
 
       .truncate { max-width: 170px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
 
+      /* Guided view. A term carries a dotted underline because that is the oldest signal for "there
+         is a definition here", and the popover is one shared element on the document, so it is never
+         clipped by the table that raised it. */
+      .lede {
+        color: var(--muted);
+        font-size: 13.5px;
+        max-width: 78ch;
+        margin: 0 0 14px;
+      }
+      .lede strong { color: var(--fg); font-weight: 600; }
+      /* The suggested next move, shown only while the explanations are on. */
+      .guide-note {
+        color: var(--muted);
+        font-size: 12.5px;
+        margin: 8px 0 0;
+      }
+      .guide-note-label { color: var(--fg); font-weight: 600; }
+      .term {
+        border-bottom: 1px dotted var(--line-strong);
+        cursor: help;
+      }
+      .term:hover, .term[aria-expanded='true'] { border-bottom-color: var(--accent); color: var(--fg); }
+      .concept-tip {
+        position: fixed;
+        z-index: 60;
+        max-width: min(360px, calc(100vw - 24px));
+        background: var(--card-top);
+        border: 1px solid var(--line-strong);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        padding: 12px 14px;
+        font-size: 13px;
+        line-height: 1.5;
+        pointer-events: none;
+      }
+      .concept-tip[hidden] { display: none; }
+      .concept-tip-action {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+      }
+      .concept-tip-action[hidden] { display: none; }
+
       a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid var(--line-strong); transition: color 140ms ease, border-color 140ms ease; }
       a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 
@@ -430,6 +475,7 @@
           <input id="api-key" type="password" placeholder="API key (X-API-Key)" autocomplete="off" />
           <input id="approval-token" type="password" placeholder="Approval token" autocomplete="off" />
           <div class="row"><button id="theme-toggle" type="button" title="Switch between light and dark">Theme: light</button></div>
+          <div class="row"><button id="guide-toggle" type="button">Explaining: on</button></div>
           <div id="status"></div>
         </div>
       </nav>
@@ -447,7 +493,7 @@
     </div>
 
     <script type="module">
-      import { apiKey, approvalToken, refreshShell, setApiKey, setApprovalToken, setTheme, startRouter, theme } from './app.js';
+      import { apiKey, approvalToken, guided, refreshShell, setApiKey, setApprovalToken, setGuided, setTheme, startRouter, theme } from './app.js';
       import './queue.js';
       import './attention.js';
       import './payments.js';
@@ -459,9 +505,11 @@
       const keyField = document.getElementById('api-key');
       const tokenField = document.getElementById('approval-token');
       const themeToggle = document.getElementById('theme-toggle');
+      const guideToggle = document.getElementById('guide-toggle');
       keyField.value = apiKey();
       tokenField.value = approvalToken();
       themeToggle.textContent = `Theme: ${theme()}`;
+      guideToggle.textContent = `Explaining: ${guided() ? 'on' : 'off'}`;
       keyField.addEventListener('change', () => {
         setApiKey(keyField.value.trim());
         refreshShell();
@@ -471,6 +519,13 @@
       themeToggle.addEventListener('click', () => {
         themeToggle.textContent = `Theme: ${setTheme(theme() === 'light' ? 'dark' : 'light')}`;
         refreshShell();
+      });
+      // Switching the explanations re-renders the current view, because guided mode changes what
+      // each view builds rather than hiding what is already on the page.
+      guideToggle.addEventListener('click', () => {
+        guideToggle.textContent = `Explaining: ${setGuided(!guided()) ? 'on' : 'off'}`;
+        if (window.location.hash) window.dispatchEvent(new HashChangeEvent('hashchange'));
+        else refreshShell();
       });
 
       startRouter();

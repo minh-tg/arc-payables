@@ -1,7 +1,7 @@
 // What needs a person. Read-only: the work waiting on a human and the alerts the last pass raised,
 // taken from the same snapshot the metrics are rendered from, so the two cannot disagree.
 
-import { api, badge, h, panel, registerView, statGrid, table } from './app.js';
+import { api, badge, concept, h, lede, nextStep, panel, registerView, statGrid, table } from './app.js';
 
 function tone(severity) {
   if (severity === 'critical') return 'bad';
@@ -54,7 +54,7 @@ async function renderAttention(root) {
   const data = await api('/attention');
 
   const kpis = statGrid([
-    { label: 'Treasury', value: String(data.treasury_usdc ?? '—'), unit: 'USDC' },
+    { label: 'Treasury', value: String(data.treasury_usdc ?? '—'), unit: 'USDC', concept: 'treasury' },
     data.critical === 0 && data.warning === 0
       ? { label: 'Needs you', value: '0', unit: 'items', tone: 'good' }
       : { label: 'Needs you', value: String(data.critical + data.warning), unit: 'items' },
@@ -66,6 +66,12 @@ async function renderAttention(root) {
   root.append(
     panel(
       'Waiting on a person',
+      lede(
+        'Everything here is something the system would not decide on its own. It is waiting for a '
+          + 'person, and none of it moves money while it waits. An item is either an ',
+        concept('escalation', 'escalation'),
+        ' or a payment whose result nobody knows yet.',
+      ),
       h(
         'p',
         {},
@@ -80,9 +86,9 @@ async function renderAttention(root) {
       h(
         'dl',
         { class: 'facts' },
-        h('dt', {}, 'Treasury'),
+        h('dt', {}, concept('treasury', 'Treasury')),
         h('dd', {}, money(data.treasury_usdc)),
-        h('dt', {}, 'Audit entries'),
+        h('dt', {}, concept('audit_chain', 'Audit entries')),
         h('dd', {}, String(data.audit_entries)),
       ),
       h(
@@ -114,6 +120,7 @@ async function renderAttention(root) {
         { class: classes },
         head,
         h('p', {}, item.summary),
+        nextStep('attention', item.code),
         detail,
         actions,
       ),

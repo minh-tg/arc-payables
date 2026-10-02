@@ -5,6 +5,11 @@ This module is the mapping between the two: one short line of plain language for
 state, decision, check, attention item, payment outcome, guard rejection, and setup requirement,
 plus what to do next. The codes stay where they are for machines. The words live here.
 
+It also carries CONCEPTS: the domain terms themselves, written for a reader who has never held a
+stablecoin. Those lines are not about a code the service can return, they are about the words the
+console puts on screen, and they live here because a wrong definition misleads exactly as a wrong
+explanation does.
+
 Nothing here changes a decision. A wrong explanation here misleads exactly as a wrong sentence in
 the README does, so keep each line short, concrete, and in the same plain style as everything else.
 """
@@ -275,6 +280,72 @@ TIERS: dict[str, dict[str, Any]] = {
         "An unclear result buys a smaller payment, never an automatic pass.",
     ),
     "high": _row("Flagged. Pays nothing unattended and, by default, nothing even with a reviewer."),
+}
+
+#: The domain terms, for an operator who has never used a stablecoin. Each line has to stand on its
+#: own inside a tooltip, because the reader is mid-sentence on another screen when they meet it, and
+#: the console shows nothing rather than guessing when a key here is absent.
+CONCEPTS: dict[str, dict[str, Any]] = {
+    "usdc": _row(
+        "USDC is a digital dollar. One USDC is meant to be worth one US dollar, and it moves over a blockchain instead of through a bank.",
+        "This system pays and is paid in USDC only, so no exchange rate is ever guessed at payment time.",
+    ),
+    "stablecoin": _row(
+        "A token whose price is designed to stay steady, usually pinned to a national currency. USDC is one, pinned to the US dollar.",
+        "A steady price is what makes it usable for paying bills rather than for trading.",
+    ),
+    "wallet": _row(
+        "An address that can hold and receive tokens. Whoever holds the matching key controls the money at that address.",
+        "The only destination this system pays is a supplier wallet that a human verified. An invoice cannot name one.",
+    ),
+    "testnet": _row(
+        "A practice copy of a blockchain. The tokens on it are for testing and are worth nothing.",
+        "Everything this console shows runs on Arc Testnet. No real money is at stake on these screens.",
+    ),
+    "treasury": _row(
+        "The pool of USDC this business pays from. It is one balance, not a budget per invoice.",
+        "Treasury and risk shows the balance, what is due, and the date it stops covering what is due.",
+    ),
+    "reserve_floor": _row(
+        "A balance the system refuses to spend below, so one unexpected bill cannot empty the account.",
+        "A payment that would cross the floor is refused on purpose, and the refusal is reported rather than forced.",
+    ),
+    "guard": _row(
+        "A separate contract on the chain that inspects every payment before it settles. It holds the hard budgets.",
+        "Three caps apply: per payment, per time window, and per recipient per window. Changing a cap means deploying a new guard.",
+    ),
+    "policy_check": _row(
+        "One rule that has to pass before money moves, such as the invoice being genuinely owed or the destination matching the verified supplier record.",
+        "A failed check either stops the payment or hands it to a person, depending on the rule.",
+    ),
+    "escalation": _row(
+        "The system declining to decide on its own and asking a person instead. It moves no money while it waits.",
+        "Escalated invoices appear on Attention with the failing checks named.",
+    ),
+    "screening": _row(
+        "Checking a counterparty against sanctions and watchlists before paying them.",
+        "No result is not a clearance. Screening that never ran is treated as unclear, never as clear.",
+    ),
+    "tier": _row(
+        "How much a counterparty may be paid without a human. A clear screening earns the full automatic limit.",
+        "An unclear result earns a quarter of that limit. A flagged one earns nothing.",
+    ),
+    "network_fee": _row(
+        "A small charge for writing a payment onto the blockchain. It goes to the network, not to the recipient.",
+        "The fee is booked alongside the payment so the ledger and the chain agree on the cost.",
+    ),
+    "approval_token": _row(
+        "The second credential a person supplies to approve something. The API key on its own is not enough.",
+        "It is held in this browser tab only, and the service never stores it.",
+    ),
+    "ledger": _row(
+        "The accounting system that keeps the books, here ERPNext. Money can move on the chain before the books catch up.",
+        "A confirmed payment the books have not accepted is reported on Attention, never hidden.",
+    ),
+    "audit_chain": _row(
+        "A record in which each entry is hashed together with the one before it, so editing or removing a past entry breaks the chain.",
+        "If the chain stops verifying, the record of what happened cannot be trusted and payments should stop.",
+    ),
 }
 
 

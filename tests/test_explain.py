@@ -33,7 +33,7 @@ def test_every_policy_check_the_service_can_return_has_plain_words():
 def test_every_table_says_something_and_never_grants_authority():
     for name in (
         "STATES", "DECISIONS", "SCREENING", "ATTENTION", "OUTCOMES",
-        "CONFIRMATIONS", "STEPS", "ALERTS", "GUARD", "SETUP", "TIERS",
+        "CONFIRMATIONS", "STEPS", "ALERTS", "GUARD", "SETUP", "TIERS", "CONCEPTS",
     ):
         table = getattr(e, name)
         assert table, f"{name} must not be empty"
@@ -55,6 +55,56 @@ def test_an_unknown_code_admits_the_gap_instead_of_inventing_words():
     entry = e.look_up(e.CHECKS, "no_such_check")
     assert entry["action"] is None
     assert "documentation gap" in entry["plain"]
+
+
+def _concepts_the_console_names() -> set[str]:
+    """Every concept key the browser asks the backend to define."""
+    named: set[str] = set()
+    for path in pathlib.Path("src/arc_payables/web").glob("*.js"):
+        text = path.read_text()
+        named |= set(re.findall(r"concept\(\s*'([a-z_]+)'", text))
+        named |= set(re.findall(r"concept:\s*'([a-z_]+)'", text))
+    return named
+
+
+def test_every_concept_the_console_names_has_a_definition():
+    """A concept key with no definition renders nothing at all, and silently.
+
+    This is the failure mode server-side tests cannot see: the term draws its dotted underline, the
+    reader points at it, and the popover is empty. The backend has to hold every key the console
+    names, so the two cannot drift apart.
+    """
+    named = _concepts_the_console_names()
+    assert named, "the console must still be naming concepts for this test to cover"
+    missing = sorted(name for name in named if name not in e.CONCEPTS)
+    assert not missing, f"the console names concepts with no definition: {missing}"
+
+
+def test_the_glossary_covers_the_money_itself():
+    """The reader may have no idea what USDC is. That is the point of the guided view."""
+    for term in ("usdc", "stablecoin", "wallet", "testnet"):
+        assert term in e.CONCEPTS, f"a beginner needs {term} defined"
+    assert "digital dollar" in e.CONCEPTS["usdc"]["plain"]
+
+
+def test_the_concepts_agree_with_the_behaviour_they_describe():
+    """Definitions drift the same way explanations do, so they are pinned to the real rules."""
+    def whole(code: str) -> str:
+        row = e.CONCEPTS[code]
+        return f"{row['plain']} {row.get('action') or ''}"
+
+    # Three caps, named the same way the guard table names them.
+    assert "per recipient" in whole("guard")
+    assert "per recipient" in e.GUARD["caps"]["plain"]
+    # An unclear screening earns a quarter of the limit, exactly as the tier table says.
+    assert "quarter" in whole("tier")
+    assert "quarter" in e.TIERS["medium"]["plain"]
+    # A flagged counterparty earns nothing, in both places.
+    assert "nothing" in whole("tier")
+    assert "nothing" in e.TIERS["high"]["plain"]
+    # Screening that never ran is not a clearance, which is the whole reason invoices escalate here.
+    assert "never ran" in whole("screening")
+    assert "never ran" in e.SCREENING["UNAVAILABLE"]["plain"]
 
 
 def test_a_failing_check_keeps_its_reason_beside_the_plain_words():

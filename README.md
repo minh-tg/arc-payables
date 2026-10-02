@@ -308,15 +308,29 @@ credentials belong in the environment and in mode-600 files, not in a page reach
 API key. The Setup view reports a secret as set or missing and never in full, and shows a URL as its
 host with the path removed, because the RPC endpoints shipped with this project carry a token there.
 
-The look is a dark neutral canvas with one warm accent, semantic status colours that always carry a
-label as well as a colour, monospaced identifiers and amounts, and tables that reflow into labelled
-rows on a narrow screen rather than shrinking. The design system was prototyped in OpenDesign and
-ported into the console's own static files: no framework, no build step, and no external asset.
+The look is a light neutral canvas with a dark theme beside it, one accent, semantic status colours
+that always carry a label as well as a colour, monospaced identifiers and amounts, and tables that
+reflow into labelled rows on a narrow screen rather than shrinking. The design system was prototyped
+in OpenDesign and ported into the console's own static files: no framework, no build step, and no
+external asset.
+
+**The guided view.** A reader may never have held a stablecoin, so a new session opens with the
+explanations switched on: a plain-language introduction to a view, the suggested next move against
+anything that names a problem, and every domain term underlined so its definition opens where it
+stands, reachable with a tap and the keyboard as well as a pointer. The definitions come from the
+service's own `/explanations.json` rather than from the page, so they cannot describe the system
+differently from the way it behaves, and a term with no definition behind it is caught by a test and
+by `script/console-smoke.sh`. One header control turns the layer off for a reader who has learned the
+vocabulary, and the choice lasts the tab. The glossary covers the money itself, USDC and what it is
+for, because that is the first thing a new operator has to read and the last thing anyone thinks to
+explain.
 
 `script/console-smoke.sh` renders every view in a headless browser against the seeded demo and fails
 if one of them throws. The Python suite can only see that a module parses and its imports resolve,
 which is not enough: a wrong destructure of an API response parses perfectly and dies at render time,
-and one shipped that way until this script caught it.
+and one shipped that way until this script caught it. It also checks the one thing about the guided
+view that no server-side test can reach: that every term a page draws has a definition behind it,
+because a term with no definition renders an empty popover and throws nothing at all.
 
 The console is shipped code, so its modules are syntax-checked in the test suite: a JavaScript
 error would otherwise produce a blank page that no server-side test would catch.
