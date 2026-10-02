@@ -20,6 +20,35 @@ async function renderTreasury(root) {
     ]),
   );
 
+  // The caps the contract enforces, beside the coverage they constrain. Read-only numbers the
+  // provider already publishes, shown where the money they bind is actually discussed.
+  if (forecast.guard_caps_usdc) {
+    const caps = forecast.guard_caps_usdc;
+    const bar = (used, cap) => {
+      const share = cap > 0 ? Math.min(100, Math.max(0, (used / cap) * 100)) : 0;
+      return h(
+        'div',
+        { class: `meter${share >= 100 ? ' full' : share >= 75 ? ' hot' : ''}`, title: `${used.toLocaleString()} of ${cap.toLocaleString()} USDC` },
+        h('i', { style: `width:${share}%` }),
+      );
+    };
+    const epochSpent = Number(caps.epoch_spent ?? 0);
+    root.append(
+      panel(
+        'Guard budgets · per payment, per epoch, per recipient',
+        table(
+          ['Budget', 'Cap', 'Used', ''],
+          [
+            h('tr', {}, h('td', {}, 'Per payment'), h('td', { class: 'num' }, `${caps.per_payment} USDC`), h('td', { class: 'muted' }, 'hard cap per call'), h('td', {}, bar(0, caps.per_payment))),
+            h('tr', {}, h('td', {}, 'Epoch total'), h('td', { class: 'num' }, `${caps.epoch} USDC`), h('td', { class: 'num' }, `${epochSpent} USDC`), h('td', {}, bar(epochSpent, caps.epoch))),
+            h('tr', {}, h('td', {}, 'Per recipient'), h('td', { class: 'num' }, `${caps.recipient_epoch} USDC`), h('td', { class: 'muted' }, 'tracked per recipient on chain'), h('td', {}, null)),
+          ],
+        ),
+        h('p', { class: 'muted' }, caps.paused ? 'The guard is paused: no payment can settle.' : `Window rolls every ${caps.epoch_days} day(s). Refunds do not restore a spent allowance.`),
+      ),
+    );
+  }
+
   root.append(
     panel(
       `Forward coverage · next ${forecast.horizon_days} days`,

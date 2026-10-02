@@ -8,6 +8,22 @@
 
 const KEY_STORAGE = 'arc_payables.apiKey';
 const APPROVAL_STORAGE = 'arc_payables.approvalToken';
+const THEME_STORAGE = 'arc_payables.theme';
+
+export function theme() {
+  return sessionStorage.getItem(THEME_STORAGE) || document.documentElement.dataset.theme || 'light';
+}
+
+export function setTheme(value) {
+  const next = value === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next;
+  try {
+    sessionStorage.setItem(THEME_STORAGE, next);
+  } catch {
+    /* session storage may be unavailable; the page still holds the choice */
+  }
+  return next;
+}
 
 export function apiKey() {
   return sessionStorage.getItem(KEY_STORAGE) || '';
@@ -190,6 +206,35 @@ export function registerView(name, render) {
   views.set(name, render);
 }
 
+// Money and liveness the sidebar always shows: the agent's health and the treasury balance, read
+// from the same two endpoints the console already fetches. Best effort and silent, because the shell
+// must never block a view on it.
+export async function refreshShell() {
+  const dot = document.getElementById('agent-dot');
+  const text = document.getElementById('agent-text');
+  const pill = document.getElementById('balance-pill');
+  const count = document.getElementById('attention-count');
+  if (!dot || !text || !pill || !count) return;
+  try {
+    const [attention, forecast] = await Promise.all([api('/attention'), api('/forecast?days=30')]);
+    const problems = (attention.critical || 0) + (attention.warning || 0);
+    dot.className = `agent-dot ${attention.critical > 0 ? 'bad' : attention.warning > 0 ? 'warn' : 'ok'}`;
+    text.textContent = problems === 0 ? 'Agent idle, nothing waiting' : `Agent working, ${problems} waiting`;
+    pill.textContent = forecast.balance_usdc === null || forecast.balance_usdc === undefined ? '—' : `${forecast.balance_usdc} USDC`;
+    if (attention.critical > 0) {
+      count.hidden = false;
+      count.textContent = String(attention.critical);
+    } else {
+      count.hidden = true;
+    }
+  } catch {
+    dot.className = 'agent-dot';
+    text.textContent = 'Agent unreachable';
+    pill.textContent = '—';
+    count.hidden = true;
+  }
+}
+
 async function route() {
   const hash = window.location.hash.replace(/^#\/?/, '') || 'attention';
   const [name, ...rest] = hash.split('/');
@@ -210,12 +255,14 @@ async function route() {
   }
 }
 
-/** Re-render the current view through the router. */
+/** Re-render the current view through the router, and the shell facts around it. */
 export function refresh() {
+  refreshShell();
   return route();
 }
 
 export function startRouter() {
   window.addEventListener('hashchange', route);
+  refreshShell();
   route();
 }

@@ -177,6 +177,34 @@ def test_an_expired_permit_is_refused_without_spending_gas(tmp_path, chain):
         provider.close()
 
 
+def test_guard_budget_and_spend_are_read_back_off_the_chain(tmp_path, chain):
+    """The treasury screen's guard bar shows the chain's own numbers, not the demo defaults."""
+    from datetime import datetime, timezone
+
+    provider = _provider(chain)
+    try:
+        limits = provider.guard_limits()
+        assert limits["per_payment_cap"] == 1_000 * USDC_SCALE
+        assert limits["epoch_cap"] == 10_000 * USDC_SCALE
+        assert limits["recipient_epoch_cap"] == 5_000 * USDC_SCALE
+        assert limits["paused"] == 0
+        # The module-scoped chain is shared with other tests that pay through it, so the
+        # assertion is growth, not zero: whatever was already counted, one more payment lands.
+        before = provider.guard_epoch_spent()
+        assert before is not None and before >= 0
+
+        settings, store, _, workflow, invoice_id = _workflow(tmp_path, chain)
+        live_provider = LocalKeyPaymentProvider(settings, EIP712PermitSigner(DEFAULT_POLICY_KEY))
+        try:
+            workflow.evaluate(invoice_id)
+            workflow.submit_payment(invoice_id)
+            assert live_provider.guard_epoch_spent() == before + INVOICE_USDC * USDC_SCALE
+        finally:
+            live_provider.close()
+    finally:
+        provider.close()
+
+
 def test_a_paused_guard_is_refused_before_anything_is_sent(tmp_path, chain):
     """The pause control exists so an incident can be stopped without redeploying the guard."""
     settings, store, provider, workflow, invoice_id = _workflow(tmp_path, chain)

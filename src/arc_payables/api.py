@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -376,8 +376,31 @@ def create_app(
 
         Read-only. Obligations are walked in due-date order, keeping the treasury reserve
         intact, and obligations the agent may not pay are still counted as money owed.
+        The guard's current budgets ride along so the treasury screen can show the hard caps
+        beside the coverage they constrain.
         """
-        return build_forecast(workflow, days=max(1, min(days, 365))).to_dict()
+        body = build_forecast(workflow, days=max(1, min(days, 365))).to_dict()
+        limits = getattr(workflow.payment_provider, "guard_limits", None)
+        try:
+            guard = limits() if limits else None
+        except Exception:
+            guard = None
+        if guard:
+            epoch_spent = 0
+            reader = getattr(workflow.payment_provider, "guard_epoch_spent", None)
+            try:
+                epoch_spent = int(reader() or 0) if reader else 0
+            except Exception:
+                epoch_spent = 0
+            body["guard_caps_usdc"] = {
+                "per_payment": guard.get("per_payment_cap", 0) / 10**6,
+                "epoch": guard.get("epoch_cap", 0) / 10**6,
+                "recipient_epoch": guard.get("recipient_epoch_cap", 0) / 10**6,
+                "epoch_days": round(guard.get("epoch_length", 0) / 86400, 2),
+                "epoch_spent": epoch_spent / 10**6,
+                "paused": bool(guard.get("paused", 0)),
+            }
+        return body
 
     @app.get("/plan", tags=["planning"], dependencies=[Depends(require_api_key)])
     def payment_plan() -> dict[str, Any]:
@@ -398,6 +421,40 @@ def create_app(
         that only records successes cannot answer the question an operator actually has.
         """
         return list_payments(workflow, confirmation=confirmation, ledger=ledger)
+
+    @app.get("/payments/export", tags=["audit"], dependencies=[Depends(require_api_key)])
+    def export_payments(confirmation: str | None = None, ledger: str | None = None) -> Response:
+        """The settlement log as a CSV an accountant can open.
+
+        Same rows as GET /payments, flattened one per line. Amounts are plain decimals, the recipient
+        and transaction hash are included for reconciliation against the chain, and the outcome
+        column says in one word whether this payment succeeded. Read-only; it never invents a row.
+        """
+        import csv
+        import io
+
+        log = list_payments(workflow, confirmation=confirmation, ledger=ledger)
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow([
+            "invoice_number", "supplier_id", "purchase_invoice_id", "amount_usdc", "recipient",
+            "outcome", "confirmation_status", "ledger_status", "fee_usdc", "transaction_hash",
+            "payment_entry", "fee_entry",
+        ])
+        for row in log["payments"]:
+            invoice = workflow.store.get_invoice(row["invoice_id"])
+            writer.writerow([
+                row["invoice_number"], row["supplier_id"], (invoice.purchase_invoice_id if invoice else ""),
+                row["amount_usdc"], row["recipient"] or "",
+                row["outcome"]["code"], row["confirmation_status"], row["erp_status"] or "",
+                row["fee_usdc"] or "", row["transaction_hash"] or "",
+                row["erp_entry_id"] or "", row["erp_fee_entry_id"] or "",
+            ])
+        return Response(
+            buffer.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="arc-payables-settlements.csv"'},
+        )
 
     @app.get("/payments/{reference}", tags=["audit"], dependencies=[Depends(require_api_key)])
     def payment_report_endpoint(reference: str) -> dict[str, Any]:

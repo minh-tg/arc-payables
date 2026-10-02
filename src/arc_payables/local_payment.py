@@ -258,6 +258,19 @@ class LocalKeyPaymentProvider:
     def _guard_paused(self) -> bool:
         return decode_bool(self._eth_call(self.guard_address, "0x" + selector("paused()").hex()))
 
+    def guard_epoch_spent(self) -> int | None:
+        """USDC units the guard has counted in the current epoch, read from the chain."""
+        try:
+            from eth_abi import encode as abi_encode
+
+            now = int(time.time())
+            epoch_data = "0x" + selector("epochAt(uint256)").hex() + abi_encode(["uint256"], [now]).hex()
+            epoch = decode_uint256(self._eth_call(self.guard_address, epoch_data))
+            spent_data = "0x" + selector("epochSpent(uint64)").hex() + abi_encode(["uint64"], [epoch]).hex()
+            return decode_uint256(self._eth_call(self.guard_address, spent_data))
+        except (LocalPaymentError, ValueError, TypeError):
+            return None
+
     def guard_limits(self) -> dict[str, int] | None:
         """The deployed guard's budgets, read from the chain; None if it cannot be read.
 
