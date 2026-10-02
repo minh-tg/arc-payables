@@ -32,8 +32,15 @@ from .service import APWorkflow, WorkflowError
 MAX_ERROR_CHARS = 200
 """Errors go into a database column and a metric label, so they are truncated rather than trusted."""
 
-RESUMABLE_CONFIRMATIONS = {"UNCERTAIN", "PENDING"}
-"""Settled states that are not final. `submit_payment` resumes these without re-authorizing."""
+RESUMABLE_CONFIRMATIONS = {"UNCERTAIN", "PENDING", "UNAVAILABLE", "HASH_MISSING"}
+"""Settled states that are not final. `submit_payment` resumes these without re-authorizing.
+
+`UNAVAILABLE` means the provider could not be asked, and `HASH_MISSING` that it answered without a
+hash. Both are conditions that pass, and asking the provider again is the only thing that repairs
+either, so leaving them out of this set left them for a human to retry by hand. Neither can resend a
+payment: an unreachable provider raises before the resend branch, and a confirmed result with no
+hash stops there too.
+"""
 
 @dataclass
 class StepReport:

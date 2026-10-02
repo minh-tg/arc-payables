@@ -88,6 +88,77 @@ def test_an_unconfirmed_payment_is_reconciled_without_a_person(runtime):
     assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ERP_RECORDED.value
 
 
+def test_a_settlement_we_could_not_read_is_reconciled_without_a_person(runtime):
+    """An unreachable provider is a reason to ask again, not to hand the payment to a human."""
+    _settle_then_park(runtime, confirmation_status="UNAVAILABLE")
+    broadcasts = runtime["payment"].submission_calls
+
+    report = worker.run_pass(runtime["workflow"])
+
+    assert _step(report, "reconcile").acted == 1
+    payment = runtime["store"].get_payment(runtime["legitimate_id"])
+    assert payment["confirmation_status"] == "CONFIRMED"
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ERP_RECORDED.value
+    # Repairing the record may not broadcast a payment that already left.
+    assert runtime["payment"].submission_calls == broadcasts
+
+
+def test_a_confirmation_with_no_hash_is_repaired_without_a_person(runtime):
+    """The chain has it and our record has no hash for it. Asking again is the repair."""
+    _settle_then_park(runtime, confirmation_status="HASH_MISSING")
+    broadcasts = runtime["payment"].submission_calls
+
+    report = worker.run_pass(runtime["workflow"])
+
+    assert _step(report, "reconcile").acted == 1
+    payment = runtime["store"].get_payment(runtime["legitimate_id"])
+    assert payment["confirmation_status"] == "CONFIRMED"
+    assert payment["transaction_hash"], "the missing hash is what was repaired"
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ERP_RECORDED.value
+    assert runtime["payment"].submission_calls == broadcasts
+
+
+def test_a_provider_that_stays_unreachable_is_examined_rather_than_silently_skipped(runtime):
+    """The retry has to keep happening, and it has to stay visible while it does.
+
+    One attempt is recorded per pass while the provider is down. That is deliberate: the pass says
+    it asked, and the record says it could not get an answer.
+    """
+    _settle_then_park(runtime, confirmation_status="UNAVAILABLE")
+
+    def unreachable(payment):
+        raise RuntimeError("provider is down")
+
+    runtime["payment"].inspect_payment = unreachable
+    report = worker.run_pass(runtime["workflow"])
+
+    reconcile = _step(report, "reconcile")
+    assert reconcile.examined == 1
+    assert reconcile.skipped == 0
+    assert reconcile.acted == 1
+    payment = runtime["store"].get_payment(runtime["legitimate_id"])
+    assert payment["confirmation_status"] == "UNAVAILABLE"
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.NEEDS_RECONCILIATION.value
+    attempts = [event for event in runtime["store"].events(runtime["legitimate_id"]) if event["type"] == "PAYMENT_RECONCILIATION_UNAVAILABLE"]
+    assert len(attempts) == 1
+
+
+def _settle_then_park(runtime, *, confirmation_status: str) -> None:
+    """Settle a payment for real, then put our record back into the state under test.
+
+    The provider keeps the confirmed submission, so a reconcile finds the truth the record lost.
+    """
+    runtime["payment"].fee_units = 10_000
+    runtime["workflow"].evaluate(runtime["legitimate_id"])
+    runtime["workflow"].submit_payment(runtime["legitimate_id"])
+    _set_payment(
+        runtime,
+        runtime["legitimate_id"],
+        {"confirmation_status": confirmation_status, "erp_status": "PENDING"},
+        WorkflowState.NEEDS_RECONCILIATION.value,
+    )
+
+
 def test_a_lost_ledger_response_is_reconciled_once_the_claim_expires(runtime):
     """A response that was lost is not a refusal: the write may have committed, so the claim is
     kept until it expires and the next pass resolves what actually happened."""

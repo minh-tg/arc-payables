@@ -226,7 +226,7 @@ CONFIRMATIONS: dict[str, dict[str, Any]] = {
 
 #: Every step of a worker pass.
 STEPS: dict[str, dict[str, Any]] = {
-    "reconcile": _row("Asks the chain again about settlements whose confirmation never arrived."),
+    "reconcile": _row("Asks the chain again about settlements whose confirmation never arrived, or could not be read at the time."),
     "writeback": _row("Finishes confirmed payments the ledger has not accepted yet, fee entry included."),
     "intake": _row("Reads what the ledger still owes, captures what nobody imported, and evaluates it."),
     "autopay": _row("Pays only what policy already authorized. Never approves anything."),

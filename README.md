@@ -372,7 +372,7 @@ A pass does five things and stops:
 
 | Step | What it does |
 | --- | --- |
-| `reconcile` | Finds settlements whose confirmation never arrived, and asks the chain again. Idempotent by design. |
+| `reconcile` | Finds settlements whose confirmation never arrived, or could not be read at the time, and asks the chain again. Repairs a record, and never rebroadcasts a payment that already left. Idempotent by design. |
 | `writeback` | Finishes confirmed payments the accounting system has not taken yet, including the case where the payment entry landed and the fee entry did not. A network fee the provider could not name at settlement is asked for again rather than written off, and a failure to name it is a deferral with a backoff, never a permanent disable. |
 | `intake` | Reads the payables the ledger still owes, imports the ones nobody has captured, and evaluates each against the policy. Discovery is what makes the queue current without a person. |
 | `rescreen` | Re-screens counterparties past their cadence and moves their risk tier. |
