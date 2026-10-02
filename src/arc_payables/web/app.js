@@ -162,6 +162,28 @@ export function errorPanel(error) {
   return h('div', { class: 'error' }, h('strong', {}, 'Request failed'), h('div', {}, String(error.message || error)));
 }
 
+// One short line of plain language for anything the system says. Fetched once from the server's
+// own words so the console cannot drift from the backend, and silent when it has not loaded yet
+// rather than guessing. Exported under _test so the console suite can assert what is here.
+let explanations = {};
+
+fetch('/explanations.json')
+  .then((response) => (response.ok ? response.json() : {}))
+  .then((loaded) => {
+    explanations = loaded || {};
+  })
+  .catch(() => {});
+
+export function explain(kind, code) {
+  const entry = (explanations && explanations[kind] && explanations[kind][code]) || null;
+  return entry && entry.plain ? entry.plain : '';
+}
+
+export function explainAction(kind, code) {
+  const entry = (explanations && explanations[kind] && explanations[kind][code]) || null;
+  return entry && entry.action ? entry.action : '';
+}
+
 const views = new Map();
 
 export function registerView(name, render) {

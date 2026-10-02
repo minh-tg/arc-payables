@@ -196,6 +196,29 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/explanations.json", tags=["console"], include_in_schema=False)
+    def explanations() -> JSONResponse:
+        """Plain words for every code the system can return, in the backend's own words.
+
+        The console fetches this once and renders the words beside the codes. Publishing the table
+        means the pages can never drift from the behaviour: a check renamed without updating its
+        explanation is caught by a test that walks the real vocabulary.
+        """
+        from . import explain as plain_words
+
+        return JSONResponse(
+            {
+                name.lower(): {
+                    code: {"plain": row["plain"], "action": row.get("action")}
+                    for code, row in getattr(plain_words, name).items()
+                }
+                for name in (
+                    "STATES", "DECISIONS", "CHECKS", "SCREENING", "ATTENTION", "OUTCOMES",
+                    "CONFIRMATIONS", "STEPS", "ALERTS", "GUARD", "SETUP", "TIERS",
+                )
+            }
+        )
+
     @app.get("/ready", tags=["health"])
     def ready() -> dict[str, Any]:
         db_ready = False

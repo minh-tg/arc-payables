@@ -2,7 +2,7 @@
 // actions a human can take. The destination is read from the trusted supplier record, never from
 // the invoice.
 
-import { api, badge, h, panel, refresh, registerView, stateTone, table } from './app.js';
+import { api, badge, explain, h, panel, refresh, registerView, stateTone, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -27,6 +27,7 @@ async function renderInvoice(root, [invoiceId]) {
   root.append(
     panel(
       `Invoice ${invoice.invoice_number}`,
+      h('p', { class: 'muted' }, explain('state', detail.state)),
       h(
         'dl',
         { class: 'facts' },
@@ -131,16 +132,17 @@ async function renderInvoice(root, [invoiceId]) {
     );
 
     const checks = decision.policy_checks || [];
-    const checkRows = checks.map((check) =>
-      h(
+    const checkRows = checks.map((check) => {
+      const words = explain('check', check.code);
+      return h(
         'tr',
         {},
         h('td', {}, check.code),
         h('td', {}, check.passed ? badge('pass', 'good') : badge('fail', 'bad')),
         h('td', {}, check.requires_human ? (check.overridable ? 'human, overridable' : 'human, blocking') : '—'),
-        h('td', {}, check.detail),
-      ),
-    );
+        h('td', {}, h('div', {}, check.detail), h('div', { class: 'muted' }, words)),
+      );
+    });
     root.append(panel('Evidence checks', table(['Check', 'Result', 'Review', 'Detail'], checkRows)));
 
     const acknowledgeable = checks.filter((check) => !check.passed && check.requires_human && check.overridable);
