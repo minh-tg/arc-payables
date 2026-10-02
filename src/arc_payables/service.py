@@ -447,6 +447,35 @@ class APWorkflow:
             raise WorkflowError(409, "erp_writeback_in_progress", "An ERPNext writeback is already in flight for this payment; retry after the lease expires.")
         return self.get_invoice(invoice_id)
 
+    def _reread_settlement_fee(self, invoice: InvoiceRecord, payment: dict) -> dict[str, Any] | None:
+        """Ask the provider for a network fee it could not name when the payment settled.
+
+        A provider often cannot report the fee while the transfer is still being indexed. The record
+        is written with no fee, the writeback has nothing to book, and the payment would sit
+        unrecorded for good, because retrying asks the same unanswerable question. Asking the
+        provider again is all this does.
+
+        It changes no amount, destination or confirmation, and a provider that still has no answer
+        leaves the record exactly as it was, so the caller can go on deciding what that means.
+        """
+        if not payment.get("transaction_hash"):
+            return None
+        try:
+            submission = self.payment_provider.inspect_payment(payment)
+        except Exception:
+            # The provider is the thing that failed. That is not a reason to change the record.
+            return None
+        if submission.fee_units is None:
+            return None
+        self.store.update_payment(
+            invoice.id,
+            {"fee_units": submission.fee_units},
+            payment.get("state") or WorkflowState.ERP_PENDING.value,
+            "SETTLEMENT_FEE_REREAD",
+            {"transaction_hash": payment.get("transaction_hash"), "fee_units": submission.fee_units},
+        )
+        return self.store.get_payment(invoice.id)
+
     def _record_erp(self, invoice: InvoiceRecord, payment: dict) -> str:
         """Write the settlement into the accounting system: the payment, then the fee we absorbed.
 
@@ -455,17 +484,37 @@ class APWorkflow:
         fails, the first is remembered, so a retry books only what is missing rather than resubmitting
         the payment.
         """
+        is_frappe = self.settings.accounting_provider == "frappe"
+        if is_frappe and payment.get("fee_units") is None:
+            # Before concluding the fee is unknowable, ask once more. This is the only thing that can
+            # move a payment disabled for a missing fee, and without it no retry ever can.
+            payment = self._reread_settlement_fee(invoice, payment) or payment
         fee_units = int(payment.get("fee_units") or 0)
         fee_outstanding = fee_units > 0 and payment.get("erp_fee_status") != "RECORDED"
         if payment.get("erp_entry_id") and not fee_outstanding:
             self.store.update_payment(invoice.id, {"erp_status": "RECORDED", "erp_claimed_at": None}, WorkflowState.ERP_RECORDED.value, "ERP_WRITEBACK_ALREADY_RECORDED", {"payment_entry_id": payment["erp_entry_id"]})
             return "ALREADY_RECORDED"
-        is_frappe = self.settings.accounting_provider == "frappe"
         if is_frappe and not self.settings.frappe_accounting_ready:
             self.store.update_payment(invoice.id, {"erp_status": "DISABLED", "erp_error_code": "ACCOUNTING_MAPPING_INCOMPLETE"}, WorkflowState.ERP_PENDING.value, "ERP_WRITEBACK_DISABLED", {"reason": "accounting mapping not configured"})
             return "DISABLED"
         if is_frappe and payment.get("fee_units") is None:
-            self.store.update_payment(invoice.id, {"erp_status": "DISABLED", "erp_error_code": "NETWORK_FEE_UNAVAILABLE"}, WorkflowState.ERP_PENDING.value, "ERP_WRITEBACK_DISABLED", {"reason": "confirmed network fee was not returned by provider"})
+            # A fee the provider cannot name is a deferral, not a failure. Back off like a failed
+            # writeback rather than re-reading the provider on every pass and writing an event each
+            # time, and leave it retryable so the payment is not stranded in the ledger's debt.
+            attempts = int(payment.get("erp_attempts") or 0)
+            self.store.update_payment(
+                invoice.id,
+                {
+                    "erp_status": "DISABLED",
+                    "erp_error_code": "NETWORK_FEE_UNAVAILABLE",
+                    "erp_attempts": attempts + 1,
+                    "erp_next_attempt_at": self._next_writeback_attempt(attempts + 1),
+                    "erp_claimed_at": None,
+                },
+                WorkflowState.ERP_PENDING.value,
+                "ERP_WRITEBACK_DISABLED",
+                {"reason": "confirmed network fee was not returned by provider", "attempts": attempts + 1},
+            )
             return "DISABLED"
         if not self.store.claim_erp_writeback(invoice.id, lease_seconds=self.settings.writeback_lease_seconds):
             return "IN_PROGRESS"

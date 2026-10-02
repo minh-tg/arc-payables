@@ -1,7 +1,7 @@
 // What needs a person. Read-only: the work waiting on a human and the alerts the last pass raised,
 // taken from the same snapshot the metrics are rendered from, so the two cannot disagree.
 
-import { api, badge, concept, h, lede, nextStep, panel, registerView, statGrid, table } from './app.js';
+import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, statGrid, table } from './app.js';
 
 function tone(severity) {
   if (severity === 'critical') return 'bad';
@@ -42,7 +42,7 @@ function detailTable(item) {
           h('td', {}, row.transaction_hash || '—'),
           h('td', {}, row.erp_status || '—'),
           h('td', { class: 'num' }, String(row.erp_attempts || 0)),
-          h('td', {}, row.erp_error_code || '—'),
+          h('td', {}, row.erp_error_code || '—', plainWords('writeback', row.erp_error_code)),
         ),
       ),
     );

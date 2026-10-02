@@ -33,7 +33,7 @@ def test_every_policy_check_the_service_can_return_has_plain_words():
 def test_every_table_says_something_and_never_grants_authority():
     for name in (
         "STATES", "DECISIONS", "SCREENING", "ATTENTION", "OUTCOMES",
-        "CONFIRMATIONS", "STEPS", "PASSES", "ALERTS", "GUARD", "SETUP", "TIERS", "CONCEPTS",
+        "CONFIRMATIONS", "STEPS", "PASSES", "ALERTS", "WRITEBACK", "GUARD", "SETUP", "TIERS", "CONCEPTS",
     ):
         table = getattr(e, name)
         assert table, f"{name} must not be empty"
@@ -49,6 +49,21 @@ def test_the_explanations_point_at_the_real_behaviour():
     assert "verified" in e.CHECKS["wallet_unverified"]["plain"].lower()
     assert "human" in e.STATES["ESCALATED"]["plain"].lower() or "person" in e.STATES["ESCALATED"]["plain"].lower()
     assert "quarter" in e.TIERS["medium"]["plain"]
+
+
+def test_the_writeback_words_match_which_disables_are_permanent():
+    """The console promises a retry to the operator. That promise has to match the worker.
+
+    If a code moved into the permanent set while its words still said the worker would ask again,
+    the screen would tell someone to wait for something that has stopped happening.
+    """
+    from arc_payables import worker
+
+    assert set(e.WRITEBACK) == {"NETWORK_FEE_UNAVAILABLE", "ACCOUNTING_MAPPING_INCOMPLETE"}
+    assert "ACCOUNTING_MAPPING_INCOMPLETE" in worker.PERMANENT_WRITEBACK_DISABLES
+    assert "NETWORK_FEE_UNAVAILABLE" not in worker.PERMANENT_WRITEBACK_DISABLES
+    assert "asks the provider again" in e.WRITEBACK["NETWORK_FEE_UNAVAILABLE"]["action"]
+    assert "refuse again" in e.WRITEBACK["ACCOUNTING_MAPPING_INCOMPLETE"]["action"]
 
 
 def test_a_pass_outcome_is_never_worded_as_a_payment_outcome():

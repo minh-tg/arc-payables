@@ -246,12 +246,23 @@ def _needs_reconcile(payment: dict, state: str) -> bool:
     return str(payment.get("confirmation_status") or "") in RESUMABLE_CONFIRMATIONS
 
 
+#: A writeback disabled from configuration cannot be retried into working: every attempt writes an
+#: event and changes nothing. These are the only disables the worker skips. Everything else that
+#: disabled a writeback was a provider condition, and the provider is the thing worth asking again.
+#: Treating them alike is how a payment settled on chain stayed unbooked with no path back.
+PERMANENT_WRITEBACK_DISABLES = frozenset({"ACCOUNTING_MAPPING_INCOMPLETE"})
+
+
 def _needs_writeback(payment: dict, state: str) -> bool:
     """Whether the ledger is still missing something for a settled payment.
 
     The state answers this, not one status field. A writeback has two documents, so the payment entry
     can be recorded while the network-fee entry is not, and a predicate that only reads `erp_status`
     sees "RECORDED" and skips the very invoice that needs finishing.
+
+    A disable is not automatically final either. `NETWORK_FEE_UNAVAILABLE` means the provider could
+    not name the fee at that moment, which is a condition that can pass; only a configuration
+    problem is skipped outright.
     """
     from .domain import WorkflowState
 
@@ -259,10 +270,7 @@ def _needs_writeback(payment: dict, state: str) -> bool:
         return False
     if payment.get("confirmation_status") != "CONFIRMED":
         return False
-    # Retrying a configuration problem cannot fix it, and every attempt writes an event.
-    if payment.get("erp_error_code") == "ACCOUNTING_MAPPING_INCOMPLETE":
-        return False
-    if "DISABLED" in {str(payment.get("erp_status") or ""), str(payment.get("erp_fee_status") or "")}:
+    if payment.get("erp_error_code") in PERMANENT_WRITEBACK_DISABLES:
         return False
     return True
 

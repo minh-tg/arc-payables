@@ -4,6 +4,7 @@ import hashlib
 import threading
 import time
 import uuid
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -313,6 +314,7 @@ class MockPaymentProvider:
         failure_mode: str | None = None,
         balance_units: int = 5_000 * USDC_SCALE,
         fee_units: int = 0,
+        deferred_fee: bool = False,
     ):
         self.store = store
         self.signer = signer or EIP712PermitSigner(Account.create().key)
@@ -325,6 +327,9 @@ class MockPaymentProvider:
         self._lock = threading.Lock()
         self.submission_calls = 0
         self.fee_units = fee_units
+        # A real provider often cannot name the network fee while the transfer is still being
+        # indexed. Deferred models that: the settlement reports no fee, and a later ask reports it.
+        self.deferred_fee = deferred_fee
 
     def get_balance(self) -> TreasurySnapshot:
         return TreasurySnapshot(self._balance_units, utcnow(), "treasury:mock:wallet-balance", "mock_arc_wallet_balance")
@@ -339,6 +344,10 @@ class MockPaymentProvider:
         payment_id = payment["payment_id"]
         known = self._payments_by_id.get(payment_id)
         if known:
+            # The fee comes back once the transaction is indexed, which is the whole reason a
+            # writeback asks the provider again instead of accepting the blank it was given.
+            if known.fee_units is None and not self.deferred_fee:
+                return replace(known, fee_units=self.fee_units)
             return known
         if self.failure_mode == "uncertain" and payment_id in self._payments_by_id:
             return PaymentSubmission(PaymentStatus.UNCERTAIN, failure_code="MOCK_UNCERTAIN")
@@ -405,7 +414,7 @@ class MockPaymentProvider:
             PaymentStatus.CONFIRMED,
             transaction_hash=transaction_hash,
             provider_transaction_id=f"mock-{idempotency_key}",
-            fee_units=self.fee_units,
+            fee_units=None if self.deferred_fee else self.fee_units,
         )
         self._payments_by_id[payment_id] = result
         self._payments_by_key[idempotency_key] = result

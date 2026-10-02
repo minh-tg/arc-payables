@@ -234,6 +234,19 @@ STEPS: dict[str, dict[str, Any]] = {
     "observe": _row("Reads the treasury balance, the reserve headroom and the guard's budgets. Writes nothing."),
 }
 
+#: Why a settled payment is not in the books yet. An adapter can also report a code of its own, and
+#: the console says it has no words for that rather than inventing any.
+WRITEBACK: dict[str, dict[str, Any]] = {
+    "NETWORK_FEE_UNAVAILABLE": _row(
+        "The provider could not name the network fee when the payment settled, so there was nothing to book the fee against. The money moved; only the paperwork is behind.",
+        "Nothing needs doing by hand. The worker asks the provider again and books the fee as soon as it can answer.",
+    ),
+    "ACCOUNTING_MAPPING_INCOMPLETE": _row(
+        "The ledger connection is not fully configured, so the writeback was refused rather than half done.",
+        "Complete the accounting settings, then retry the writeback from the invoice. Retrying it as it stands would refuse again.",
+    ),
+}
+
 #: How a worker pass itself ended. A pass outcome is not a payment outcome: "failed" here means
 #: the loop stopped, not that money did not move, and the two must not be read as the same word.
 PASSES: dict[str, dict[str, Any]] = {
@@ -377,6 +390,7 @@ PUBLISHED: tuple[str, ...] = (
     "STEPS",
     "PASSES",
     "ALERTS",
+    "WRITEBACK",
     "GUARD",
     "SETUP",
     "TIERS",

@@ -162,7 +162,13 @@ function reportPanels(report) {
         h('dt', {}, 'Next attempt'),
         h('dd', {}, ledger.next_attempt_at || '—'),
         h('dt', {}, 'Error'),
-        h('dd', {}, ledger.error_code || '—'),
+        h(
+          'dd',
+          {},
+          ledger.error_code || '—',
+          plainWords('writeback', ledger.error_code),
+          nextStep('writeback', ledger.error_code),
+        ),
       ),
     ),
   );

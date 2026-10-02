@@ -373,7 +373,7 @@ A pass does five things and stops:
 | Step | What it does |
 | --- | --- |
 | `reconcile` | Finds settlements whose confirmation never arrived, and asks the chain again. Idempotent by design. |
-| `writeback` | Finishes confirmed payments the accounting system has not taken yet, including the case where the payment entry landed and the fee entry did not. |
+| `writeback` | Finishes confirmed payments the accounting system has not taken yet, including the case where the payment entry landed and the fee entry did not. A network fee the provider could not name at settlement is asked for again rather than written off, and a failure to name it is a deferral with a backoff, never a permanent disable. |
 | `intake` | Reads the payables the ledger still owes, imports the ones nobody has captured, and evaluates each against the policy. Discovery is what makes the queue current without a person. |
 | `rescreen` | Re-screens counterparties past their cadence and moves their risk tier. |
 | `autopay` | Pays the invoices the deterministic policy put in `ELIGIBLE` with a `PAY_NOW` decision. Off unless asked for. |
@@ -471,7 +471,7 @@ The adapter uses Frappe REST API v1 (`/api/resource/...`) and the supported whit
 
 Payable state is derived from the authoritative `docstatus` (with `status` as a label), never assumed: a missing or unparseable `docstatus` yields `UNKNOWN` and blocks payment, and an invoice with no linked Purchase Invoice yields `UNVERIFIED`. The connector also compares the captured invoice's amount, currency, supplier reference, linked invoice name, and line items against the ERP record; any difference is a non-overridable block.
 
-Use a dedicated API user with least-privilege read plus Payment Entry and Journal Entry create/submit permissions; Administrator credentials are rejected. Before writing, the adapter verifies the configured account company/currency and invoice currency. **USDC is not silently treated as USD.** A live writeback requires explicit company, paid-from/paid-to/fee accounts, a cost centre, account and invoice currencies, source/target/invoice/fee exchange rates and conversion units, and a known Circle ERC-20 USDC fee amount. If any are missing, live writeback remains disabled.
+Use a dedicated API user with least-privilege read plus Payment Entry and Journal Entry create/submit permissions; Administrator credentials are rejected. Before writing, the adapter verifies the configured account company/currency and invoice currency. **USDC is not silently treated as USD.** A live writeback requires explicit company, paid-from/paid-to/fee accounts, a cost centre, account and invoice currencies, source/target/invoice/fee exchange rates and conversion units. A missing Circle ERC-20 USDC fee amount is different: the provider often cannot report the fee while the transfer is still being indexed, so the writeback defers with a backoff, asks the provider again on the next attempt, and books the fee as soon as it can be named. Only the configuration above disables a writeback outright, because retrying a configuration problem cannot fix it.
 
 A Payment Entry references the Purchase Invoice and stores `ARC-TESTNET:<tx hash>` in `reference_no`. The network-fee Journal Entry uses `ARC-TESTNET-FEE:<tx hash>`. Retries look up those references and verify party, invoice, accounts, and amounts before submitting or reusing a document, so a lost response cannot book anything twice. A custom field is not assumed.
 
