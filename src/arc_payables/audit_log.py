@@ -304,6 +304,29 @@ def verify_payment(workflow: Any, reference: str) -> dict[str, Any]:
 
     recorded_fee = payment.get("fee_units")
     reported_fee = submission.fee_units
+    # Compare like with like. fee_units is the total cost of *every* on-chain operation, while a
+    # provider answering an inspection names the one operation it was asked about. Comparing the two
+    # directly marked every multi-operation payment as a disagreement, which is a false alarm on the
+    # one screen that exists to confirm the books independently - and an invitation to "correct" the
+    # ledger down to the smaller figure, losing the allowance fee. The settlement stage is taken from
+    # the record when it has one; a record written before per-stage capture holds that figure alone.
+    # Provider stage strings are provider-specific (the mock reports "contract_execution"), so they
+    # are mapped onto the stage names used inside fee_breakdown. An inspection resolves the
+    # settlement operation, which is the default when the recorded stage names nothing we track.
+    stage = str(payment.get("provider_stage") or "guard")
+    if stage not in ("approve", "approve_reset", "guard"):
+        stage = "guard"
+    breakdown = payment.get("fee_breakdown") or {}
+    if breakdown:
+        recorded_stage_fee = breakdown.get(stage)
+    else:
+        recorded_stage_fee = recorded_fee
+    # A record whose total disagrees with its own stages was edited inconsistently. That is worth
+    # reporting on its own rather than letting it decide whether the provider's figure is correct.
+    if breakdown and recorded_fee is not None:
+        fee_record_is_consistent: bool | None = int(recorded_fee) == sum(int(value) for value in breakdown.values())
+    else:
+        fee_record_is_consistent = None
     return {
         "reference": {"matched_by": matched_by, "value": reference},
         "checked": True,
@@ -312,8 +335,13 @@ def verify_payment(workflow: Any, reference: str) -> dict[str, Any]:
         "failure_code": submission.failure_code,
         "fee_units_recorded": recorded_fee,
         "fee_units_reported_now": reported_fee,
+        "fee_stage_compared": stage,
+        "fee_units_recorded_for_stage": recorded_stage_fee,
+        "fee_record_is_consistent": fee_record_is_consistent,
         "fee_agrees": (
-            None if (recorded_fee is None or reported_fee is None) else int(recorded_fee) == int(reported_fee)
+            None
+            if (recorded_stage_fee is None or reported_fee is None)
+            else int(recorded_stage_fee) == int(reported_fee)
         ),
         "recorded_confirmation_status": payment.get("confirmation_status"),
         "agrees_with_record": submission.status.value.lower() == str(payment.get("confirmation_status") or "").lower(),

@@ -59,6 +59,7 @@ def fail(status: int, code: str) -> HTTPException:
         "oidc_unavailable": "Identity verification is unavailable; access remains blocked.",
         "oidc_invalid": "The identity provider response could not be verified.",
         "login_state_invalid": "This sign-in request expired or was already used.",
+        "session_capacity": "This deployment has reached its session limit; sign in again shortly.",
     }.get(code, "Identity access remains blocked.")})
 
 
@@ -260,6 +261,10 @@ class OIDCAuth:
                                            claims["auth_time"], expires, now)
         except ValueError as exc:
             raise fail(403, "forbidden") from exc
+        except RuntimeError as exc:
+            # Capacity is an operational condition, not an authorization decision: say so instead of
+            # returning a bare 500 for something an operator can act on.
+            raise fail(503, "session_capacity") from exc
         response = RedirectResponse("/console/", status_code=303)
         response.set_cookie(self.session_cookie, session, max_age=expires - now, httponly=True,
                             secure=self.secure_cookie, samesite="lax", path="/")

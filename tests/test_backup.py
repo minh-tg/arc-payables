@@ -10,6 +10,7 @@ a backup that has been altered after the manifest recorded its checksum.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -293,6 +294,51 @@ def test_a_hook_that_never_returns_is_abandoned_and_reported(tmp_path):
     manifest = json.loads(next((tmp_path / "backups").glob("*.manifest.json")).read_text(encoding="utf-8"))
     assert manifest["hook"]["returncode"] is None
     assert "did not finish" in manifest["hook"]["error"]
+
+
+def _process_state(pid: int) -> str | None:
+    """Linux process state: 'Z' for a zombie, None when the pid is gone entirely."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
+            return handle.read().rsplit(") ", 1)[1].split()[0]
+    except (FileNotFoundError, IndexError):
+        return None
+
+
+def test_a_timed_out_hook_does_not_leave_its_forks_running(tmp_path):
+    """Killing only the direct child would leave a forked child holding the destination.
+
+    A hook that backgrounds work and then blocks is the realistic shape. The whole process group
+    must die, so the forked sleep is either gone or a reaped zombie rather than still running.
+    """
+    if not os.path.isdir("/proc"):
+        pytest.skip("needs /proc to observe process state")
+    store, _ = _live_database(tmp_path)
+    pidfile = tmp_path / "child.pid"
+    slow = tmp_path / "forking-hook.sh"
+    slow.write_text(
+        f"#!/bin/sh\nsleep 30 &\necho $! > {pidfile}\nsleep 30\n",
+        encoding="utf-8",
+    )
+    slow.chmod(0o755)
+
+    with pytest.raises(BackupError, match="did not finish within"):
+        create_backup(store.path, tmp_path / "backups", hook=str(slow), hook_timeout_seconds=1)
+
+    deadline = time.time() + 5
+    while time.time() < deadline and not (pidfile.exists() and pidfile.read_text().strip()):
+        time.sleep(0.05)
+    assert pidfile.exists() and pidfile.read_text().strip(), "the hook never reported its child"
+    child = int(pidfile.read_text().strip())
+
+    deadline = time.time() + 5
+    state = _process_state(child)
+    while time.time() < deadline and state not in (None, "Z"):
+        time.sleep(0.1)
+        state = _process_state(child)
+    if state not in (None, "Z"):  # do not leak a process into the rest of the suite
+        os.kill(child, 9)
+    assert state in (None, "Z"), f"the forked child outlived the timeout in state {state!r}"
 
 
 def test_a_successful_hook_still_prunes(tmp_path):

@@ -52,11 +52,18 @@ def _merged_fee(payment: dict, result: PaymentSubmission) -> dict[str, Any]:
     understate our own cost — the direction that flatters the numbers and hides the mistake.
     """
     breakdown = dict(payment.get("fee_breakdown") or {})
+    if not breakdown and payment.get("fee_units") is not None:
+        # A record written before per-stage capture holds one figure, which is the settlement
+        # operation's cost. Labelling it as that stage is what keeps it: without this the incoming
+        # report would either replace a fee that was really measured, or - when the provider can
+        # report nothing at all - erase it and silently record no cost.
+        breakdown["guard"] = int(payment["fee_units"])
     if result.fee_breakdown:
         breakdown.update(result.fee_breakdown)
-    elif result.fee_units is not None and breakdown:
-        # A single figure with a breakdown already present: the only stage that can still be
-        # outstanding at this point is the settlement call itself.
+    elif result.fee_units is not None:
+        # A provider answers an inspection about the settlement operation, so that is the stage a
+        # bare figure updates. Replacing a stage with a fresh measurement is idempotent; replacing
+        # the whole record is what loses the other stages.
         breakdown["guard"] = int(result.fee_units)
     if not breakdown:
         return {"fee_units": result.fee_units, "fee_breakdown": None}

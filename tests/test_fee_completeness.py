@@ -183,6 +183,33 @@ def test_a_payment_with_no_measured_fee_records_none_rather_than_zero(tmp_path):
     assert _merged_fee({}, empty) == {"fee_units": None, "fee_breakdown": None}
 
 
+def test_a_legacy_single_figure_survives_a_provider_that_reports_nothing(tmp_path):
+    """A recorded fee must never be erased just because a later report has no fee for it.
+
+    A record written before per-stage capture holds one figure. Treating "no breakdown" as "no fee
+    information" made the merge replace it - or, when the provider reported nothing at all, wipe a
+    cost that had really been measured.
+    """
+    from arc_payables.domain import PaymentStatus, PaymentSubmission
+    from arc_payables.service import _merged_fee
+
+    silent = PaymentSubmission(PaymentStatus.CONFIRMED, transaction_hash="0x" + "ab" * 32)
+    assert _merged_fee({"fee_units": 3130}, silent) == {
+        "fee_units": 3130, "fee_breakdown": {"guard": 3130}
+    }
+
+
+def test_a_legacy_single_figure_is_updated_in_place_not_replaced(tmp_path):
+    """The same stage is refreshed by a fresh measurement; other stages are never lost."""
+    from arc_payables.domain import PaymentStatus, PaymentSubmission
+    from arc_payables.service import _merged_fee
+
+    later = PaymentSubmission(PaymentStatus.CONFIRMED, transaction_hash="0x" + "cd" * 32, fee_units=2500)
+    assert _merged_fee({"fee_units": 3130}, later) == {
+        "fee_units": 2500, "fee_breakdown": {"guard": 2500}
+    }
+
+
 def test_operation_fees_are_summed_per_stage_rather_than_overwritten():
     """Two operations of the same stage (a reset then a new allowance) both count."""
     breakdown: dict[str, int] = {}

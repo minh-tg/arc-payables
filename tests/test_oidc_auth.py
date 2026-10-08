@@ -54,19 +54,48 @@ def signed(desk, subject):
     return client
 
 
-def test_one_identity_cannot_occupy_the_whole_session_table(desk):
-    """A per-identity cap exists so a single account cannot lock everyone else out."""
+def test_the_oldest_session_is_evicted_at_the_cap_rather_than_locking_the_identity_out(desk):
+    """A per-identity cap must not become a way to lock an identity out of signing in.
+
+    Refusing the sign-in at the cap would let anyone holding valid credentials for a subject deny
+    that subject new sessions until one expired. The oldest is evicted instead.
+    """
     from arc_payables.store import MAX_SESSIONS_PER_SUBJECT, SQLiteEvidenceStore
 
     store: SQLiteEvidenceStore = desk[0].state.store
     issuer = desk[1].oidc_issuer
     for index in range(MAX_SESSIONS_PER_SUBJECT):
-        store.auth_create_session(f"hash-{index}", issuer, "reader", 0, 10**12, 0)
-    with pytest.raises(RuntimeError, match="for this identity"):
-        store.auth_create_session("one-too-many", issuer, "reader", 0, 10**12, 0)
+        store.auth_create_session(f"hash-{index:02d}", issuer, "reader", index, 10**12, 0)
+    assert store.auth_get_session("hash-00", 0) is not None
+
+    store.auth_create_session("newest", issuer, "reader", 999, 10**12, 0)
+
+    assert store.auth_get_session("hash-00", 0) is None, "the oldest session was not evicted"
+    assert store.auth_get_session("hash-01", 0) is not None
+    assert store.auth_get_session("newest", 0) is not None
+    with store._connect() as connection:
+        held = connection.execute(
+            "SELECT COUNT(*) FROM auth_sessions WHERE issuer=? AND subject=?", (issuer, "reader")
+        ).fetchone()[0]
+    assert held == MAX_SESSIONS_PER_SUBJECT
+
     # Another identity is unaffected: the cap is per subject, not global.
     store.auth_create_session("other-identity", issuer, "operator", 0, 10**12, 0)
     assert store.auth_get_session("other-identity", 0)["subject"] == "operator"
+
+
+def test_a_capacity_failure_is_reported_cleanly_rather_than_as_a_500(desk, monkeypatch):
+    """An operational limit must not look like a server fault."""
+    store = desk[0].state.store
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("Too many sessions")
+
+    monkeypatch.setattr(store, "auth_create_session", refuse)
+    _client, response = sign_in(desk, "reader")
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "session_capacity"
+    assert "session limit" in response.json()["detail"]["message"]
 
 
 def test_live_setup_checks_require_an_operational_role(desk):

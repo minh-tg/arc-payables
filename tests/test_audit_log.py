@@ -54,6 +54,64 @@ def _set_payment(runtime, invoice_id: str, updates: dict, state: str) -> None:
     runtime["store"].update_payment(invoice_id, updates, state, "TEST_SETUP")
 
 
+def test_a_recheck_compares_the_settlement_stage_not_the_total(runtime):
+    """A multi-operation payment must not be reported as a fee disagreement.
+
+    The booked fee is the total cost of every on-chain operation, while a provider answering an
+    inspection names the one operation it was asked about. Comparing the two directly marked every
+    real multi-operation payment as a mismatch - a false alarm on the screen that exists to confirm
+    the books independently, and an invitation to "correct" the ledger down to the smaller figure.
+    """
+    runtime["payment"].approve_fee_units = 1995
+    _settle(runtime, runtime["legitimate_id"], fee_units=3130)
+    payment = runtime["store"].get_payment(runtime["legitimate_id"])
+    assert payment["fee_units"] == 3130 + 1995
+    assert payment["fee_breakdown"] == {"approve": 1995, "guard": 3130}
+
+    outcome = verify_payment(runtime["workflow"], runtime["legitimate_id"])
+    assert outcome["fee_units_recorded"] == 3130 + 1995      # what we booked: every operation
+    assert outcome["fee_stage_compared"] == "guard"
+    assert outcome["fee_units_recorded_for_stage"] == 3130   # our figure for that operation
+    assert outcome["fee_units_reported_now"] == 3130         # the provider's figure for it
+    assert outcome["fee_agrees"] is True
+
+
+def test_a_settlement_fee_that_really_disagrees_is_still_reported(runtime):
+    """The comparison must keep working: comparing scopes must not mean comparing nothing."""
+    runtime["payment"].approve_fee_units = 1995
+    _settle(runtime, runtime["legitimate_id"], fee_units=3130)
+    runtime["payment"].fee_units = 9999  # the provider now reports a different settlement cost
+
+    outcome = verify_payment(runtime["workflow"], runtime["legitimate_id"])
+    assert outcome["fee_units_recorded_for_stage"] == 3130
+    assert outcome["fee_units_reported_now"] == 9999
+    assert outcome["fee_agrees"] is False
+
+
+def test_a_record_whose_total_contradicts_its_stages_is_reported_as_inconsistent(runtime):
+    """An edited-total record is a finding in its own right, not a verdict on the provider."""
+    runtime["payment"].approve_fee_units = 1995
+    _settle(runtime, runtime["legitimate_id"], fee_units=3130)
+    # The total is cut without touching the stages it is supposed to sum.
+    _set_payment(runtime, runtime["legitimate_id"], {"fee_units": 999}, WorkflowState.ERP_RECORDED.value)
+
+    outcome = verify_payment(runtime["workflow"], runtime["legitimate_id"])
+    assert outcome["fee_record_is_consistent"] is False
+    assert outcome["fee_units_recorded_for_stage"] == 3130
+    assert outcome["fee_agrees"] is True  # the settlement stage still matches the provider
+
+
+def test_a_record_without_a_breakdown_is_compared_on_its_single_figure(runtime):
+    """Legacy records hold one figure, which is the settlement operation's cost."""
+    _settle(runtime, runtime["legitimate_id"], fee_units=10_000)
+    _set_payment(runtime, runtime["legitimate_id"], {"fee_breakdown": None}, WorkflowState.ERP_RECORDED.value)
+
+    outcome = verify_payment(runtime["workflow"], runtime["legitimate_id"])
+    assert outcome["fee_units_recorded"] == 10_000
+    assert outcome["fee_units_recorded_for_stage"] == 10_000
+    assert outcome["fee_agrees"] is True
+
+
 # --------------------------------------------------------------------------------------
 # The verdict
 # --------------------------------------------------------------------------------------
@@ -287,7 +345,14 @@ def test_the_recheck_asks_the_provider_again_without_changing_anything(runtime):
 def test_the_recheck_reports_a_disagreeing_fee_rather_than_hiding_it(runtime):
     _settle(runtime, runtime["legitimate_id"], fee_units=10_000)
     # A record that disagrees with the chain: the booked fee is what a human typed, or an old bug.
-    _set_payment(runtime, runtime["legitimate_id"], {"fee_units": 999}, WorkflowState.ERP_RECORDED.value)
+    # The total and the stage move together: a settlement-fee disagreement is a consistent record
+    # whose settlement stage differs from what the provider reports.
+    _set_payment(
+        runtime,
+        runtime["legitimate_id"],
+        {"fee_units": 999, "fee_breakdown": {"guard": 999}},
+        WorkflowState.ERP_RECORDED.value,
+    )
 
     outcome = verify_payment(runtime["workflow"], runtime["legitimate_id"])
 

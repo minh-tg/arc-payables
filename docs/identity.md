@@ -142,6 +142,12 @@ reviewed OIDC-capable release is restored.
 Existing isolated testnet tooling may explicitly use `AUTH_MODE=testnet_tokens` with both shared tokens
 and a local/test/testnet/development environment. This is a migration aid, not production identity.
 
+**The role checks above apply only in `AUTH_MODE=oidc`.** In `demo` and `testnet_tokens` deployments
+authorization is "holds the shared credential" and nothing more: there is no role separation, no
+per-route permission, and no individual attribution, so tightening a route's required role changes
+nothing there. That is the point of treating those modes as testnet-only, and why a production
+deployment must not run with shared credentials.
+
 ## Verification and remaining release gates
 
 ```sh
