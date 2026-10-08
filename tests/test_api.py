@@ -28,6 +28,45 @@ def test_health_readiness_and_documented_openapi(runtime):
     assert "/invoices/{invoice_id}/approval" in spec["paths"]
 
 
+def test_the_documented_testnet_runbook_configuration_actually_authenticates(tmp_path):
+    """The runbook in DEMO.md and the README must keep working.
+
+    They set a real provider with shared credentials, which the default AUTH_MODE=demo refuses. This
+    pins the documented migration path so a future change to the auth modes cannot silently turn the
+    published demo instructions into 503s — which is exactly what happened once.
+    """
+    settings = Settings(
+        _env_file=None,
+        database_path=tmp_path / "runbook.sqlite3",
+        payment_provider="local",
+        local_payment_private_key="0x" + "11" * 32,
+        local_payment_guard_address="0x" + "22" * 20,
+        local_payment_rpc_url="https://rpc.invalid",
+        permit_signing_private_key="0x" + "33" * 32,
+        auth_mode="testnet_tokens",
+        api_key="local-demo-key",
+        approval_token="local-demo-token",
+    )
+    client = _client(tmp_path, settings)
+    headers = {"X-API-Key": "local-demo-key"}
+    assert client.get("/invoices", headers=headers).status_code == 200
+    ready = client.get("/ready")
+    assert ready.status_code == 200, ready.json()
+    assert ready.json()["identity_configured"] is True
+    # A wrong key is still rejected; the mode opens the door, it does not remove the lock.
+    assert client.get("/invoices", headers={"X-API-Key": "wrong"}).status_code == 401
+
+
+def test_the_refusal_names_the_configuration_that_fixes_it(tmp_path):
+    """An operator staring at a 503 should be told which variable to set."""
+    settings = Settings(_env_file=None, database_path=tmp_path / "msg.sqlite3", payment_provider="local")
+    response = _client(tmp_path, settings).get("/invoices")
+    assert response.status_code == 503
+    message = response.json()["detail"]["message"]
+    assert "AUTH_MODE=testnet_tokens" in message
+    assert "AUTH_MODE=demo" in message
+
+
 def test_external_adapter_requires_api_and_approval_authentication(tmp_path):
     settings = Settings(_env_file=None, database_path=tmp_path / "circle.sqlite3", payment_provider="circle")
     client = _client(tmp_path, settings)
