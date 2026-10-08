@@ -181,7 +181,10 @@ def test_payment_executes_through_the_real_guard_and_settles_the_supplier(tmp_pa
     assert result["state"] == WorkflowState.ERP_RECORDED.value
     payment = result["payment"]
     assert payment["confirmation_status"] == "CONFIRMED"
-    assert payment["fee_units"] == circle.state.fee_units
+    # Settling took two Circle operations - the exact allowance and the guarded call - and Circle
+    # charges for each. The booked fee is the total cost we absorbed, not only the last operation.
+    assert payment["fee_units"] == 2 * circle.state.fee_units
+    assert payment["fee_breakdown"] == {"approve": circle.state.fee_units, "guard": circle.state.fee_units}
 
     # The supplier received exactly the authorized amount; we paid the fee on top of it.
     assert chain.erc20_balance(SUPPLIER) - start_supplier == 250 * USDC_SCALE

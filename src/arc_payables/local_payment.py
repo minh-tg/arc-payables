@@ -24,6 +24,7 @@ interface is 6 decimals; they are the same balance, so the measured cost is conv
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Any, Callable
 
 import httpx
@@ -39,6 +40,7 @@ from .domain import (
     PaymentStatus,
     PaymentSubmission,
     TreasurySnapshot,
+    add_operation_fee,
     utcnow,
 )
 from .evm import decode_bool, decode_uint256, encode_allowance, encode_approve, encode_balance_of, encode_permit_call, encode_used, selector
@@ -215,20 +217,36 @@ class LocalKeyPaymentProvider:
         if guard_code:
             return PaymentSubmission(PaymentStatus.FAILED, failure_code=guard_code)
 
+        # Every stage costs gas that this deployment absorbs, so each one is measured and summed.
+        # Booking only the final guarded call would understate our own cost.
+        fees: dict[str, int] = {}
         allowance = self._allowance()
         if allowance != permit.amount_units:
             if allowance > 0:
-                self._send_and_wait(self.token_address, encode_approve(self.guard_address, 0), on_transaction, stage="approve")
-            self._send_and_wait(self.token_address, encode_approve(self.guard_address, permit.amount_units), on_transaction, stage="approve")
+                reset = self._send_and_wait(
+                    self.token_address, encode_approve(self.guard_address, 0), on_transaction, stage="approve_reset"
+                )
+                add_operation_fee(fees, "approve_reset", reset.fee_units)
+                if reset.status != PaymentStatus.CONFIRMED:
+                    return replace(reset, fee_units=sum(fees.values()), fee_breakdown=dict(fees))
+            approval = self._send_and_wait(
+                self.token_address, encode_approve(self.guard_address, permit.amount_units), on_transaction, stage="approve"
+            )
+            add_operation_fee(fees, "approve", approval.fee_units)
+            if approval.status != PaymentStatus.CONFIRMED:
+                return replace(approval, fee_units=sum(fees.values()), fee_breakdown=dict(fees))
 
         # Simulate the exact call now that the allowance is in place, so anything unforeseen is
         # caught before gas is spent on the payment itself.
         call_data = encode_permit_call(permit, str(payment["signature"]))
         revert_code = self._simulate(call_data)
         if revert_code:
-            return PaymentSubmission(PaymentStatus.FAILED, failure_code=revert_code)
+            # The allowance operations above really were paid for, so they are still reported.
+            return PaymentSubmission(PaymentStatus.FAILED, failure_code=revert_code, fee_units=sum(fees.values()), fee_breakdown=dict(fees) or None)
 
-        return self._send_and_wait(self.guard_address, call_data, on_transaction, stage="guard")
+        settled = self._send_and_wait(self.guard_address, call_data, on_transaction, stage="guard")
+        add_operation_fee(fees, "guard", settled.fee_units)
+        return replace(settled, fee_units=sum(fees.values()), fee_breakdown=dict(fees))
 
     def guard_precondition_failure(self, permit: PaymentPermit) -> str | None:
         """Why the guard would refuse this permit, read from the chain; or None.

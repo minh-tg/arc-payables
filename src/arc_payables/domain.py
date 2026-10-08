@@ -318,6 +318,22 @@ class PaymentSubmission:
     provider_transaction_id: str | None = None
     fee_units: int | None = None
     failure_code: str | None = None
+    fee_breakdown: dict[str, int] | None = None
+    """Measured fee per on-chain stage of this payment.
+
+    Settling one authorization can take several operations - clearing an old allowance, setting the
+    exact one, then the guarded call - and every one of them costs gas that this deployment absorbs.
+    ``fee_units`` is their sum, so the ledger books the whole cost, and this records where it went
+    so an accountant can reconcile the total against the individual transactions.
+    """
+
+
+def add_operation_fee(breakdown: dict[str, int], stage: str, fee_units: int | None) -> dict[str, int]:
+    """Record one operation's measured fee, summing repeats of the same stage."""
+    if fee_units is None:
+        return breakdown
+    breakdown[stage] = breakdown.get(stage, 0) + int(fee_units)
+    return breakdown
 
 
 @dataclass(frozen=True)
