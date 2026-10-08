@@ -32,7 +32,7 @@ from .policy import OVERRIDABLE_CHECKS, DeterministicPolicy, accounting_source_c
 from .ports import AccountingConnector, AgentRecommendation, PaymentMapping, PaymentProvider, PermitSigner
 from .screening import FixtureScreeningProvider, ScreeningResult
 from .settings import Settings
-from .store import DuplicateInvoiceNumber, SQLiteEvidenceStore, canonical_json, invoice_to_dict
+from .store import DuplicateInvoiceNumber, ReviewerRevoked, SQLiteEvidenceStore, canonical_json, invoice_to_dict
 
 
 class WorkflowError(RuntimeError):
@@ -91,7 +91,7 @@ class APWorkflow:
         try:
             context = self._load_context(invoice)
             recommendation = self.agent.recommend(self._agent_context(invoice, context))
-            approval = self.store.get_approval(invoice_id)
+            approval = self._active_approval(invoice_id)
             decision = self._decide(invoice, context, recommendation, approval)
         except WorkflowError:
             raise
@@ -102,6 +102,20 @@ class APWorkflow:
         snapshot = self._snapshot(invoice, context)
         self.store.save_evaluation(invoice_id, decision.to_dict(), state.value, snapshot)
         return self.get_invoice(invoice_id)
+
+    def _active_approval(self, invoice_id: str, approvals: list | None = None) -> list | None:
+        approvals = self.store.get_approval(invoice_id) if approvals is None else approvals
+        if not approvals or self.settings.auth_mode != "oidc":
+            return approvals
+        active = []
+        for record in approvals:
+            actor = record.get("reviewer_identity") or {}
+            if (actor.get("issuer") == self.settings.oidc_issuer
+                    and actor.get("mfa_verified") is True
+                    and "approver" in self.settings.oidc_subject_roles.get(actor.get("subject"), ())
+                    and not self.store.auth_subject_revoked(actor["issuer"], actor["subject"])):
+                active.append(record)
+        return active
 
     def approve(self, invoice_id: str, approval: dict[str, Any]) -> dict[str, Any]:
         self._invoice_or_404(invoice_id)
@@ -139,7 +153,12 @@ class APWorkflow:
             "created_at": utcnow().isoformat(),
             "evidence_hash": decision["evidence_hash"],
         }
-        self.store.record_approval(invoice_id, record)
+        if approval.get("reviewer_identity"):
+            record["reviewer_identity"] = approval["reviewer_identity"]
+        try:
+            self.store.record_approval(invoice_id, record)
+        except ReviewerRevoked as exc:
+            raise WorkflowError(403, "reviewer_revoked", "Reviewer access changed before approval was recorded.") from exc
         if not record["approved"]:
             self.store.set_state(invoice_id, WorkflowState.HELD.value, "HUMAN_REJECTED", {"reviewer": record["reviewer"]})
             return self.get_invoice(invoice_id)
@@ -256,7 +275,8 @@ class APWorkflow:
             ) from exc
         return self.evaluate(invoice_id)
 
-    def submit_payment(self, invoice_id: str) -> dict[str, Any]:
+    def submit_payment(self, invoice_id: str, *, authorization_identity: dict | None = None,
+                       authorization_session_hash: str | None = None) -> dict[str, Any]:
         invoice = self._invoice_or_404(invoice_id)
         existing = self.store.get_payment(invoice_id)
         if existing:
@@ -275,7 +295,8 @@ class APWorkflow:
         try:
             context = self._load_context(invoice)
             recommendation = self.agent.recommend(self._agent_context(invoice, context))
-            approval = self.store.get_approval(invoice_id)
+            approval_snapshot = self.store.get_approval(invoice_id)
+            approval = self._active_approval(invoice_id, approval_snapshot)
             fresh_decision = self._decide(invoice, context, recommendation, approval)
         except WorkflowError:
             raise
@@ -355,7 +376,9 @@ class APWorkflow:
         try:
             payment, created = self.store.create_payment(
                 invoice_id, payment, expected_revision=authorization_revision,
-                expected_invoice_hash=invoice_fingerprint(invoice), expected_approval=approval,
+                expected_invoice_hash=invoice_fingerprint(invoice), expected_approval=approval_snapshot,
+                expected_reviewers=[item["reviewer_identity"] for item in (approval or []) if item.get("reviewer_identity")],
+                expected_requester=authorization_identity, expected_session_hash=authorization_session_hash,
             )
         except Exception as exc:
             raise WorkflowError(409, "payment_authorization_conflict", "Treasury or invoice authorization changed, or another settlement is pending; reconcile and evaluate again.") from exc

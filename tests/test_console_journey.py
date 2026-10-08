@@ -71,7 +71,7 @@ def test_demo_initialization_respects_configured_api_auth(tmp_path):
     {"screening_provider": "opensanctions"}, {"decision_layer": "dual_process"},
 ])
 def test_demo_initialization_refuses_external_or_mixed_configuration(tmp_path, overrides):
-    client, store = client_for(tmp_path, api_key="test-access", **overrides)
+    client, store = client_for(tmp_path, api_key="test-access", auth_mode="testnet_tokens", **overrides)
     headers = {"X-API-Key": "test-access"}
     context = client.get("/setup", headers=headers).json()["deployment"]
     assert not context["demo_available"]
@@ -95,7 +95,9 @@ def test_demo_refuses_an_injected_non_mock_provider_even_if_settings_say_mock(tm
     settings = Settings(_env_file=None, database_path=tmp_path / "injected.sqlite3")
     store = SQLiteEvidenceStore(settings.database_path)
     client = TestClient(create_app(settings=settings, store=store, payment_provider=object()))
-    assert client.post("/demo/start").status_code == 409
+    response = client.post("/demo/start")
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "api_auth_not_configured"
     assert store.list_invoices() == []
 
 

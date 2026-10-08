@@ -11,6 +11,55 @@ const APPROVAL_STORAGE = 'arc_payables.approvalToken';
 const THEME_STORAGE = 'arc_payables.theme';
 const GUIDE_STORAGE = 'arc_payables.guide';
 
+// Identity tokens never enter JavaScript storage. Only the short-lived CSRF proof
+// and server-reported permissions live in memory; the session cookie is HttpOnly.
+let staffSession = { mode: 'demo', permissions: [], csrf: null, identity: null };
+export function usesOIDC() { return staffSession.mode === 'oidc'; }
+export function can(permission) { return usesOIDC() ? staffSession.permissions.includes(permission) : ['demo', 'testnet_tokens'].includes(staffSession.mode); }
+
+export async function initializeIdentity() {
+  const root = document.getElementById('identity-controls');
+  const credentials = document.getElementById('shared-credentials');
+  try {
+    const response = await fetch('/auth/config', { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) throw new Error('Authentication configuration unavailable.');
+    const config = await response.json();
+    if (!['demo', 'testnet_tokens', 'oidc', 'identity_required'].includes(config.mode)) throw new Error('Unknown authentication mode.');
+    staffSession = { mode: config.mode, permissions: [], csrf: null, identity: null };
+    if (credentials) credentials.hidden = usesOIDC() || config.mode === 'identity_required';
+    if (usesOIDC()) {
+      sessionStorage.removeItem(KEY_STORAGE); sessionStorage.removeItem(APPROVAL_STORAGE);
+      for (const id of ['api-key', 'approval-token']) { const input = document.getElementById(id); if (input) input.value = ''; }
+      const session = await fetch('/auth/session', { credentials: 'same-origin', cache: 'no-store' });
+      if (session.ok) {
+        const value = await session.json();
+        staffSession.permissions = value.permissions || [];
+        staffSession.csrf = value.csrf_token;
+        staffSession.identity = value.identity;
+      }
+      if (root) {
+        root.replaceChildren();
+        if (staffSession.identity) {
+          root.append(h('p', { class: 'muted', style: 'overflow-wrap:anywhere' }, 'Signed in: ', staffSession.identity.subject, ' · ', staffSession.identity.roles.join(', ')));
+          const logout = h('button', { type: 'button', id: 'identity-logout' }, 'Sign out');
+          logout.onclick = async () => {
+            try { await api('/auth/logout', { method: 'POST' }); await initializeIdentity(); refresh(); }
+            catch (error) { root.append(h('p', { role: 'alert' }, error.message)); }
+          };
+          root.append(logout);
+        } else root.append(h('p', { class: 'muted' }, 'Sign in with your individual identity. MFA and assigned roles are required.'), h('a', { class: 'btn', href: '/auth/login', id: 'identity-login' }, 'Sign in with SSO'));
+      }
+    } else if (root) {
+      root.replaceChildren(h('p', { class: 'muted' }, config.mode === 'demo' ? 'Demo credentials · not production identity'
+        : config.mode === 'testnet_tokens' ? 'Shared testnet tokens · not production identity' : 'Individual identity must be configured before external-provider access.'));
+    }
+  } catch (error) {
+    staffSession = { mode: 'unavailable', permissions: [], csrf: null, identity: null };
+    if (credentials) credentials.hidden = true;
+    if (root) root.replaceChildren(h('p', { role: 'alert' }, 'Authentication unavailable. Reload to retry; access remains blocked.'));
+  }
+}
+
 export function theme() {
   return sessionStorage.getItem(THEME_STORAGE) || document.documentElement.dataset.theme || 'light';
 }
@@ -96,9 +145,14 @@ export class ApiError extends Error {
 }
 
 export async function api(path, { method = 'GET', body = null, approval = false } = {}) {
+  if (!['demo', 'testnet_tokens', 'oidc'].includes(staffSession.mode)) throw new ApiError(503, { code: 'identity_required', message: 'Authentication is unavailable or must be configured. No shared-token fallback is allowed.' });
   const headers = { Accept: 'application/json' };
-  if (apiKey()) headers['X-API-Key'] = apiKey();
-  if (approval) {
+  if (!usesOIDC() && apiKey()) headers['X-API-Key'] = apiKey();
+  if (usesOIDC() && method !== 'GET') {
+    if (!staffSession.csrf) throw new ApiError(401, { code: 'identity_required', message: 'Sign in with SSO before taking this action.' });
+    headers['X-CSRF-Token'] = staffSession.csrf;
+  }
+  if (approval && !usesOIDC()) {
     if (!approvalToken()) {
       throw new ApiError(0, {
         code: 'approval_token_required',
@@ -107,7 +161,7 @@ export async function api(path, { method = 'GET', body = null, approval = false 
     }
     headers['X-Approval-Token'] = approvalToken();
   }
-  const options = { method, headers };
+  const options = { method, headers, credentials: 'same-origin', cache: 'no-store' };
   if (body !== null) {
     headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(body);

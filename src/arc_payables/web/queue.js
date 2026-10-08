@@ -1,6 +1,6 @@
 // The payable queue: what the agent would pay first, and why, plus every invoice's state.
 
-import { actionButton, api, badge, concept, h, lede, nextStep, panel, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
+import { actionButton, api, badge, can, concept, h, lede, nextStep, panel, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -142,7 +142,7 @@ async function renderQueue(root) {
       h(
         'td',
         {},
-        payment ? h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(invoice.id)}` }, 'View payment') : actionButton('Evaluate', () => evaluate(invoice.id), feedback),
+        payment ? h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(invoice.id)}` }, 'View payment') : can('operate') ? actionButton('Evaluate', () => evaluate(invoice.id), feedback) : h('span', { class: 'muted' }, 'Operator role required'),
       ),
     ),
   );
