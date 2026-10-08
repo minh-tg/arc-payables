@@ -32,6 +32,7 @@ arc-payables-live-run = "arc_payables.live_run:main"
 arc-payables-rescreen = "arc_payables.monitoring_cli:main"
 arc-payables-receivables = "arc_payables.receivables_cli:main"
 arc-payables-worker = "arc_payables.worker:main"
+arc-payables-reconcile = "arc_payables.reconcile:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/arc_payables"]
