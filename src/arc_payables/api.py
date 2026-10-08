@@ -268,7 +268,48 @@ def create_app(
         reported as its host with the path removed, because the RPC endpoints handed out with this
         project carry a token in the path.
         """
-        return inventory(settings)
+        body = inventory(settings)
+        simulated = settings.payment_provider == "mock" and settings.accounting_provider == "mock"
+        body["deployment"] = {
+            "mode": "demo" if simulated else "mixed" if "mock" in {settings.payment_provider, settings.accounting_provider} else "testnet",
+            "payment_provider": settings.payment_provider,
+            "accounting_provider": settings.accounting_provider,
+            "screening_provider": settings.screening_provider,
+            "demo_available": simulated and settings.screening_provider == "fixture" and settings.decision_layer != "dual_process",
+        }
+        return body
+
+    @app.post("/demo/start", tags=["console"], dependencies=[Depends(require_api_key)])
+    def start_demo() -> dict[str, Any]:
+        """Seed an empty, fully simulated deployment. Never reset records or submit a payment."""
+        from .mock_adapters import MockAccountingConnector, MockPaymentProvider
+        from .seed import seed_demo
+
+        if not (
+            settings.payment_provider == "mock"
+            and settings.accounting_provider == "mock"
+            and settings.screening_provider == "fixture"
+            and settings.decision_layer != "dual_process"
+            and isinstance(accounting, MockAccountingConnector)
+            and isinstance(payment_provider, MockPaymentProvider)
+        ):
+            raise HTTPException(status_code=409, detail={
+                "code": "demo_unavailable",
+                "message": "The guided demo requires mock payment and accounting providers, fixture screening and no external planner. No configuration was changed.",
+            })
+        if store.list_invoices():
+            return {"seeded": False, "reason": "Existing records were preserved."}
+        if store.has_fixtures():
+            raise HTTPException(status_code=409, detail={
+                "code": "demo_records_exist",
+                "message": "Local accounting fixtures already exist. Use a fresh demo database; nothing was overwritten.",
+            })
+        legitimate, suspicious = seed_demo(
+            store,
+            invoice_currency=settings.frappe_invoice_currency or "USD",
+            settlement_to_invoice_rate=settings.settlement_to_invoice_rate,
+        )
+        return {"seeded": True, "invoice_ids": [legitimate, suspicious]}
 
     @app.post("/setup/checks", tags=["health"], dependencies=[Depends(require_api_key)])
     def setup_checks() -> dict[str, Any]:
@@ -411,6 +452,12 @@ def create_app(
         """
         prioritiser = PaymentPrioritiser(workflow, planner=build_order_planner(settings))
         return prioritiser.plan().to_dict()
+
+    @app.get("/plans", tags=["planning"], dependencies=[Depends(require_api_key)])
+    def recorded_payment_plans() -> dict[str, Any]:
+        """Recent durable worker advice and execution outcomes. Reading never executes a plan."""
+        plans = workflow.store.payment_plan_history()
+        return {"plans": plans, "count": len(plans)}
 
     @app.get("/payments", tags=["audit"], dependencies=[Depends(require_api_key)])
     def list_payments_endpoint(confirmation: str | None = None, ledger: str | None = None) -> dict[str, Any]:

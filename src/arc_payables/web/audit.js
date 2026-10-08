@@ -82,7 +82,7 @@ async function renderAudit(root) {
   root.append(
     statGrid([
       { label: 'Settlements recorded', value: String(totals.settled ?? 0), icon: 'fileText', note: 'Payments the chain accepted and the books took' },
-      { label: 'Signed events', value: String(payments.length), icon: 'shield', note: 'Each entry is signed by the configured signer' },
+      { label: 'Payment chains shown', value: String(payments.length), icon: 'shield', note: 'Open an invoice for events; verification reports actual signed-entry counts' },
       {
         label: 'Results nobody knows',
         value: String(broken),

@@ -182,7 +182,9 @@ def run_pass(
     if intake:
         # Discovery runs before autopay so a payable found in this pass can be decided and paid in
         # the same one, and always after the two repair steps, which owe nothing to the queue.
-        report.steps.append(_intake(workflow, remaining))
+        intake_step = _intake(workflow, remaining)
+        report.steps.append(intake_step)
+        remaining -= intake_step.acted
         # Intake adds invoices, so autopay reads the queue again rather than the pre-intake list.
         invoices = workflow.store.list_invoices()
 
@@ -424,39 +426,113 @@ def _intake_key(external_id: str) -> str:
 
 
 def _autopay(workflow: APWorkflow, invoices, remaining: int) -> StepReport:
-    """Pay what the deterministic policy already authorized. Nothing else, ever.
+    """Execute recorded advice one payment at a time, rebuilding after every treasury change.
 
-    Only an invoice the policy itself put in `ELIGIBLE` with a `PAY_NOW` decision is paid. An
-    escalated or held invoice is not touched, so this cannot become a way to bypass review.
+    Planning cannot promote held/unreviewed invoices. Evaluation and submit_payment remain the
+    authority, and a pending authorization stops new spending until reconciliation knows its cost.
+    Plans are never resumed on restart: even a valid old plan is only historical advice.
     """
-    from .domain import WorkflowState
+    from .deliberation import build_order_planner
+    from .prioritisation import PaymentPrioritiser, plan_digest
 
     step = StepReport(name="autopay")
-    for invoice, state in invoices:
-        if state != WorkflowState.ELIGIBLE.value:
-            continue
-        if workflow.store.get_payment(invoice.id) is not None:
-            continue
-        decision = workflow.store.get_decision(invoice.id) or {}
-        if decision.get("action") != DecisionAction.PAY_NOW.value:
-            continue
-        step.examined += 1
-        if remaining <= 0:
-            step.detail["deferred"] = step.detail.get("deferred", 0) + 1
-            continue
+    omitted: set[str] = set()
+    prioritiser = PaymentPrioritiser(workflow, planner=build_order_planner(workflow.settings),
+                                    worker_only=True, omitted=omitted)
+    # A continually changing ERP or treasury must not spin a worker forever. Successful actions
+    # can each require a new plan; allow only three additional invalidations in the same pass.
+    for _ in range(max(0, remaining) + 3):
+        plan_id = None
+        active_invoice_id = None
         try:
-            workflow.submit_payment(invoice.id)
-            remaining -= 1
+            unresolved = [invoice.id for invoice, _state in workflow.store.list_invoices()
+                          if (payment := workflow.store.get_payment(invoice.id)) is not None
+                          and payment.get("confirmation_status") not in {"CONFIRMED", "FAILED"}]
+            if unresolved:
+                step.detail["stopped_reason"] = "pending_settlement"
+                step.detail["pending_invoices"] = unresolved
+                break
+            plan = prioritiser.plan()
+            plan_id = workflow.store.record_payment_plan(plan.to_dict(), plan_digest(plan))
+            summary = {"id": plan_id, "ordered_by": plan.ordered_by, "input_digest": plan.input_digest}
+            step.detail.setdefault("plans", []).append(summary)
+
+            def finish(status: str, **outcome) -> None:
+                workflow.store.finish_payment_plan(plan_id, status, outcome)
+                summary.update(status=status, **outcome)
+
+            # Persist a changed blocking decision as well as the advice. Reserve allocation
+            # exclusions are not review decisions; those remain eligible for a funded later pass.
+            blocked = next((entry for entry in plan.excluded
+                            if entry.decision_action != DecisionAction.PAY_NOW.value), None)
+            if blocked and remaining > 0:
+                remaining -= 1
+                active_invoice_id = blocked.invoice_id
+                workflow.evaluate(blocked.invoice_id)
+                omitted.add(blocked.invoice_id)
+                step.detail.setdefault("reevaluated", []).append(blocked.invoice_id)
+                finish("invalidated", reason="candidate_no_longer_payable", invoice_id=blocked.invoice_id)
+                continue
+            if not plan.ordered:
+                finish("empty", reason="no_payable_candidates")
+                step.skipped += len(plan.excluded)
+                break
+            if remaining <= 0:
+                step.detail["deferred"] = len(plan.ordered)
+                finish("deferred", reason="action_budget_exhausted")
+                break
+            if plan.input_digest != prioritiser.current_input_digest():
+                finish("invalidated", reason="planning_inputs_changed")
+                continue
+
+            selected = plan.ordered[0]
+            active_invoice_id = selected.invoice_id
+            step.examined += 1
+            # Re-evaluate using the normal agent/policy and evidence-bound human approval. In
+            # particular the previous invoice's settlement changed the next invoice's evidence.
+            workflow.evaluate(selected.invoice_id)
+            fresh = workflow.store.get_decision(selected.invoice_id) or {}
+            if (fresh.get("action") != DecisionAction.PAY_NOW.value
+                    or fresh.get("evidence_hash") != selected.evidence_hash
+                    or plan.input_digest != prioritiser.current_input_digest()):
+                finish("invalidated", reason="prepayment_evidence_changed", invoice_id=selected.invoice_id)
+                continue
+            remaining -= 1  # A refused/failed authorization attempt also consumes the action cap.
+            workflow.submit_payment(selected.invoice_id)
             step.acted += 1
+            payment = workflow.store.get_payment(selected.invoice_id) or {}
+            finish("executed", invoice_id=selected.invoice_id, payment_id=payment.get("payment_id"),
+                   confirmation_status=payment.get("confirmation_status"), erp_status=payment.get("erp_status"),
+                   reason="replan_before_next_payment")
         except WorkflowError as exc:
             step.failed += 1
-            step.detail.setdefault("refusals", {})
-            step.detail["refusals"][exc.code] = step.detail["refusals"].get(exc.code, 0) + 1
+            step.detail.setdefault("refusals", {})[exc.code] = step.detail.get("refusals", {}).get(exc.code, 0) + 1
+            if plan_id:
+                # Recording failure is itself fail-closed; do not execute another plan without
+                # a durable account of what happened to this one.
+                try:
+                    finish("invalidated", reason=exc.code, invoice_id=active_invoice_id)
+                except Exception as record_exc:
+                    step.error = _bounded(record_exc)
+                    break
+            if active_invoice_id:
+                omitted.add(active_invoice_id)
+            else:
+                break
         except Exception as exc:
             step.failed += 1
-            step.detail.setdefault("errors", [])
-            if len(step.detail["errors"]) < 5:
-                step.detail["errors"].append({"invoice_id": invoice.id, "error": _bounded(exc)})
+            step.error = _bounded(exc)
+            if plan_id:
+                try:
+                    finish("failed", reason="execution_or_recording_failed", error=_bounded(exc))
+                except Exception:
+                    pass
+            # The provider may have broadcast before raising, or durability may be lost. Stop
+            # instead of funding a second obligation on an uncertain balance.
+            break
+    else:
+        step.detail["stopped_reason"] = "replan_limit_reached"
+        step.failed += 1
     return step
 
 
@@ -608,7 +684,7 @@ def main() -> None:
             autopay=autopay,
             intake=intake,
             rescreen=not args.no_rescreen,
-            max_actions=args.max_actions or settings.worker_max_actions_per_pass,
+            max_actions=args.max_actions if args.max_actions is not None else settings.worker_max_actions_per_pass,
             alerts_sink=_build_sink(workflow),
         )
         print(report.summary_line())
@@ -632,6 +708,6 @@ def main() -> None:
         autopay=autopay,
         intake=intake,
         rescreen=not args.no_rescreen,
-        max_actions=args.max_actions or settings.worker_max_actions_per_pass,
+        max_actions=args.max_actions if args.max_actions is not None else settings.worker_max_actions_per_pass,
         stop_event=stop,
     )

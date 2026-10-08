@@ -79,7 +79,10 @@ def build_workflow(
             else:
                 payment_provider = DisabledPaymentProvider()
         else:
-            payment_provider = MockPaymentProvider(store)
+            # Public, test-only key: default mock API/worker processes must share an
+            # audit anchor across restarts. Never used to construct a live provider.
+            mock_signer = signer or EIP712PermitSigner("0x" + "01".zfill(64))
+            payment_provider = MockPaymentProvider(store, signer=mock_signer)
     if signer is None:
         signer = getattr(payment_provider, "signer", None)
     if signer is None:

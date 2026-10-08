@@ -367,7 +367,13 @@ class SQLiteEvidenceStore:
             row = connection.execute("SELECT approval_json FROM invoices WHERE id=?", (invoice_id,)).fetchone()
         return json.loads(row["approval_json"]) if row and row["approval_json"] else None
 
-    def create_payment(self, invoice_id: str, payment: dict) -> tuple[dict, bool]:
+    def payment_authorization_revision(self) -> int:
+        """Monotonic authorization count: payments are retained even when settlement fails."""
+        with self._connect() as connection:
+            return int(connection.execute("SELECT COUNT(*) FROM payments").fetchone()[0])
+
+    def create_payment(self, invoice_id: str, payment: dict, *, expected_revision: int | None = None,
+                       expected_invoice_hash: str | None = None, expected_approval: dict | None = None) -> tuple[dict, bool]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -375,6 +381,32 @@ class SQLiteEvidenceStore:
                 if existing:
                     connection.commit()
                     return json.loads(existing["record_json"]), False
+                if expected_revision is not None:
+                    # Compare inside the same writer transaction as authorization. Two invoices
+                    # checked against the same balance cannot both obtain permits, even if the
+                    # first settlement finishes before the second request reaches this write.
+                    revision = int(connection.execute("SELECT COUNT(*) FROM payments").fetchone()[0])
+                    if revision != expected_revision:
+                        raise ValueError("Treasury authorizations changed during prepayment checks")
+                    pending = connection.execute(
+                        "SELECT 1 FROM payments WHERE COALESCE(json_extract(record_json,'$.confirmation_status'),'') "
+                        "NOT IN ('CONFIRMED','FAILED') LIMIT 1"
+                    ).fetchone()
+                    if pending:
+                        raise ValueError("Reconcile pending treasury authorizations before new spending")
+                    current = connection.execute("SELECT state,decision_json,data_json,approval_json FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+                    decision = json.loads(current["decision_json"] or "{}") if current else {}
+                    invoice_data = json.loads(current["data_json"]) if current else {}
+                    invoice_data.pop("id", None)
+                    invoice_data.pop("created_at", None)
+                    current_hash = hashlib.sha256(canonical_json(invoice_data).encode()).hexdigest()
+                    current_approval = json.loads(current["approval_json"]) if current and current["approval_json"] else None
+                    if (not current or current["state"] != WorkflowState.ELIGIBLE.value
+                            or current_hash != expected_invoice_hash
+                            or current_approval != expected_approval
+                            or decision.get("action") != "PAY_NOW"
+                            or decision.get("evidence_hash") != payment["decision_evidence_hash"]):
+                        raise ValueError("Invoice decision changed during prepayment checks")
                 connection.execute(
                     "INSERT INTO payments(payment_id,invoice_id,idempotency_key,record_json,state,updated_at) VALUES(?,?,?,?,?,?)",
                     (payment["payment_id"], invoice_id, payment["idempotency_key"], canonical_json(payment), payment["state"], utcnow().isoformat()),
@@ -563,6 +595,58 @@ class SQLiteEvidenceStore:
             return "entry_contents_do_not_match_its_hash"
         return None
 
+    def record_payment_plan(self, plan: dict, digest: str) -> str:
+        """Persist advice before execution, with an audit-chain copy when it has an invoice."""
+        plan_id = str(uuid.uuid4())
+        entries = plan["ordered"] + plan["excluded"]
+        invoice_id = entries[0]["invoice_id"] if entries else None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    "INSERT INTO payment_plans(id,created_at,invoice_id,digest,plan_json,status) VALUES (?,?,?,?,?,?)",
+                    (plan_id, utcnow().isoformat(), invoice_id, digest, canonical_json(plan), "recorded"),
+                )
+                if invoice_id:
+                    self._append_event(connection, invoice_id, "PAYMENT_PLAN_RECORDED", self._state(connection, invoice_id),
+                                       {"plan_id": plan_id, "digest": digest, "plan": plan})
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return plan_id
+
+    def finish_payment_plan(self, plan_id: str, status: str, outcome: dict) -> None:
+        """Close advice once. An outcome never changes invoice state or authorizes payment."""
+        if status not in {"executed", "invalidated", "deferred", "failed", "empty"}:
+            raise ValueError("Unknown payment plan outcome")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute("SELECT invoice_id,status FROM payment_plans WHERE id=?", (plan_id,)).fetchone()
+                if row is None or row["status"] != "recorded":
+                    raise ValueError("Only an open recorded payment plan can be finished")
+                connection.execute(
+                    "UPDATE payment_plans SET status=?,outcome_json=?,finished_at=? WHERE id=?",
+                    (status, canonical_json(outcome), utcnow().isoformat(), plan_id),
+                )
+                if row["invoice_id"]:
+                    self._append_event(connection, row["invoice_id"], "PAYMENT_PLAN_FINISHED", self._state(connection, row["invoice_id"]),
+                                       {"plan_id": plan_id, "status": status, "outcome": outcome})
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def payment_plan_history(self, limit: int = 20) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM payment_plans ORDER BY created_at DESC,id DESC LIMIT ?", (max(1, min(limit, 100)),)
+            ).fetchall()
+        return [{"id": row["id"], "created_at": row["created_at"], "finished_at": row["finished_at"],
+                 "digest": row["digest"], "plan": json.loads(row["plan_json"]), "status": row["status"],
+                 "outcome": json.loads(row["outcome_json"])} for row in rows]
+
     def record_worker_run(self, started_at: str, finished_at: str, outcome: str, detail: dict) -> None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -649,6 +733,11 @@ class SQLiteEvidenceStore:
                 (supplier_id,),
             ).fetchall()
         return [_screening_row(row) for row in rows]
+
+    def has_fixtures(self) -> bool:
+        """Onboarding must not overwrite a partially configured local accounting fixture."""
+        with self._connect() as connection:
+            return connection.execute("SELECT 1 FROM fixtures LIMIT 1").fetchone() is not None
 
     def seed_fixture(self, kind: str, key: str, value: dict) -> None:
         with self._connect() as connection:

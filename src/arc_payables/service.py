@@ -262,6 +262,9 @@ class APWorkflow:
         if existing:
             return self._resume_payment(invoice, existing)
 
+        # Read before external evidence. The atomic authorization write checks this revision
+        # so concurrent requests cannot spend two obligations against the same old balance.
+        authorization_revision = self.store.payment_authorization_revision()
         prior_decision = self.store.get_decision(invoice_id)
         prior_snapshot = self.store.get_evidence_snapshot(invoice_id)
         if not prior_decision or not prior_snapshot:
@@ -350,9 +353,12 @@ class APWorkflow:
             "decision_evidence_hash": fresh_decision.evidence_hash,
         }
         try:
-            payment, created = self.store.create_payment(invoice_id, payment)
+            payment, created = self.store.create_payment(
+                invoice_id, payment, expected_revision=authorization_revision,
+                expected_invoice_hash=invoice_fingerprint(invoice), expected_approval=approval,
+            )
         except Exception as exc:
-            raise WorkflowError(409, "payment_authorization_conflict", "Another request is already authorizing this invoice.") from exc
+            raise WorkflowError(409, "payment_authorization_conflict", "Treasury or invoice authorization changed, or another settlement is pending; reconcile and evaluate again.") from exc
         if not created:
             return self._resume_payment(invoice, payment)
         self.store.update_payment(invoice_id, {"confirmation_status": "SUBMITTING"}, WorkflowState.SUBMITTED.value, "PAYMENT_SUBMITTED", {"payment_id": payment_id})

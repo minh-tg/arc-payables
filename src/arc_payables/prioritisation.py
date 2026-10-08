@@ -30,7 +30,8 @@ from typing import Any
 
 from .agent import EvidenceDecisionAgent
 from .domain import DecisionAction, InvoiceRecord, USDC_SCALE, units_to_usdc
-from .service import WorkflowError
+from .service import WorkflowError, invoice_fingerprint
+from .domain import WorkflowState
 
 #: Codes recorded for invoices that are visible in a plan but not payable.
 EXCLUDED_NOT_ELIGIBLE = "not_payable_now"
@@ -88,6 +89,7 @@ class PlanEntry:
     reasons: tuple[str, ...] = ()
     projected_balance_usdc: str | None = None
     decision_action: str | None = None
+    evidence_hash: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,6 +102,7 @@ class PlanEntry:
             "reasons": list(self.reasons),
             "projected_balance_usdc": self.projected_balance_usdc,
             "decision_action": self.decision_action,
+            "evidence_hash": self.evidence_hash,
         }
 
 
@@ -114,6 +117,7 @@ class PaymentPlan:
     ordered_by: str
     rationale: str
     deliberations: tuple[dict, ...] = field(default_factory=tuple)
+    input_digest: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -126,6 +130,7 @@ class PaymentPlan:
             "ordered_by": self.ordered_by,
             "rationale": self.rationale,
             "deliberations": [dict(item) for item in self.deliberations],
+            "input_digest": self.input_digest,
         }
 
 
@@ -149,6 +154,7 @@ def allocate(ranked: list[dict], balance_units: int, reserve_units: int) -> tupl
             "amount_usdc": units_to_usdc(invoice.amount_units),
             "reasons": tuple(candidate["reasons"]),
             "decision_action": candidate["decision_action"],
+            "evidence_hash": candidate.get("evidence_hash"),
         }
         if remaining - invoice.amount_units < reserve_units:
             # The reserve code is added to the entry's own reasons rather than replacing them,
@@ -180,9 +186,11 @@ class PaymentPrioritiser:
 
     name = "heuristics"
 
-    def __init__(self, workflow, planner=None):
+    def __init__(self, workflow, planner=None, *, worker_only: bool = False, omitted: set[str] | None = None):
         self.workflow = workflow
         self.planner = planner
+        self.worker_only = worker_only
+        self.omitted = omitted if omitted is not None else set()
         # Ordering always starts from the fast, explainable layer, even when a planner is
         # configured, so there is a trustworthy order to fall back to.
         self.fast = EvidenceDecisionAgent()
@@ -193,24 +201,40 @@ class PaymentPrioritiser:
         approvals = approvals or {}
         eligible: list[dict] = []
         blocked: list[dict] = []
-        for invoice, _state in self.workflow.store.list_invoices():
+        for invoice, state in self.workflow.store.list_invoices():
+            # Advice cannot rank an already-authorized payment as a new obligation. The worker
+            # also cannot promote a received, held or human-escalated invoice by planning it.
+            if invoice.id in self.omitted or self.workflow.store.get_payment(invoice.id) is not None:
+                continue
+            if self.worker_only:
+                prior = self.workflow.store.get_decision(invoice.id) or {}
+                if state != WorkflowState.ELIGIBLE.value or prior.get("action") != DecisionAction.PAY_NOW.value:
+                    continue
             try:
                 context = self.workflow._load_context(invoice)
             except WorkflowError as exc:
                 blocked.append(_blocked(invoice, EXCLUDED_EVIDENCE_UNAVAILABLE, str(exc)))
                 continue
+            except Exception:
+                # One connector row can be unavailable without invalidating independent
+                # evidence for the other obligations. Never fill the missing facts with advice.
+                blocked.append(_blocked(invoice, EXCLUDED_EVIDENCE_UNAVAILABLE, "Required evidence could not be read; payment remains blocked."))
+                continue
             recommendation = self.fast.recommend(self.workflow._agent_context(invoice, context))
-            decision = self.workflow._decide(invoice, context, recommendation, approvals.get(invoice.id))
+            approval = approvals.get(invoice.id) if invoice.id in approvals else self.workflow.store.get_approval(invoice.id)
+            decision = self.workflow._decide(invoice, context, recommendation, approval)
             if decision.action != DecisionAction.PAY_NOW:
-                blocked.append(_blocked(invoice, decision.action.value, decision.reason, decision.action.value))
+                blocked.append({**_blocked(invoice, decision.action.value, decision.reason, decision.action.value),
+                                "evidence_hash": decision.evidence_hash})
                 continue
             eligible.append({
                 "invoice": invoice,
+                "evidence_hash": decision.evidence_hash,
                 "decision_action": decision.action.value,
-                "reasons": rank_reasons(invoice, today),
+                "reasons": (["critical_supplier"] if invoice.supplier_id in self.workflow.settings.critical_supplier_ids else []) + rank_reasons(invoice, today),
                 "reason": "Payable now and ranked highest among the invoices the balance can cover.",
                 "eligible": True,
-                "sort_key": rank_key(invoice, today),
+                "sort_key": (invoice.supplier_id in self.workflow.settings.critical_supplier_ids, *rank_key(invoice, today)),
             })
         eligible.sort(key=lambda item: item["sort_key"], reverse=True)
         return eligible + blocked
@@ -222,6 +246,7 @@ class PaymentPrioritiser:
         payable = [item for item in ranked if item["eligible"]]
         blocked = [item for item in ranked if not item["eligible"]]
 
+        inputs = self._input_digest(ranked, balance.balance_units, approvals)
         order, deliberations = self._order(payable, balance.balance_units, reserve_units)
         ordered, unaffordable, spent = allocate(order, balance.balance_units, reserve_units)
 
@@ -235,6 +260,7 @@ class PaymentPrioritiser:
                 reason=item["reason"],
                 reasons=(item["code"], item["detail_code"]),
                 decision_action=item["decision_action"],
+                evidence_hash=item.get("evidence_hash"),
             )
             for item in blocked
         ] + unaffordable
@@ -248,12 +274,38 @@ class PaymentPrioritiser:
             planned_spend_usdc=units_to_usdc(spent),
             ordered_by="planner" if deliberations and deliberations[0].get("outcome") == "used" else self.name,
             rationale=(
-                "Ordered by expiring discount, then lateness, then imminent due dates, then the "
+                ("Planner-selected order; deterministic allocation. " if deliberations and deliberations[0].get("outcome") == "used" else "Heuristic order. ") +
+                "Fallback priority: configured critical suppliers, then expiring discount, then lateness, then imminent due dates, then the "
                 "smaller obligation. Spending stops at the configured treasury reserve, and every "
                 "ranked invoice must still pass its own policy checks before it can be paid."
             ),
             deliberations=tuple(deliberations),
+            input_digest=inputs,
         )
+
+    def current_input_digest(self) -> str:
+        """Read policy inputs again without invoking a model or recording decisions."""
+        balance = self.workflow.payment_provider.get_balance()
+        return self._input_digest(self.candidates(), balance.balance_units, None)
+
+    def _input_digest(self, ranked: list[dict], balance_units: int, approvals: dict | None) -> str:
+        # Evidence hashes intentionally omit capture timestamps; a new observation of unchanged
+        # evidence must not cause an endless replan loop. Include all competing candidates, not
+        # just the next invoice, so a changed alternative invalidates the business choice too.
+        payload = {
+            "today": date.today().isoformat(),
+            "balance_units": balance_units,
+            "settings": self.workflow.settings.model_dump(mode="json"),
+            "candidates": sorted([
+                {"id": item["invoice"].id,
+                 "invoice_hash": invoice_fingerprint(item["invoice"]),
+                 "evidence_hash": item.get("evidence_hash"),
+                 "action": item["decision_action"],
+                 "approval": (approvals or {}).get(item["invoice"].id, self.workflow.store.get_approval(item["invoice"].id))}
+                for item in ranked
+            ], key=lambda item: item["id"]),
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
     def _order(self, payable: list[dict], balance_units: int, reserve_units: int) -> tuple[list[dict], list[dict]]:
         """Let a planner reorder the queue when it answers usefully; otherwise keep the fast order."""
@@ -262,6 +314,8 @@ class PaymentPrioritiser:
         summary = [
             {
                 "invoice_id": item["invoice"].id,
+                "supplier_id": item["invoice"].supplier_id,
+                "business_priority": "critical_supplier" if item["invoice"].supplier_id in self.workflow.settings.critical_supplier_ids else "standard",
                 "amount_usdc": units_to_usdc(item["invoice"].amount_units),
                 "due_date": item["invoice"].due_date.isoformat(),
                 "discount_percent": item["invoice"].discount_percent,
@@ -270,9 +324,25 @@ class PaymentPrioritiser:
             }
             for item in payable
         ]
-        order_ids, trace = self.planner.order_payables(summary, balance_units, reserve_units)
+        try:
+            order_ids, trace = self.planner.order_payables(summary, balance_units, reserve_units)
+        except Exception:
+            return payable, [{"task": "order_payables", "outcome": "unavailable"}]
         if order_ids is None:
             return payable, [trace]
+        # Validate at the money-facing boundary as well as in the HTTP adapter. An injected
+        # planner must not smuggle in amounts, unknown IDs, omissions or duplicate obligations.
+        from .deliberation import parse_order
+        try:
+            validated, problem = parse_order(json.dumps({"order": [
+                {"invoice_id": invoice_id, "reason": reason} for invoice_id, reason in order_ids
+            ]}), [item["invoice"].id for item in payable])
+        except (TypeError, ValueError):
+            validated, problem = None, "invalid_entry"
+        if validated is None:
+            return payable, [{"task": "order_payables", "outcome": f"rejected:{problem}"}]
+        order_ids = validated
+        trace = {**trace, "outcome": "used"}
         by_id = {item["invoice"].id: item for item in payable}
         reordered = [dict(by_id[invoice_id]) for invoice_id, _reason in order_ids]
         for position, (invoice_id, reason) in enumerate(order_ids):

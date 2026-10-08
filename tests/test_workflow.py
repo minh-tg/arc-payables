@@ -468,25 +468,25 @@ def test_payment_repeated_request_is_idempotent(runtime):
     assert len(runtime["accounting"].entries) == 1
 
 
-def test_provider_insufficient_balance_revert_timeout_and_uncertain_are_safe(runtime):
-    cases = [
-        ("insufficient_balance", WorkflowState.FAILED),
-        ("reverted", WorkflowState.FAILED),
-        ("rpc_timeout", WorkflowState.NEEDS_RECONCILIATION),
-        ("uncertain", WorkflowState.NEEDS_RECONCILIATION),
-    ]
-    for mode, expected_state in cases:
-        invoice = _new_invoice(runtime)
-        runtime["payment"].failure_mode = mode
-        runtime["workflow"].evaluate(invoice.id)
-        result = runtime["workflow"].submit_payment(invoice.id)
-        assert result["state"] == expected_state.value
-        calls = runtime["payment"].submission_calls
-        if expected_state == WorkflowState.NEEDS_RECONCILIATION:
-            retry = runtime["workflow"].submit_payment(invoice.id)
-            assert retry["state"] == WorkflowState.NEEDS_RECONCILIATION.value
-            assert runtime["payment"].submission_calls == calls
-        runtime["payment"].failure_mode = None
+@pytest.mark.parametrize("mode,expected_state", [
+    ("insufficient_balance", WorkflowState.FAILED),
+    ("reverted", WorkflowState.FAILED),
+    ("rpc_timeout", WorkflowState.NEEDS_RECONCILIATION),
+    ("uncertain", WorkflowState.NEEDS_RECONCILIATION),
+])
+def test_provider_insufficient_balance_revert_timeout_and_uncertain_are_safe(runtime, mode, expected_state):
+    # Independent treasuries: an unresolved timeout must block new obligations, not leak into
+    # the next case while pretending that case began with a known balance.
+    invoice = _new_invoice(runtime)
+    runtime["payment"].failure_mode = mode
+    runtime["workflow"].evaluate(invoice.id)
+    result = runtime["workflow"].submit_payment(invoice.id)
+    assert result["state"] == expected_state.value
+    calls = runtime["payment"].submission_calls
+    if expected_state == WorkflowState.NEEDS_RECONCILIATION:
+        retry = runtime["workflow"].submit_payment(invoice.id)
+        assert retry["state"] == WorkflowState.NEEDS_RECONCILIATION.value
+        assert runtime["payment"].submission_calls == calls
 
 
 def test_concurrent_payment_requests_create_one_settlement_and_erp_entry(runtime):

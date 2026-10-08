@@ -122,7 +122,7 @@ export async function api(path, { method = 'GET', body = null, approval = false 
     payload = { code: 'invalid_response', message: text.slice(0, 200) };
   }
   if (!response.ok) {
-    const detail = payload && payload.detail ? payload.detail : payload;
+    const detail = payload && (payload.detail || payload.error) ? (payload.detail || payload.error) : payload;
     throw new ApiError(response.status, detail);
   }
   return payload;
@@ -134,6 +134,7 @@ export function h(tag, attrs = {}, ...children) {
     if (value === null || value === undefined || value === false) continue;
     if (key === 'class') node.className = value;
     else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+    else if (key === 'disabled' || key === 'checked' || key === 'hidden') node[key] = true;
     else node.setAttribute(key, value);
   }
   for (const child of children.flat()) {
@@ -151,6 +152,7 @@ export function h(tag, attrs = {}, ...children) {
 // walk past an explanation on every line.
 export function concept(code, label = code) {
   if (!guided()) return label;
+  tipElement(); // aria-describedby must reference a real element even before first interaction.
   return h(
     'span',
     {
@@ -272,6 +274,10 @@ function installConcepts() {
   });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') hideTip();
+    if ((event.key === 'Enter' || event.key === ' ') && termIn(event)) {
+      event.preventDefault();
+      showTip(termIn(event));
+    }
   });
   window.addEventListener('scroll', hideTip, true);
   window.addEventListener('resize', hideTip);
@@ -303,7 +309,7 @@ export function table(headers, rows) {
   return h(
     'div',
     { class: 'table-wrapper responsive-table' },
-    h('table', {}, h('thead', {}, h('tr', {}, headers.map((label) => h('th', {}, label)))), body),
+    h('table', {}, h('thead', {}, h('tr', {}, headers.map((label) => h('th', { scope: 'col' }, label || 'Actions')))), body),
   );
 }
 
@@ -458,7 +464,7 @@ export function panel(title, ...content) {
 }
 
 export function errorPanel(error) {
-  return h('div', { class: 'error' }, h('strong', {}, 'Request failed'), h('div', {}, String(error.message || error)));
+  return h('div', { class: 'error', role: 'alert' }, h('strong', {}, 'Request failed'), h('div', {}, String(error.message || error)));
 }
 
 // One short line of plain language for anything the system says. Fetched once from the server's
@@ -466,7 +472,7 @@ export function errorPanel(error) {
 // rather than guessing. Exported under _test so the console suite can assert what is here.
 let explanations = {};
 
-fetch('/explanations.json')
+const explanationsReady = fetch('/explanations.json')
   .then((response) => (response.ok ? response.json() : {}))
   .then((loaded) => {
     explanations = loaded || {};
@@ -509,7 +515,7 @@ const views = new Map();
 const TITLES = {
   overview: 'Overview',
   attention: 'Exceptions',
-  queue: 'Queue',
+  queue: 'Payment queue',
   payments: 'Settlements',
   audit: 'Audit chain',
   worker: 'Worker',
@@ -522,36 +528,104 @@ export function registerView(name, render) {
   views.set(name, render);
 }
 
-// Money and liveness the sidebar always shows: the agent's health and the treasury balance, read
-// from the same two endpoints the console already fetches. Best effort and silent, because the shell
-// must never block a view on it.
-export async function refreshShell() {
-  const dot = document.getElementById('agent-dot');
-  const text = document.getElementById('agent-text');
-  const pill = document.getElementById('balance-pill');
-  const count = document.getElementById('attention-count');
-  if (!dot || !text || !pill || !count) return;
-  try {
-    const [attention, forecast] = await Promise.all([api('/attention'), api('/forecast?days=30')]);
-    const problems = (attention.critical || 0) + (attention.warning || 0);
-    dot.className = `agent-dot ${attention.critical > 0 ? 'bad' : attention.warning > 0 ? 'warn' : 'ok'}`;
-    text.textContent = problems === 0 ? 'Agent idle, nothing waiting' : `Agent working, ${problems} waiting`;
-    pill.textContent = forecast.balance_usdc === null || forecast.balance_usdc === undefined ? '—' : `${forecast.balance_usdc} USDC`;
-    if (attention.critical > 0) {
-      count.hidden = false;
-      count.textContent = String(attention.critical);
-    } else {
-      count.hidden = true;
-    }
-  } catch {
-    dot.className = 'agent-dot';
-    text.textContent = 'Agent unreachable';
-    pill.textContent = '—';
-    count.hidden = true;
-  }
+// A completed pass is evidence of past work, not evidence that a loop is running now.
+export function workerHealth(status, now = Date.now()) {
+  if (!status) return { label: 'Worker status unavailable', tone: 'warn' };
+  if (!status.last) return { label: 'No worker pass recorded', tone: 'warn' };
+  const last = status.last;
+  const finished = Date.parse(last.finished_at);
+  if (!Number.isFinite(finished)) return { label: 'Last pass time unknown', tone: 'warn' };
+  const age = Math.max(0, Math.floor((now - finished) / 60000));
+  const failed = status.consecutive_failures > 0 || last.outcome !== 'ok';
+  return { label: `${failed ? 'Pass needs attention' : 'Last pass'} · ${age < 1 ? 'just now' : `${age}m ago`}`, tone: failed ? 'bad' : age >= 5 ? 'warn' : 'ok' };
 }
 
+export function deploymentLabel(deployment) {
+  if (!deployment) return 'Environment unknown';
+  if (deployment.mode === 'demo') return 'Demo · simulated payments & ledger';
+  if (deployment.mode === 'mixed') return 'Mixed providers · check Setup';
+  if (deployment.mode === 'testnet') return 'Arc Testnet · real testnet payments';
+  return 'Environment unknown';
+}
+
+export async function deploymentContext() {
+  const setup = await api('/setup');
+  const deployment = setup.deployment;
+  if (!deployment || !['mock', 'circle', 'local'].includes(deployment.payment_provider)
+      || !['mock', 'frappe'].includes(deployment.accounting_provider)) {
+    throw new ApiError(0, { code: 'environment_unknown', message: 'Cannot confirm payment mode. Check Setup before continuing.' });
+  }
+  return deployment;
+}
+
+// Native modal: amount and recipient are read-only, and opening it never submits anything.
+export function confirmPayment(invoice, supplier, deployment) {
+  return new Promise((resolve) => {
+    const simulated = deployment.payment_provider === 'mock';
+    const dialog = h('dialog', { class: 'payment-dialog', 'aria-labelledby': 'payment-confirm-title' });
+    const finish = (accepted) => { dialog.close(); dialog.remove(); resolve(accepted); };
+    dialog.append(
+      h('h2', { id: 'payment-confirm-title' }, simulated ? 'Confirm simulated payment' : 'Confirm testnet payment'),
+      h('p', { class: 'muted' }, simulated ? 'No on-chain funds move. This records a simulated settlement.' : 'This submits real USDC on Arc Testnet. It is not a mainnet payment.'),
+      h('dl', { class: 'facts' },
+        h('dt', {}, 'Invoice'), h('dd', {}, invoice.invoice_number),
+        h('dt', {}, 'Exact amount'), h('dd', {}, `${invoice.amount} USDC`),
+        h('dt', {}, 'Trusted destination'), h('dd', {}, supplier.wallet),
+        h('dt', {}, 'Accounting'), h('dd', {}, deployment.accounting_provider === 'mock' ? 'Simulated ledger' : 'ERPNext · writes to the configured ledger'),
+      ),
+      h('p', { class: 'guide-note' }, 'The server rechecks the evidence and guard limits before authorizing. Approval cannot change this destination.'),
+      h('div', { class: 'action-row' },
+        h('button', { type: 'button', autofocus: true, 'data-action': 'cancel-payment', onclick: () => finish(false) }, 'Cancel'),
+        h('button', { type: 'button', class: 'btn-primary', 'data-action': 'confirm-payment', onclick: () => finish(true) }, simulated ? 'Confirm simulation' : 'Send testnet payment'),
+      ),
+    );
+    dialog.addEventListener('cancel', (event) => { event.preventDefault(); finish(false); });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
+// One action at a time with feedback kept next to the control, not in a blocking browser alert.
+export function actionButton(label, run, feedback, attrs = {}) {
+  return h('button', {
+    type: 'button', ...attrs,
+    onclick: async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = 'Working…';
+      feedback.replaceChildren();
+      try { await run(); }
+      catch (error) { feedback.replaceChildren(errorPanel(error)); }
+      finally { button.disabled = false; button.textContent = label; }
+    },
+  }, label);
+}
+
+let shellGeneration = 0;
+export async function refreshShell() {
+  const generation = ++shellGeneration;
+  const results = await Promise.allSettled([api('/attention'), api('/forecast?days=30'), api('/worker/status'), api('/setup')]);
+  if (generation !== shellGeneration) return;
+  const value = (index) => results[index].status === 'fulfilled' ? results[index].value : null;
+  const attention = value(0), forecast = value(1), worker = value(2), setup = value(3);
+  const dot = document.getElementById('agent-dot'), text = document.getElementById('agent-text');
+  const pill = document.getElementById('balance-pill'), count = document.getElementById('attention-count');
+  const environment = document.getElementById('environment-label');
+  const health = workerHealth(worker);
+  if (dot) dot.className = `agent-dot ${health.tone}`;
+  if (text) text.textContent = health.label;
+  if (pill) pill.textContent = forecast && forecast.balance_usdc != null ? `${forecast.balance_usdc} USDC` : 'Balance unavailable';
+  if (count) {
+    const problems = attention ? (attention.critical || 0) + (attention.warning || 0) : 0;
+    count.hidden = !problems;
+    count.textContent = String(problems);
+  }
+  if (environment) environment.textContent = deploymentLabel(setup && setup.deployment);
+}
+
+let routeGeneration = 0;
 async function route() {
+  const generation = ++routeGeneration;
   const hash = window.location.hash.replace(/^#\/?/, '') || 'overview';
   const [name, ...rest] = hash.split('/');
   const render = views.get(name) || views.get('overview');
@@ -562,15 +636,30 @@ async function route() {
   hideTip(); // the term a reader was pointing at is about to be replaced
   root.replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
   status.replaceChildren(
-    apiKey() ? h('span', { class: 'muted' }, 'API key set') : h('span', { class: 'warn-text' }, 'No API key set'),
+    apiKey() ? h('span', { class: 'muted' }, 'API key set') : h('span', { class: 'muted' }, 'No key supplied · demo works without one'),
   );
   for (const link of document.querySelectorAll('nav a')) {
-    link.classList.toggle('active', link.getAttribute('href') === `#/${name}`);
+    const active = link.getAttribute('href') === `#/${name === 'invoice' ? 'queue' : name}`;
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
   }
+  const navigationWasOpen = document.getElementById('navigation')?.hasAttribute('data-open');
+  document.getElementById('navigation')?.removeAttribute('data-open');
+  document.getElementById('menu-toggle')?.setAttribute('aria-expanded', 'false');
+  root.setAttribute('aria-busy', 'true');
   try {
-    await render(root, rest);
+    await explanationsReady;
+    const page = h('div');
+    await render(page, rest);
+    if (generation === routeGeneration) {
+      root.replaceChildren(...page.childNodes);
+      if (navigationWasOpen) root.focus();
+    }
   } catch (error) {
-    root.replaceChildren(errorPanel(error));
+    if (generation === routeGeneration) root.replaceChildren(errorPanel(error));
+  } finally {
+    if (generation === routeGeneration) root.setAttribute('aria-busy', 'false');
   }
 }
 
@@ -581,7 +670,9 @@ export function refresh() {
 }
 
 export function startRouter() {
-  window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', () => { refreshShell(); route(); });
   refreshShell();
   route();
+  // Refresh health without re-rendering forms or discarding an operator's unsaved review.
+  setInterval(() => { if (!document.hidden) refreshShell(); }, 30000);
 }

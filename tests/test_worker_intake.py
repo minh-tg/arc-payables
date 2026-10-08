@@ -114,7 +114,11 @@ def test_the_whole_chain_runs_from_arrival_to_paid_once_due(runtime):
     report = worker.run_pass(runtime["workflow"], intake=True, autopay=True, rescreen=False)
 
     assert _step(report, "intake").acted == 1
-    assert _step(report, "autopay").acted == 1
+    # The previously discovered payable is still eligible too. Replanning after the first
+    # settlement refreshes treasury evidence, so neither obligation is stranded by a stale hash.
+    assert _step(report, "autopay").acted == 2
+    imported = _by_external_id(runtime["store"], IMPORTABLE)
+    assert runtime["store"].get_state(imported.id) == WorkflowState.ERP_RECORDED.value
     invoice_id = runtime["legitimate_id"]
     assert runtime["store"].get_state(invoice_id) == WorkflowState.ERP_RECORDED.value
     assert runtime["store"].get_payment(invoice_id)["confirmation_status"] == "CONFIRMED"

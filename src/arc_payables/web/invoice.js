@@ -1,291 +1,141 @@
-// One invoice in full: the evidence checks, which layer decided and why, the audit chain, and the
-// actions a human can take. The destination is read from the trusted supplier record, never from
-// the invoice.
+// One decision workspace. UI affordances never replace the server's policy or authorization.
+import { actionButton, api, approvalToken, badge, concept, confirmPayment, deploymentContext, deploymentLabel, explain, h, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
 
-import { api, badge, concept, explain, h, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
-
-function money(value) {
-  return value === null || value === undefined ? '—' : `${value} USDC`;
+export function invoiceActions(detail) {
+  const checks = detail.decision?.policy_checks || [];
+  const failed = checks.filter((check) => !check.passed);
+  const blocking = failed.filter((check) => !check.overridable);
+  const reviewable = failed.filter((check) => check.overridable && check.requires_human);
+  return {
+    blocking, reviewable,
+    evaluate: !detail.payment,
+    approve: !detail.payment && detail.decision?.action === 'ESCALATE' && reviewable.length > 0 && blocking.length === 0,
+    pay: !detail.payment && detail.decision?.action === 'PAY_NOW' && failed.length === 0,
+    writeback: detail.payment?.confirmation_status === 'CONFIRMED' && detail.state !== 'ERP_RECORDED',
+    reconcile: Boolean(detail.payment) && detail.state === 'NEEDS_RECONCILIATION',
+  };
 }
 
-function short(hash) {
-  return typeof hash === 'string' && hash.length > 20 ? `${hash.slice(0, 10)}…${hash.slice(-6)}` : hash || '—';
+function short(hash) { return typeof hash === 'string' && hash.length > 20 ? `${hash.slice(0, 10)}…${hash.slice(-6)}` : hash || '—'; }
+function field(label, id, placeholder) {
+  const input = h('input', { id, placeholder, required: true });
+  return { input, node: h('label', { class: 'field', for: id }, h('span', {}, label), input) };
 }
 
 async function renderInvoice(root, [invoiceId]) {
-  if (!invoiceId) {
-    root.append(h('p', { class: 'muted' }, 'Pick an invoice from the queue.'));
-    return;
-  }
-  const detail = await api(`/invoices/${encodeURIComponent(invoiceId)}`);
-  const events = await api(`/invoices/${encodeURIComponent(invoiceId)}/events`);
-  const suppliers = await api('/suppliers');
-  const invoice = detail.invoice;
-  const decision = detail.decision;
+  if (!invoiceId) { root.append(h('p', { class: 'muted' }, 'Pick an invoice from the payment queue.')); return; }
+  const [detail, events, suppliers, setup] = await Promise.all([
+    api(`/invoices/${encodeURIComponent(invoiceId)}`), api(`/invoices/${encodeURIComponent(invoiceId)}/events`), api('/suppliers'), api('/setup').catch(() => null),
+  ]);
+  const invoice = detail.invoice, decision = detail.decision;
   const supplier = suppliers.find((item) => item.supplier_id === invoice.supplier_id);
-  root.append(sectionHeading({ eyebrow: 'Evidence', title: `Invoice ${invoice.invoice_number}`, count: (detail.decision && detail.decision.policy_checks ? detail.decision.policy_checks.length : 0) }));
+  const actions = invoiceActions(detail);
+  const base = `/invoices/${encodeURIComponent(invoiceId)}`;
+  const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
+  const mutate = async (path, options = {}) => { await api(path, { method: 'POST', ...options }); await refresh(); };
 
-  root.append(
-    panel(
-      `Invoice ${invoice.invoice_number}`,
-      lede(
-        'One invoice end to end. The destination comes from the supplier record a human verified, ',
-        'never from the invoice itself, and the invoice cannot name where its own money goes.',
-      ),
-      h('p', { class: 'muted' }, explain('states', detail.state)),
-      h(
-        'dl',
-        { class: 'facts' },
-        h('dt', {}, 'State'),
-        h('dd', {}, badge(detail.state, stateTone(detail.state))),
-        h('dt', {}, 'Amount'),
-        h('dd', {}, money(invoice.amount)),
-        h('dt', {}, 'Due'),
-        h('dd', {}, invoice.due_date),
-        h('dt', {}, 'Supplier'),
-        h('dd', {}, `${invoice.supplier_id}${supplier && supplier.name ? ` · ${supplier.name}` : ''}`),
-        h('dt', {}, concept('wallet', 'Trusted destination')),
-        h(
-          'dd',
-          {},
-          supplier && supplier.wallet
-            ? `${supplier.wallet}${supplier.wallet_verified ? '' : ' (unverified — a human must verify it)'}`
-            : 'no approved wallet on the supplier record',
-        ),
-        h('dt', {}, 'Payee on the captured invoice'),
-        h('dd', { class: 'muted' }, invoice.invoice_payee_address || 'none (untrusted field, never a destination)'),
-        h('dt', {}, concept('ledger', 'Linked ERP payable')),
-        h('dd', {}, invoice.purchase_invoice_id || 'not linked'),
-      ),
+  root.append(sectionHeading({ eyebrow: 'Invoice review', title: invoice.invoice_number, trailing: h('a', { class: 'btn', href: '#/queue' }, 'Back to queue') }));
+  root.append(h('div', { class: 'invoice-summary card' },
+    h('div', {}, badge(detail.state, stateTone(detail.state)), plainWords('states', detail.state), h('p', { class: 'muted' }, `${invoice.supplier_id}${supplier?.name ? ` · ${supplier.name}` : ''} · Due ${invoice.due_date}`)),
+    h('div', { class: 'invoice-amount mono' }, invoice.amount, h('span', { class: 'muted' }, ' USDC')),
+  ));
+  root.append(h('ol', { class: 'payment-stages', 'aria-label': 'Payment lifecycle' },
+    [['Evidence', Boolean(decision)], ['Authorized', Boolean(detail.payment)], ['Settled', detail.payment?.confirmation_status === 'CONFIRMED'], ['Ledger recorded', detail.state === 'ERP_RECORDED']].map(([label, complete]) => h('li', { class: complete ? 'done' : '' }, `${complete ? '✓ ' : ''}${label}`)),
+  ));
+  root.append(panel('Where this payment would go',
+    lede('The ', concept('wallet', 'trusted destination'), ' comes only from a human-verified supplier record. The invoice cannot choose where its own money goes.'),
+    h('div', { class: 'destination-grid' },
+      h('div', { class: 'destination trusted' }, h('h3', {}, 'Trusted supplier destination'), h('p', { class: 'mono' }, supplier?.wallet || 'No supplier wallet configured'), badge(supplier?.wallet_verified ? 'Human verified' : 'Not verified · payment blocked', supplier?.wallet_verified ? 'good' : 'bad')),
+      h('div', { class: 'destination' }, h('h3', {}, 'Address printed on invoice'), h('p', { class: 'mono' }, invoice.invoice_payee_address || 'Not supplied'), badge('Untrusted · never used as destination', 'warn')),
     ),
-  );
+    h('p', { class: 'guide-note' }, `Linked payable: ${invoice.purchase_invoice_id || 'Not linked'}. Supplier wallet changes must be verified in the accounting system, not on this screen.`),
+  ));
 
-  if (!invoice.purchase_invoice_id) {
-    const field = h('input', { placeholder: 'ERPNext Purchase Invoice name' });
-    const reviewer = h('input', { placeholder: 'Reviewer' });
-    const link = h(
-      'button',
-      {
-        onclick: async (event) => {
-          event.target.disabled = true;
-          try {
-            await api(`/invoices/${encodeURIComponent(invoiceId)}/link`, {
-              method: 'POST',
-              approval: true,
-              body: { purchase_invoice_id: field.value.trim(), reviewer: reviewer.value.trim() },
-            });
-            await refresh();
-          } catch (error) {
-            alert(String(error.message));
-            event.target.disabled = false;
-          }
-        },
-      },
-      'Link to ERP payable',
-    );
-    root.append(
-      panel(
-        'Not payable yet',
-        h('p', { class: 'muted' }, 'A captured invoice becomes payable only once a human links it to an accounting payable.'),
-        h('div', { class: 'credentials' }, field, reviewer, link),
-      ),
-    );
+  if (!invoice.purchase_invoice_id && !detail.payment) {
+    const payable = field('ERPNext Purchase Invoice', 'linked-payable', 'Purchase Invoice name');
+    const reviewer = field('Reviewer', 'link-reviewer', 'Your name');
+    root.append(panel('Link independent accounting evidence',
+      h('p', { class: 'muted' }, 'A captured invoice is not payable until it matches an accounting payable. Linking requires a human approval token.'),
+      h('div', { class: 'review-fields' }, payable.node, reviewer.node),
+      actionButton('Link to ERP payable', async () => {
+        if (!payable.input.reportValidity() || !reviewer.input.reportValidity()) return;
+        await mutate(`${base}/link`, { approval: true, body: { purchase_invoice_id: payable.input.value.trim(), reviewer: reviewer.input.value.trim() } });
+      }, feedback),
+    ));
   }
+
+  const next = panel('Your next action',
+    h('p', { class: 'muted' }, deploymentLabel(setup?.deployment)),
+    h('p', {}, detail.state === 'ERP_RECORDED' ? 'Settlement and ledger writeback are complete. You can inspect the entries and verify the history below.'
+      : actions.blocking.length ? 'Correct the conflicting or missing evidence before payment. Human approval cannot override these blocks.'
+        : actions.writeback ? 'The payment settled. Retry only the ledger writeback; this cannot send funds again.'
+          : actions.reconcile ? 'The payment outcome is uncertain. Reconcile the existing attempt before doing anything else.'
+            : actions.pay ? 'Checks passed. Review the exact amount and trusted destination before confirming.'
+              : actions.approve ? 'A human must acknowledge the reviewable exceptions. Approval will trigger fresh evaluation, not an immediate payment.'
+                : decision ? decision.reason : 'Evaluate the independent evidence first. This action never moves funds.'),
+  );
+  const controls = h('div', { class: 'action-row' });
+  if (actions.evaluate) controls.append(actionButton(decision ? 'Re-evaluate evidence' : 'Evaluate invoice', () => mutate(`${base}/evaluate`), feedback, { class: !decision ? 'btn-primary' : '', 'data-action': 'evaluate' }));
+  if (actions.pay) controls.append(actionButton(setup?.deployment?.payment_provider === 'mock' ? 'Review simulated payment' : 'Review payment', async () => {
+    // Re-read the mode at the moment of confirmation. Unknown/missing metadata must fail closed.
+    const deployment = await deploymentContext();
+    if (!supplier?.wallet || !supplier.wallet_verified) throw new Error('A human-verified supplier destination is required.');
+    if (await confirmPayment(invoice, supplier, deployment)) await mutate(`${base}/payment`);
+  }, feedback, { class: 'btn-primary', disabled: !supplier?.wallet_verified, 'data-action': 'review-payment' }));
+  if (actions.writeback) controls.append(actionButton('Retry ledger writeback', () => mutate(`${base}/payment/erp-writeback`), feedback, { class: 'btn-primary' }));
+  if (actions.reconcile) controls.append(actionButton('Reconcile existing payment', () => mutate(`${base}/payment/reconcile`), feedback));
+  if (detail.payment) controls.append(h('a', { class: 'btn', href: `#/payments/${encodeURIComponent(invoice.id)}` }, 'Open settlement report'));
+  next.append(controls, feedback);
+  root.append(next);
 
   if (decision) {
-    const advisory = decision.advisory || {};
-    root.append(
-      panel(
-        `Decision · ${decision.action}`,
-        h('p', {}, plainWords('decisions', decision.action)),
-        h(
-          'dl',
-          { class: 'facts' },
-          h('dt', {}, 'Reason'),
-          h('dd', {}, decision.reason),
-          h('dt', {}, 'Decided by'),
-          h('dd', {}, `${advisory.decided_by || 'unknown'}${advisory.confidence ? ` · confidence ${advisory.confidence}` : ''}`),
-          h('dt', {}, 'Rationale'),
-          h('dd', {}, advisory.rationale || '—'),
-          h('dt', {}, 'Evidence hash'),
-          h('dd', { title: decision.evidence_hash || '' }, short(decision.evidence_hash)),
-          h('dt', {}, 'Policy version'),
-          h('dd', {}, decision.policy_version),
-          h('dt', {}, 'Evaluated at'),
-          h('dd', {}, decision.evaluated_at),
-        ),
-        decision.missing_evidence && decision.missing_evidence.length
-          ? h('div', {}, h('strong', {}, 'Missing evidence'), h('ul', { class: 'tight' }, decision.missing_evidence.map((item) => h('li', {}, item))))
-          : null,
-        decision.conflicts && decision.conflicts.length
-          ? h('div', {}, h('strong', {}, 'Conflicts'), h('ul', { class: 'tight' }, decision.conflicts.map((item) => h('li', {}, item))))
-          : null,
-        (advisory.deliberations || []).length
-          ? h(
-              'details',
-              {},
-              h('summary', {}, `Deliberation (${advisory.deliberations.length})`),
-              h(
-                'ul',
-                { class: 'tight' },
-                advisory.deliberations.map((item) =>
-                  h('li', {}, `${item.layer || ''}${item.model ? ` · ${item.model}` : ''} · ${item.outcome}${item.latency_ms !== undefined ? ` · ${item.latency_ms}ms` : ''} · prompt ${short(item.prompt_sha256)}`),
-                ),
-              ),
-            )
-          : null,
-      ),
-    );
-
     const checks = decision.policy_checks || [];
-    const checkRows = checks.map((check) => {
-      const words = explain('checks', check.code);
-      return h(
-        'tr',
-        {},
+    root.append(panel('Evidence checks',
+      h('p', { class: 'muted' }, `${checks.filter((check) => check.passed).length}/${checks.length} checks passed. Blocking evidence and reviewable exceptions are different decisions.`),
+      table(['Check', 'Result', 'What you can do', 'Evidence'], checks.map((check) => h('tr', {},
         h('td', {}, check.code),
-        h('td', {}, check.passed ? badge('pass', 'good') : badge('fail', 'bad')),
-        h('td', {}, check.requires_human ? (check.overridable ? 'human, overridable' : 'human, blocking') : '—'),
-        h('td', {}, h('div', {}, check.detail), h('div', { class: 'muted' }, words)),
-      );
-    });
-    root.append(panel('Evidence checks', lede('Each rule the policy applied, and whether it passed. A failing rule that a human may override is the only thing standing between this invoice and payment.'), table(['Check', 'Result', 'Review', 'Detail'], checkRows)));
-
-    const acknowledgeable = checks.filter((check) => !check.passed && check.requires_human && check.overridable);
-    const boxes = acknowledgeable.map((check) =>
-      h('label', { class: 'check' }, h('input', { type: 'checkbox', value: check.code }), ` ${check.code}`),
-    );
-    const reviewer = h('input', { placeholder: 'Reviewer' });
-    const note = h('input', { placeholder: 'Note (required)' });
-    const approve = h(
-      'button',
-      {
-        onclick: async (event) => {
+        h('td', {}, badge(check.passed ? 'Passed' : 'Failed', check.passed ? 'good' : 'bad')),
+        h('td', {}, check.passed ? 'Nothing needed' : check.overridable && check.requires_human ? 'Human review permitted' : 'Correct evidence · no override'),
+        h('td', {}, check.detail, !check.passed ? h('p', { class: 'muted' }, explain('checks', check.code)) : null),
+      ))),
+    ));
+    if (actions.approve) {
+      const reviewer = field('Reviewer', 'approval-reviewer', 'Your name');
+      const note = field('Decision note', 'approval-note', 'Why these exceptions are acceptable');
+      const boxes = actions.reviewable.map((check) => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: check.code }), h('span', {}, check.code, h('span', { class: 'muted' }, ` · ${check.detail}`))));
+      root.append(panel('Acknowledge reviewable exceptions',
+        h('p', { class: 'muted' }, 'A separate approval token is required. Acknowledge every listed exception and explain your judgement. Amount and destination cannot change.'),
+        !approvalToken() ? h('p', { class: 'warn-text' }, 'Add your approval token in the navigation credentials section. Do not paste it into a decision note.') : null,
+        h('div', { class: 'checks' }, boxes), h('div', { class: 'review-fields' }, reviewer.node, note.node),
+        actionButton('Record approval & re-evaluate', async () => {
+          if (!reviewer.input.reportValidity() || !note.input.reportValidity()) return;
           const acknowledged = boxes.filter((box) => box.querySelector('input').checked).map((box) => box.querySelector('input').value);
-          event.target.disabled = true;
-          try {
-            await api(`/invoices/${encodeURIComponent(invoiceId)}/approval`, {
-              method: 'POST',
-              approval: true,
-              body: {
-                reviewer: reviewer.value.trim(),
-                approved: true,
-                note: note.value.trim(),
-                acknowledged_checks: acknowledged,
-              },
-            });
-            await refresh();
-          } catch (error) {
-            alert(String(error.message));
-            event.target.disabled = false;
-          }
-        },
-      },
-      'Record approval',
-    );
-    const evaluate = h(
-      'button',
-      {
-        onclick: async (event) => {
-          event.target.disabled = true;
-          try {
-            await api(`/invoices/${encodeURIComponent(invoiceId)}/evaluate`, { method: 'POST' });
-          } finally {
-            await refresh();
-          }
-        },
-      },
-      'Re-evaluate',
-    );
-    const pay = h(
-      'button',
-      {
-        onclick: async (event) => {
-          const destination = supplier && supplier.wallet ? supplier.wallet : 'the trusted supplier wallet';
-          if (!window.confirm(`Send ${invoice.amount} USDC to ${destination}?\n\nThis submits a real testnet payment.`)) return;
-          event.target.disabled = true;
-          try {
-            const result = await api(`/invoices/${encodeURIComponent(invoiceId)}/payment`, { method: 'POST' });
-            alert(`Result: ${result.state}`);
-            await refresh();
-          } catch (error) {
-            alert(String(error.message));
-            event.target.disabled = false;
-          }
-        },
-      },
-      'Pay now',
-    );
-    root.append(
-      panel(
-        'Human review',
-        lede(
-          'Approval is the ', concept('approval_token', 'approval token'), ' at work: a second '
-          + 'credential a person supplies, which is why the API key on its own can never approve ',
-          + 'anything.',
-        ),
-        h('p', { class: 'muted' }, 'Approval acknowledges specific checks and is bound to the evidence hash; it can never change the destination or the amount.'),
-        boxes.length ? h('div', { class: 'checks' }, boxes) : h('p', { class: 'muted' }, 'No overridable checks are currently failing.'),
-        h('div', { class: 'credentials' }, reviewer, note, approve, evaluate, pay),
-      ),
-    );
-  } else {
-    root.append(
-      panel(
-        'No decision recorded yet',
-        h(
-          'button',
-          {
-            onclick: async (event) => {
-              event.target.disabled = true;
-              try {
-                await api(`/invoices/${encodeURIComponent(invoiceId)}/evaluate`, { method: 'POST' });
-              } finally {
-                await refresh();
-              }
-            },
-          },
-          'Evaluate now',
-        ),
-      ),
-    );
+          if (acknowledged.length !== boxes.length) throw new Error('Acknowledge every listed exception before recording approval.');
+          await mutate(`${base}/approval`, { approval: true, body: { reviewer: reviewer.input.value.trim(), approved: true, note: note.input.value.trim(), acknowledged_checks: acknowledged } });
+        }, feedback),
+      ));
+    }
+    root.append(h('details', { class: 'card' }, h('summary', {}, 'Decision provenance'),
+      h('dl', { class: 'facts' }, h('dt', {}, 'Decision'), h('dd', {}, decision.action, plainWords('decisions', decision.action)), h('dt', {}, 'Reason'), h('dd', {}, decision.reason),
+        h('dt', {}, 'Layer'), h('dd', {}, `${decision.advisory?.decided_by || 'policy'} · ${decision.advisory?.rationale || 'Deterministic checks are authoritative.'}`),
+        h('dt', {}, 'Evidence hash'), h('dd', { title: decision.evidence_hash || '' }, short(decision.evidence_hash)), h('dt', {}, 'Policy version'), h('dd', {}, decision.policy_version), h('dt', {}, 'Evaluated at'), h('dd', {}, decision.evaluated_at)),
+      (decision.advisory?.deliberations || []).map((item) => h('p', { class: 'mono' }, `${item.layer} · ${item.model || 'no model'} · ${item.outcome} · prompt ${short(item.prompt_sha256)} · response ${short(item.response_sha256)}`)),
+    ));
   }
 
-  const verify = h('button', {}, 'Verify audit chain');
-  const verdict = h('span', { class: 'muted' });
-  verify.addEventListener('click', async () => {
-    verify.disabled = true;
-    try {
+  if (detail.payment) root.append(panel('Settlement & accounting entries',
+    h('dl', { class: 'facts' }, h('dt', {}, 'Settlement'), h('dd', {}, detail.payment.confirmation_status || '—'),
+      h('dt', {}, 'Transaction'), h('dd', {}, detail.payment.transaction_hash || '—'), h('dt', {}, 'Payment Entry'), h('dd', {}, detail.payment.erp_entry_id || 'Not recorded yet'),
+      h('dt', {}, 'Fee Entry'), h('dd', {}, detail.payment.erp_fee_entry_id || 'Not recorded yet')),
+  ));
+  const verdict = h('div', { role: 'status', 'aria-live': 'polite' });
+  root.append(panel(concept('audit_chain', 'Verifiable history'),
+    actionButton('Verify audit chain', async () => {
       const result = await api('/audit/verify');
-      verdict.replaceChildren(
-        result.ok
-          ? badge(`intact · ${result.checked} entries · ${result.signed} signed`, 'good')
-          : badge(`broken at entry ${result.first_broken_id}: ${result.reason}`, 'bad'),
-      );
-    } catch (error) {
-      verdict.replaceChildren(badge(String(error.message), 'bad'));
-    } finally {
-      verify.disabled = false;
-    }
-  });
-  const eventRows = events.map((event) =>
-    h(
-      'tr',
-      {},
-      h('td', {}, event.created_at),
-      h('td', {}, event.type),
-      h('td', {}, event.state),
-      h('td', { title: event.event_hash || '' }, short(event.event_hash)),
-      h('td', {}, event.signature ? badge('signed', 'good') : '—'),
-    ),
-  );
-  root.append(
-    panel(
-      concept('audit_chain', 'Audit chain'),
-      h('div', { class: 'credentials' }, verify, verdict),
-      table(['When', 'Event', 'State', 'Entry hash', 'Signature'], eventRows),
-    ),
-  );
+      verdict.replaceChildren(result.ok ? badge(`Intact · ${result.checked} entries · ${result.signed} signed (whole database)`, 'good') : badge(`Broken at entry ${result.first_broken_id}: ${result.reason}`, 'bad'));
+    }, verdict, { 'data-action': 'verify-audit' }), verdict,
+    table(['When', 'Event', 'State', 'Entry hash', 'Signature'], events.map((event) => h('tr', {}, h('td', {}, event.created_at), h('td', {}, event.type), h('td', {}, event.state), h('td', { title: event.event_hash || '' }, short(event.event_hash)), h('td', {}, event.signature ? badge('Signed', 'good') : 'Unsigned')))),
+  ));
 }
 
 registerView('invoice', renderInvoice);

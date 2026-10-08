@@ -15,6 +15,18 @@ async function renderSetup(root) {
   const data = await api('/setup');
   root.append(sectionHeading({ eyebrow: 'Configuration', title: 'Setup', count: (data.groups || []).length }));
 
+  const stages = [
+    ['Connect the accounting system', 'Verify the payable, supplier wallet fields and account mapping. Mock records are examples, not a verified ERPNext connection.'],
+    ['Verify the supplier destination', 'A human must verify the supplier wallet in ERPNext. An address on an invoice is never sufficient.'],
+    ['Check policy & deployment limits', 'Review the reserve floor, screening and immutable guard budgets. Run the read-only live checks below before a testnet payment.'],
+    ['Preview, then explicitly confirm', 'Evaluate one invoice in the queue. Resolve blocking evidence first, review the exact amount and destination, and verify the ledger entry afterward.'],
+  ];
+  root.append(panel('First-payment checklist',
+    h('p', { class: 'muted' }, 'Configuration present does not mean an integration has been verified. Nothing in this checklist changes settings or moves funds.'),
+    h('ol', { class: 'setup-stages' }, stages.map(([title, description], index) => h('li', {}, h('span', { class: 'step-number' }, index + 1), h('div', {}, h('h3', {}, title), h('p', {}, description))))),
+    h('a', { class: 'btn', href: '#/queue' }, 'Preview invoice decisions'),
+  ));
+
   root.append(
     panel(
       'Configuration',
