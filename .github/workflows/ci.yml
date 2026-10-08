@@ -61,8 +61,14 @@ jobs:
           export TAMEION_TEST_PKCS11=1
           export TAMEION_SOFTHSM_CONF="$RUNNER_TEMP/softhsm2.conf"
           export TAMEION_SOFTHSM_UTIL="$(command -v softhsm2-util)"
-          export TAMEION_PKCS11_LIB="$(find /usr/lib -name libsofthsm2.so | head -1)"
           export TAMEION_PKCS11_TOOL="$(command -v pkcs11-tool)"
+          # Prefer the provider library installed by the package over any module proxy.
+          CANDIDATES="$(dpkg -L softhsm2 | grep -E 'libsofthsm2\.so$' || true)"
+          echo "candidate PKCS#11 libraries:"; echo "$CANDIDATES"
+          export TAMEION_PKCS11_LIB="$(echo "$CANDIDATES" | grep -v '/pkcs11/' | head -1)"
+          if [ -z "$TAMEION_PKCS11_LIB" ]; then export TAMEION_PKCS11_LIB="$(echo "$CANDIDATES" | head -1)"; fi
+          echo "using PKCS#11 library: $TAMEION_PKCS11_LIB"
+          nm -D "$TAMEION_PKCS11_LIB" | grep -E 'C_Initialize|C_GetFunctionList' || true
           uv run pytest -q tests/test_pkcs11_config.py tests/test_pkcs11_signer.py tests/test_signer_rotation.py
 
   contracts:

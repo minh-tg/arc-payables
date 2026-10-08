@@ -133,7 +133,10 @@ def _load_library(path: str):
 
 
 def _open_library(path: str):
-    loader = ctypes.CDLL(path)
+    try:
+        loader = ctypes.CDLL(path)
+    except OSError as exc:
+        raise PKCS11Error(f"PKCS#11 library {path!r} could not be loaded; refusing to sign.") from exc
     loader.C_Initialize.argtypes = [ctypes.c_void_p]
     loader.C_Initialize.restype = _CK_RV
     loader.C_GetSlotList.argtypes = [ctypes.c_ubyte, ctypes.POINTER(_CK_SLOT_ID), ctypes.POINTER(_CK_ULONG)]
@@ -171,15 +174,22 @@ def _initialize(loader: Any) -> None:
     which claims nothing about thread safety, and rely on ``_CALL_LOCK`` to serialize every call
     ourselves. Anything else fails closed: an unusable library is never used unsafely.
     """
-    args = _InitializeArgs(None, None, None, None, _CKF_OS_LOCKING_OK, None)
-    code = loader.C_Initialize(ctypes.byref(args))
-    if code in (_CKR_OK, _CKR_CRYPTOKI_ALREADY_INITIALIZED):
-        return
-    if code in (_CKR_ARGUMENTS_BAD, _CKR_CANT_LOCK):
+    for flags in (_CKF_OS_LOCKING_OK, 0):
+        args = _InitializeArgs(None, None, None, None, flags, None)
+        code = loader.C_Initialize(ctypes.byref(args))
+        if code in (_CKR_OK, _CKR_CRYPTOKI_ALREADY_INITIALIZED):
+            return
+        if code not in (_CKR_ARGUMENTS_BAD, _CKR_CANT_LOCK):
+            break
+    else:
         code = loader.C_Initialize(None)
         if code in (_CKR_OK, _CKR_CRYPTOKI_ALREADY_INITIALIZED):
             return
-    raise PKCS11Error(f"PKCS#11 C_Initialize failed (rv=0x{code:08x}); refusing to sign.")
+    raise PKCS11Error(
+        f"PKCS#11 C_Initialize failed for {getattr(loader, '_name', None) or 'the configured library'} "
+        f"(rv=0x{code:08x}); refusing to sign. Check that PKCS11_LIB_PATH names the provider library "
+        f"itself rather than a p11-kit module proxy."
+    )
 
 
 def _template(entries: list[tuple[int, bytes | None]]) -> tuple[list, list]:
