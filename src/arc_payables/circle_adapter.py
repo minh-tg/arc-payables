@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal, ROUND_CEILING
 from typing import Any, Callable
@@ -19,6 +20,7 @@ from .domain import (
     ScreeningStatus,
     TreasurySnapshot,
     USDC_SCALE,
+    add_operation_fee,
     utcnow,
 )
 from .evm import decode_bool, decode_uint256, encode_allowance, encode_approve, encode_balance_of, encode_permit_call, encode_used
@@ -146,6 +148,10 @@ class CircleDeveloperControlledWalletProvider(PaymentProvider):
         if native_balance <= 0:
             return PaymentSubmission(PaymentStatus.FAILED, failure_code="INSUFFICIENT_ARC_NATIVE_USDC_FOR_GAS")
 
+        # Circle charges for every operation it executes on our behalf, and settling one
+        # authorization can take up to three. Each is measured as it confirms and summed, so the
+        # fee booked in the ledger is the whole cost rather than only the guarded call.
+        fees: dict[str, int] = {}
         allowance = self._allowance()
         if allowance != permit.amount_units:
             if allowance > 0:
@@ -158,8 +164,9 @@ class CircleDeveloperControlledWalletProvider(PaymentProvider):
                 if on_transaction:
                     on_transaction("approve_reset", reset)
                 result = self._wait_transaction(reset)
+                add_operation_fee(fees, "approve_reset", result.fee_units)
                 if result.status != PaymentStatus.CONFIRMED:
-                    return result
+                    return replace(result, fee_units=sum(fees.values()), fee_breakdown=dict(fees))
             approval = self._create_contract_execution(
                 contract=ARC_TESTNET_USDC,
                 call_data=encode_approve(self.guard_address, permit.amount_units),
@@ -169,10 +176,17 @@ class CircleDeveloperControlledWalletProvider(PaymentProvider):
             if on_transaction:
                 on_transaction("approve", approval)
             result = self._wait_transaction(approval)
+            add_operation_fee(fees, "approve", result.fee_units)
             if result.status != PaymentStatus.CONFIRMED:
-                return result
+                return replace(result, fee_units=sum(fees.values()), fee_breakdown=dict(fees))
             if self._allowance() != permit.amount_units:
-                return PaymentSubmission(PaymentStatus.FAILED, provider_transaction_id=approval, failure_code="EXACT_ALLOWANCE_NOT_SET")
+                return PaymentSubmission(
+                    PaymentStatus.FAILED,
+                    provider_transaction_id=approval,
+                    failure_code="EXACT_ALLOWANCE_NOT_SET",
+                    fee_units=sum(fees.values()),
+                    fee_breakdown=dict(fees),
+                )
 
         call_data = encode_permit_call(permit, payment["signature"])
         tx_id = self._create_contract_execution(
@@ -183,7 +197,9 @@ class CircleDeveloperControlledWalletProvider(PaymentProvider):
         )
         if on_transaction:
             on_transaction("guard", tx_id)
-        return self._wait_transaction(tx_id)
+        settled = self._wait_transaction(tx_id)
+        add_operation_fee(fees, "guard", settled.fee_units)
+        return replace(settled, fee_units=sum(fees.values()), fee_breakdown=dict(fees))
 
     def _create_contract_execution(self, contract: str, call_data: str, idempotency_key: str, payment_id: str) -> str:
         # Circle requires a fresh RSA-OAEP ciphertext for every mutating W3S request.

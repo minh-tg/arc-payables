@@ -88,13 +88,27 @@ def test_pays_the_supplier_exactly_and_reports_a_measured_fee(tmp_path, chain):
         assert chain.erc20_balance(SUPPLIER) - before == INVOICE_USDC * USDC_SCALE
         assert payment["transaction_hash"].startswith("0x")
 
-        # The fee is measured from the receipt, in 6-decimal USDC units. The expected figure is
-        # recomputed here from the chain's own receipt, so a wrong scale cannot pass unnoticed.
+        # The booked fee must be the cost of *every* on-chain operation, not just the guarded call:
+        # this deployment also pays for setting the exact allowance. The expected total is rebuilt
+        # here from each operation's own receipt, read back off the chain, so neither a wrong scale
+        # nor a dropped operation can pass.
         stored = store.get_payment(invoice_id)
-        receipt = provider._wait_receipt(stored["transaction_hash"])
-        gas_wei = int(receipt["gasUsed"], 16) * int(receipt["effectiveGasPrice"], 16)
-        expected_units = -(-gas_wei // 10**12)
-        assert int(stored["fee_units"]) == expected_units
+        operations = [
+            (event["payload"]["stage"], event["payload"]["provider_transaction_id"])
+            for event in store.events(invoice_id)
+            if event["type"] == "PAYMENT_OPERATION_SUBMITTED"
+        ]
+        assert [stage for stage, _ in operations] == ["approve", "guard"], operations
+        per_stage = {}
+        for stage, tx_hash in operations:
+            receipt = provider._wait_receipt(tx_hash)
+            gas_wei = int(receipt["gasUsed"], 16) * int(receipt["effectiveGasPrice"], 16)
+            per_stage[stage] = -(-gas_wei // 10**12)
+        expected_units = sum(per_stage.values())
+        assert int(stored["fee_units"]) == expected_units, per_stage
+        assert stored["fee_breakdown"] == per_stage
+        # Both operations really did cost something, or this test would prove nothing.
+        assert per_stage["approve"] > 0 and per_stage["guard"] > 0
         assert expected_units > 1, "a gas cost this size must not collapse to a single micro-USDC"
 
         # The exact allowance the guard pulled is fully consumed, leaving nothing behind.

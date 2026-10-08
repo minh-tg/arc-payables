@@ -29,6 +29,7 @@ from .domain import (
     SupplierRecord,
     TreasurySnapshot,
     USDC_SCALE,
+    add_operation_fee,
     is_evm_address,
     utcnow,
 )
@@ -315,6 +316,7 @@ class MockPaymentProvider:
         balance_units: int = 5_000 * USDC_SCALE,
         fee_units: int = 0,
         deferred_fee: bool = False,
+        approve_fee_units: int = 0,
     ):
         self.store = store
         self.signer = signer or EIP712PermitSigner(Account.create().key)
@@ -322,6 +324,9 @@ class MockPaymentProvider:
         self.guard_address = guard_address
         self.failure_mode = failure_mode
         self._balance_units = balance_units
+        # Models the allowance operation that precedes the guarded call on a real chain, so the
+        # accounting path for a multi-operation fee can be tested without one.
+        self.approve_fee_units = approve_fee_units
         self._payments_by_id: dict[str, PaymentSubmission] = {}
         self._payments_by_key: dict[str, PaymentSubmission] = {}
         self._lock = threading.Lock()
@@ -346,8 +351,13 @@ class MockPaymentProvider:
         if known:
             # The fee comes back once the transaction is indexed, which is the whole reason a
             # writeback asks the provider again instead of accepting the blank it was given.
-            if known.fee_units is None and not self.deferred_fee:
-                return replace(known, fee_units=self.fee_units)
+            # What the provider could not name is the *guarded call's* fee; the allowance operation
+            # that preceded it was already measurable, so an inspection reports that stage alone and
+            # the caller merges it with what it already had.
+            if not self.deferred_fee:
+                breakdown = dict(known.fee_breakdown or {})
+                breakdown["guard"] = self.fee_units
+                return replace(known, fee_units=self.fee_units, fee_breakdown=breakdown)
             return known
         if self.failure_mode == "uncertain" and payment_id in self._payments_by_id:
             return PaymentSubmission(PaymentStatus.UNCERTAIN, failure_code="MOCK_UNCERTAIN")
@@ -387,7 +397,15 @@ class MockPaymentProvider:
             self._payments_by_key[idempotency_key] = result
             return result
         if self.failure_mode == "reverted":
-            result = PaymentSubmission(PaymentStatus.FAILED, failure_code="CONTRACT_REVERTED")
+            # The guarded call reverts after the allowance was already set, so its gas is spent and
+            # must still be recorded: a failed payment is not a free one.
+            spent = {"approve": self.approve_fee_units} if self.approve_fee_units else {}
+            result = PaymentSubmission(
+                PaymentStatus.FAILED,
+                failure_code="CONTRACT_REVERTED",
+                fee_units=sum(spent.values()) or None,
+                fee_breakdown=spent or None,
+            )
             self._payments_by_id[payment_id] = result
             self._payments_by_key[idempotency_key] = result
             return result
@@ -402,8 +420,14 @@ class MockPaymentProvider:
             result = PaymentSubmission(PaymentStatus.UNCERTAIN, failure_code="RESULT_UNKNOWN")
             self._payments_by_id[payment_id] = result
             return result
+        fees: dict[str, int] = {}
+        if self.approve_fee_units:
+            if on_transaction:
+                on_transaction("approve", f"mock-approve-{idempotency_key}")
+            add_operation_fee(fees, "approve", self.approve_fee_units)
         if on_transaction:
             on_transaction("contract_execution", f"mock-{idempotency_key}")
+        add_operation_fee(fees, "guard", None if self.deferred_fee else self.fee_units)
         self._balance_units -= permit.amount_units
         # A distinct transaction hash. Deriving it from the payment id made the two fields identical
         # in the double, so a lookup by hash and a lookup by payment id were indistinguishable and a
@@ -414,7 +438,8 @@ class MockPaymentProvider:
             PaymentStatus.CONFIRMED,
             transaction_hash=transaction_hash,
             provider_transaction_id=f"mock-{idempotency_key}",
-            fee_units=None if self.deferred_fee else self.fee_units,
+            fee_units=sum(fees.values()) if fees else None,
+            fee_breakdown=dict(fees) or None,
         )
         self._payments_by_id[payment_id] = result
         self._payments_by_key[idempotency_key] = result

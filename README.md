@@ -626,11 +626,11 @@ which left the first Circle settlement unbookable.
 - The **Circle Developer-Controlled Wallet** path has now settled real testnet USDC and reached
   `ERP_RECORDED`, but only on Arc Testnet. Circle's own `transactionScreeningEvaluation` returns no
   verdict, so address screening stays unavailable and invoices still escalate for a human. The fee
-  recorded is Circle's reported cost of the operation that settled the payment; the exact-allowance
-  approval before it is a separate Circle operation whose fee is not booked, exactly as on the
-  local-key path. There is no mainnet route for either provider.
+  recorded is the total Circle-reported cost of *every* operation that settled the payment — the
+  exact-allowance approval and the guarded call — with the per-operation split kept in
+  `fee_breakdown`, exactly as on the local-key path. There is no mainnet route for either provider.
 - The fee we absorb is booked rounded up to the company currency's smallest unit, because a ledger in USD cannot represent a fraction of a cent. The entry's remark records the measured figure, and the rounding can overstate our own cost by less than one unit per payment. A company whose base currency is the stablecoin needs no rounding.
-- The live writeback above was verified on a **disposable local sandbox**. A production chart of accounts, a least-privilege runtime user, and an accountant's review of the mapping are still the operator's job.
+- The live writeback above was verified on a **disposable local sandbox**. A production chart of accounts, a least-privilege runtime user, and an accountant's review of the mapping are still the operator's job; [docs/accounting.md](docs/accounting.md) states exactly what evidence closes each of those.
 - Address screening's OpenSanctions provider is implemented behind its interface with deterministic evidence and fail-closed behavior, but no live call has been made (no API key configured), so a real deployment still relies on human review until it is exercised.
 - The fee is measured from the transaction receipt's `gasUsed * effectiveGasPrice`, which Arc reports as 18-decimal native USDC against a 6-decimal token. That conversion is now pinned by a test using a real receipt's numbers. A fee the ledger cannot represent is booked rounded up, and a company whose base currency is the settlement asset needs no rounding at all.
 

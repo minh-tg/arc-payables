@@ -496,12 +496,18 @@ class APWorkflow:
             return None
         if submission.fee_units is None:
             return None
+        # Merge rather than replace: the re-read answers only for the settlement operation, and the
+        # allowance operations that preceded it were already measured. Overwriting would drop them
+        # and understate the cost this deployment absorbed.
+        breakdown = dict(payment.get("fee_breakdown") or {})
+        breakdown["guard"] = int(submission.fee_units)
+        total = sum(breakdown.values())
         self.store.update_payment(
             invoice.id,
-            {"fee_units": submission.fee_units},
+            {"fee_units": total, "fee_breakdown": breakdown},
             payment.get("state") or WorkflowState.ERP_PENDING.value,
             "SETTLEMENT_FEE_REREAD",
-            {"transaction_hash": payment.get("transaction_hash"), "fee_units": submission.fee_units},
+            {"transaction_hash": payment.get("transaction_hash"), "fee_units": total, "fee_breakdown": breakdown},
         )
         return self.store.get_payment(invoice.id)
 
@@ -963,6 +969,7 @@ class APWorkflow:
             "provider_transaction_id": result.provider_transaction_id,
             "transaction_hash": result.transaction_hash,
             "fee_units": result.fee_units,
+            "fee_breakdown": result.fee_breakdown,
             "failure_code": result.failure_code,
         }
 
@@ -982,6 +989,7 @@ class APWorkflow:
                 "provider_stage",
                 "confirmation_status",
                 "fee_units",
+                "fee_breakdown",
                 "erp_status",
                 "erp_entry_id",
                 "erp_fee_status",
