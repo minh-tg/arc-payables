@@ -46,6 +46,9 @@ class PKCS11KeyLocator:
 # plus its public half, and C_Sign with CKM_ECDSA. Anything else fails closed.
 
 _CKR_OK = 0x00000000
+_CKR_ARGUMENTS_BAD = 0x00000005
+_CKR_CANT_LOCK = 0x0000000A
+_CKR_CRYPTOKI_ALREADY_INITIALIZED = 0x00000191
 _CKR_USER_ALREADY_LOGGED_IN = 0x00000100
 _CKU_USER = 1
 _CKO_PRIVATE_KEY = 3
@@ -108,6 +111,9 @@ def _rv(call: str, code: int) -> None:
 
 _LIBRARIES: dict[str, Any] = {}
 _LIBRARIES_LOCK = threading.Lock()
+#: Serializes PKCS#11 calls in this process. Held even when the library declares
+#: ``CKF_OS_LOCKING_OK``, so correctness never depends on which mode the library accepted.
+_CALL_LOCK = threading.RLock()
 
 
 def _load_library(path: str):
@@ -152,14 +158,28 @@ def _open_library(path: str):
     loader.C_SignInit.restype = _CK_RV
     loader.C_Sign.argtypes = [_CK_SESSION_HANDLE, ctypes.c_char_p, _CK_ULONG, ctypes.c_char_p, ctypes.POINTER(_CK_ULONG)]
     loader.C_Sign.restype = _CK_RV
-    # CKF_OS_LOCKING_OK: the library does its own locking, which is required before several
-    # threads may call it. A library that refuses these args is not used, rather than used
-    # unsafely, because concurrent misuse corrupts memory instead of raising.
+    _initialize(loader)
+    return loader
+
+
+def _initialize(loader: Any) -> None:
+    """Initialize the library, preferring OS-level locking.
+
+    ``CKF_OS_LOCKING_OK`` asks the library to lock internally, which is what the spec requires
+    before several threads may call it. Not every build accepts the argument structure: an older
+    SoftHSM rejects it with ``CKR_ARGUMENTS_BAD``. In that case fall back to ``C_Initialize(NULL)``,
+    which claims nothing about thread safety, and rely on ``_CALL_LOCK`` to serialize every call
+    ourselves. Anything else fails closed: an unusable library is never used unsafely.
+    """
     args = _InitializeArgs(None, None, None, None, _CKF_OS_LOCKING_OK, None)
     code = loader.C_Initialize(ctypes.byref(args))
-    if code not in (_CKR_OK, 0x00000191):  # already initialized by this process is fine
-        raise PKCS11Error(f"PKCS#11 C_Initialize failed (rv=0x{code:08x}); refusing to sign.")
-    return loader
+    if code in (_CKR_OK, _CKR_CRYPTOKI_ALREADY_INITIALIZED):
+        return
+    if code in (_CKR_ARGUMENTS_BAD, _CKR_CANT_LOCK):
+        code = loader.C_Initialize(None)
+        if code in (_CKR_OK, _CKR_CRYPTOKI_ALREADY_INITIALIZED):
+            return
+    raise PKCS11Error(f"PKCS#11 C_Initialize failed (rv=0x{code:08x}); refusing to sign.")
 
 
 def _template(entries: list[tuple[int, bytes | None]]) -> tuple[list, list]:
@@ -186,60 +206,63 @@ class _Session:
     """One logged-in read-only PKCS#11 session. Closed explicitly; never shared."""
 
     def __init__(self, lib_path: str, slot: int | None, user_pin: str):
-        self._lib = _load_library(lib_path)
-        count = _CK_ULONG(0)
-        _rv("C_GetSlotList", self._lib.C_GetSlotList(1, None, ctypes.byref(count)))
-        if count.value == 0:
-            raise PKCS11Error("PKCS#11 token reports no slots with a token present; refusing to sign.")
-        slots = (_CK_SLOT_ID * count.value)()
-        _rv("C_GetSlotList", self._lib.C_GetSlotList(1, slots, ctypes.byref(count)))
-        available = [slots[i] for i in range(count.value)]
-        if slot is not None and slot not in available:
-            raise PKCS11Error("PKCS#11 configured slot has no token present; refusing to sign.")
-        self._slot = slot if slot is not None else available[0]
-        if slot is None and len(available) > 1:
-            raise PKCS11Error("PKCS#11 found several tokens; set PKCS11_SLOT to pin one. Refusing to guess.")
-        handle = _CK_SESSION_HANDLE(0)
-        _rv("C_OpenSession", self._lib.C_OpenSession(self._slot, _CKF_SERIAL_SESSION, None, None, ctypes.byref(handle)))
-        self.handle = handle.value
-        self._open = True
-        try:
-            # Login is token-wide, not per-session: a second concurrent signer legitimately
-            # gets CKR_USER_ALREADY_LOGGED_IN, which is success, not a failure.
-            code = self._lib.C_Login(self.handle, _CKU_USER, user_pin.encode(), len(user_pin.encode()))
-            if code not in (_CKR_OK, _CKR_USER_ALREADY_LOGGED_IN):
-                raise PKCS11Error(f"PKCS#11 C_Login failed (rv=0x{code:08x}); refusing to sign.")
-        except Exception:
-            self.close()
-            raise
+        with _CALL_LOCK:
+            self._lib = _load_library(lib_path)
+            count = _CK_ULONG(0)
+            _rv("C_GetSlotList", self._lib.C_GetSlotList(1, None, ctypes.byref(count)))
+            if count.value == 0:
+                raise PKCS11Error("PKCS#11 token reports no slots with a token present; refusing to sign.")
+            slots = (_CK_SLOT_ID * count.value)()
+            _rv("C_GetSlotList", self._lib.C_GetSlotList(1, slots, ctypes.byref(count)))
+            available = [slots[i] for i in range(count.value)]
+            if slot is not None and slot not in available:
+                raise PKCS11Error("PKCS#11 configured slot has no token present; refusing to sign.")
+            self._slot = slot if slot is not None else available[0]
+            if slot is None and len(available) > 1:
+                raise PKCS11Error("PKCS#11 found several tokens; set PKCS11_SLOT to pin one. Refusing to guess.")
+            handle = _CK_SESSION_HANDLE(0)
+            _rv("C_OpenSession", self._lib.C_OpenSession(self._slot, _CKF_SERIAL_SESSION, None, None, ctypes.byref(handle)))
+            self.handle = handle.value
+            self._open = True
+            try:
+                # Login is token-wide, not per-session: a second concurrent signer legitimately
+                # gets CKR_USER_ALREADY_LOGGED_IN, which is success, not a failure.
+                code = self._lib.C_Login(self.handle, _CKU_USER, user_pin.encode(), len(user_pin.encode()))
+                if code not in (_CKR_OK, _CKR_USER_ALREADY_LOGGED_IN):
+                    raise PKCS11Error(f"PKCS#11 C_Login failed (rv=0x{code:08x}); refusing to sign.")
+            except Exception:
+                self.close()
+                raise
 
     def find(self, template_entries: list[tuple[int, bytes | None]]) -> list[int]:
-        kept, array = _template(template_entries)
-        _rv("C_FindObjectsInit", self._lib.C_FindObjectsInit(self.handle, array, len(template_entries)))
-        try:
-            found = (_CK_OBJECT_HANDLE * 8)()
-            total = _CK_ULONG(0)
-            _rv("C_FindObjects", self._lib.C_FindObjects(self.handle, found, 8, ctypes.byref(total)))
-            return [found[i] for i in range(total.value)]
-        finally:
-            _rv("C_FindObjectsFinal", self._lib.C_FindObjectsFinal(self.handle))
+        with _CALL_LOCK:
+            kept, array = _template(template_entries)
+            _rv("C_FindObjectsInit", self._lib.C_FindObjectsInit(self.handle, array, len(template_entries)))
+            try:
+                found = (_CK_OBJECT_HANDLE * 8)()
+                total = _CK_ULONG(0)
+                _rv("C_FindObjects", self._lib.C_FindObjects(self.handle, found, 8, ctypes.byref(total)))
+                return [found[i] for i in range(total.value)]
+            finally:
+                _rv("C_FindObjectsFinal", self._lib.C_FindObjectsFinal(self.handle))
 
     def get_bytes(self, handle: int, kind: int) -> bytes:
-        kept, array = _template([(kind, None)])
-        _rv("C_GetAttributeValue", self._lib.C_GetAttributeValue(self.handle, handle, array, 1))
-        # A sensitive/unextractable attribute must come back as unavailable, never as bytes.
-        if array[0].ulValueLen == _CK_UNAVAILABLE_INFORMATION:
-            raise PKCS11Error("PKCS#11 refused to reveal a private attribute; refusing to sign.")
-        length = array[0].ulValueLen
-        if length == 0 or length > 4096:
-            raise PKCS11Error("PKCS#11 returned an unusable attribute length; refusing to sign.")
-        buffer = ctypes.create_string_buffer(length)
-        query = _Attribute()
-        query.type = kind
-        query.pValue = ctypes.cast(buffer, ctypes.c_void_p)
-        query.ulValueLen = length
-        _rv("C_GetAttributeValue", self._lib.C_GetAttributeValue(self.handle, handle, ctypes.byref(query), 1))
-        return bytes(buffer.raw)
+        with _CALL_LOCK:
+            kept, array = _template([(kind, None)])
+            _rv("C_GetAttributeValue", self._lib.C_GetAttributeValue(self.handle, handle, array, 1))
+            # A sensitive/unextractable attribute must come back as unavailable, never as bytes.
+            if array[0].ulValueLen == _CK_UNAVAILABLE_INFORMATION:
+                raise PKCS11Error("PKCS#11 refused to reveal a private attribute; refusing to sign.")
+            length = array[0].ulValueLen
+            if length == 0 or length > 4096:
+                raise PKCS11Error("PKCS#11 returned an unusable attribute length; refusing to sign.")
+            buffer = ctypes.create_string_buffer(length)
+            query = _Attribute()
+            query.type = kind
+            query.pValue = ctypes.cast(buffer, ctypes.c_void_p)
+            query.ulValueLen = length
+            _rv("C_GetAttributeValue", self._lib.C_GetAttributeValue(self.handle, handle, ctypes.byref(query), 1))
+            return bytes(buffer.raw)
 
     def get_flag(self, handle: int, kind: int) -> bool:
         raw = self.get_bytes(handle, kind)
@@ -250,14 +273,15 @@ class _Session:
     def sign_raw_ecdsa(self, key_handle: int, digest: bytes) -> bytes:
         if len(digest) != 32:
             raise ValueError("PKCS#11 signs a precomputed 32-byte digest, nothing else.")
-        mechanism = _Mechanism(_CKM_ECDSA, None, 0)
-        _rv("C_SignInit", self._lib.C_SignInit(self.handle, ctypes.byref(mechanism), key_handle))
-        out = ctypes.create_string_buffer(128)
-        out_len = _CK_ULONG(128)
-        _rv("C_Sign", self._lib.C_Sign(self.handle, digest, len(digest), out, ctypes.byref(out_len)))
-        if out_len.value != 64:
-            raise PKCS11Error("PKCS#11 ECDSA signature is not raw r||s; refusing to sign.")
-        return bytes(out.raw[:64])
+        with _CALL_LOCK:
+            mechanism = _Mechanism(_CKM_ECDSA, None, 0)
+            _rv("C_SignInit", self._lib.C_SignInit(self.handle, ctypes.byref(mechanism), key_handle))
+            out = ctypes.create_string_buffer(128)
+            out_len = _CK_ULONG(128)
+            _rv("C_Sign", self._lib.C_Sign(self.handle, digest, len(digest), out, ctypes.byref(out_len)))
+            if out_len.value != 64:
+                raise PKCS11Error("PKCS#11 ECDSA signature is not raw r||s; refusing to sign.")
+            return bytes(out.raw[:64])
 
     def close(self) -> None:
         """Close the session only.
@@ -270,10 +294,11 @@ class _Session:
         if not self._open:
             return
         self._open = False
-        try:
-            self._lib.C_CloseSession(self.handle)
-        except Exception:
-            pass
+        with _CALL_LOCK:
+            try:
+                self._lib.C_CloseSession(self.handle)
+            except Exception:
+                pass
 
 
 SECP256K1_PARAMS_HEX = "06052b8104000a"  # OID 1.3.132.0.10

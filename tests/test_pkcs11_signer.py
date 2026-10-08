@@ -220,6 +220,7 @@ def test_concurrent_signatures_stay_distinct_and_verifiable(token):
 
 
 def test_env_signer_control_still_verifies():
+    """Control: the env backend still works, so a PKCS#11 failure is not a broken test."""
     signer = EIP712PermitSigner("0x" + "42" * 32)
     permit = _permit()
     assert signer.verify(permit, signer.sign(permit))

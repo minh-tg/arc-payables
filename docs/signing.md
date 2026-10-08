@@ -43,9 +43,13 @@ threads on one signer produced 128 distinct, verifiable, low-s signatures.
 
 Two Cryptoki details are required for that to be safe, and both were found by that test:
 
-* The library is initialized **once per process, under a lock, with `CKF_OS_LOCKING_OK`**. Without
-  that flag a PKCS#11 library may assume the *application* serialises every call, and concurrent
-  `C_Sign` then corrupts memory instead of failing cleanly.
+* The library is initialized **once per process, under a lock, preferring `CKF_OS_LOCKING_OK`**.
+  Without that flag a PKCS#11 library may assume the *application* serialises every call, and
+  concurrent `C_Sign` then corrupts memory instead of failing cleanly. A build that rejects the
+  argument structure (`CKR_ARGUMENTS_BAD`, as an older SoftHSM did in CI) falls back to
+  `C_Initialize(NULL)`; every PKCS#11 call is then serialised in-process by an explicit lock, so
+  correctness never depends on which mode the library accepted. A library that initializes neither
+  way is refused rather than used unsafely.
 * Login is **token-wide, not per-session**. A second concurrent signer gets
   `CKR_USER_ALREADY_LOGGED_IN`, which is success, and the session close therefore does **not** call
   `C_Logout`: logging out would pull the token out from under another thread's authenticated

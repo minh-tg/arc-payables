@@ -63,7 +63,7 @@ jobs:
           export TAMEION_SOFTHSM_UTIL="$(command -v softhsm2-util)"
           export TAMEION_PKCS11_LIB="$(find /usr/lib -name libsofthsm2.so | head -1)"
           export TAMEION_PKCS11_TOOL="$(command -v pkcs11-tool)"
-          uv run pytest -q tests/test_pkcs11_signer.py tests/test_signer_rotation.py
+          uv run pytest -q tests/test_pkcs11_config.py tests/test_pkcs11_signer.py tests/test_signer_rotation.py
 
   contracts:
     name: Solidity suite
