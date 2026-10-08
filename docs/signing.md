@@ -43,6 +43,10 @@ threads on one signer produced 128 distinct, verifiable, low-s signatures.
 
 Two Cryptoki details are required for that to be safe, and both were found by that test:
 
+* A `CKR_ARGUMENTS_BAD` (0x5) from `C_Initialize` often is not about the arguments at all: SoftHSM
+  returns it when it cannot load its configuration, so `SOFTHSM2_CONF` must point at a valid config
+  whose token directory exists. This cost a CI cycle: the tests were silently skipped, then failed,
+  before the configuration variable was identified. Set it explicitly in every environment.
 * The library is initialized **once per process, under a lock, preferring `CKF_OS_LOCKING_OK`**.
   Without that flag a PKCS#11 library may assume the *application* serialises every call, and
   concurrent `C_Sign` then corrupts memory instead of failing cleanly. A build that rejects the

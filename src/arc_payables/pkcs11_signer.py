@@ -187,8 +187,10 @@ def _initialize(loader: Any) -> None:
             return
     raise PKCS11Error(
         f"PKCS#11 C_Initialize failed for {getattr(loader, '_name', None) or 'the configured library'} "
-        f"(rv=0x{code:08x}); refusing to sign. Check that PKCS11_LIB_PATH names the provider library "
-        f"itself rather than a p11-kit module proxy."
+        f"(rv=0x{code:08x}); refusing to sign. A CKR_ARGUMENTS_BAD (0x5) here usually means the "
+        f"library could not load its own configuration: for SoftHSM, set SOFTHSM2_CONF to a valid "
+        f"config whose token directory exists, and confirm PKCS11_LIB_PATH names the provider "
+        f"library rather than a p11-kit module proxy."
     )
 
 
