@@ -19,9 +19,11 @@ PKCS11_LIB="$SOFTHSM_LIB_DIR/libsofthsm2.so"
 export SOFTHSM2_CONF="$WORKDIR/softhsm2.conf"
 "$SOFTHSM_BIN" --init-token --slot 0 --label tameion-test --so-pin 123456 --pin 2345 >/dev/null
 export TAMEION_TEST_PKCS11=1
+# A silent skip must not look like a pass: this harness exists to run the token tests.
+export TAMEION_REQUIRE_PKCS11=1
 export TAMEION_SOFTHSM_CONF="$WORKDIR/softhsm2.conf"
 export TAMEION_SOFTHSM_UTIL="$SOFTHSM_BIN"
 export TAMEION_PKCS11_LIB="$PKCS11_LIB"
 export TAMEION_PKCS11_TOOL="$OPENSC_BIN/pkcs11-tool"
-PATH="$OPENSC_BIN:$PATH" uv run --frozen pytest -q tests/test_pkcs11_signer.py
+PATH="$OPENSC_BIN:$PATH" uv run --frozen pytest -q -rs tests/test_pkcs11_config.py tests/test_pkcs11_signer.py tests/test_signer_rotation.py
 echo "PKCS#11 SoftHSM2 integration tests passed (behavioral double only; not hardware assurance)."

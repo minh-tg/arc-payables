@@ -26,16 +26,37 @@ from arc_payables.pkcs11_signer import (
 from arc_payables.security import EIP712PermitSigner, SignerBackendUnavailable, build_permit_signer
 from arc_payables.settings import Settings
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("TAMEION_TEST_PKCS11") != "1"
-    or not all(
-        os.environ.get(name)
-        for name in ("TAMEION_SOFTHSM_CONF", "TAMEION_PKCS11_LIB", "TAMEION_PKCS11_TOOL", "TAMEION_SOFTHSM_UTIL")
+def _missing_prerequisite() -> str | None:
+    """What is absent, or None when these tests can actually run."""
+    if os.environ.get("TAMEION_TEST_PKCS11") != "1":
+        return "TAMEION_TEST_PKCS11 is not 1"
+    for name in ("TAMEION_SOFTHSM_CONF", "TAMEION_PKCS11_LIB", "TAMEION_PKCS11_TOOL", "TAMEION_SOFTHSM_UTIL"):
+        if not os.environ.get(name):
+            return f"{name} is not set"
+    if not shutil.which(os.environ["TAMEION_SOFTHSM_UTIL"]):
+        return f"{os.environ['TAMEION_SOFTHSM_UTIL']} is not executable"
+    if not os.path.exists(os.environ["TAMEION_SOFTHSM_CONF"]):
+        return f"{os.environ['TAMEION_SOFTHSM_CONF']} does not exist"
+    if not os.path.exists(os.environ["TAMEION_PKCS11_LIB"]):
+        return f"{os.environ['TAMEION_PKCS11_LIB']} does not exist"
+    return None
+
+
+_MISSING = _missing_prerequisite()
+
+# A skipped token suite must never look like a passing one. Where these tests are the point
+# of the job (TAMEION_REQUIRE_PKCS11=1), a missing prerequisite is a hard collection error
+# rather than a silent skip: CI once reported success with every token test skipped because
+# the library path pointed at a package that was not installed.
+if _MISSING and os.environ.get("TAMEION_REQUIRE_PKCS11") == "1":
+    raise RuntimeError(
+        f"the PKCS#11 token tests were required but cannot run: {_MISSING}. "
+        "Install the PKCS#11 provider and point TAMEION_PKCS11_LIB at it."
     )
-    or not shutil.which(os.environ.get("TAMEION_SOFTHSM_UTIL", "softhsm2-util"))
-    or not os.path.exists(os.environ.get("TAMEION_SOFTHSM_CONF", ""))
-    or not os.path.exists(os.environ.get("TAMEION_PKCS11_LIB", "")),
-    reason="PKCS#11 SoftHSM2 integration tests are opt-in (need softhsm2, opensc and env config)",
+
+pytestmark = pytest.mark.skipif(
+    bool(_MISSING),
+    reason=f"PKCS#11 SoftHSM2 integration tests are opt-in: {_MISSING}",
 )
 
 CONF = os.environ.get("TAMEION_SOFTHSM_CONF", "")

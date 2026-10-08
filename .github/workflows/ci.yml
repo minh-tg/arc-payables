@@ -49,8 +49,9 @@ jobs:
       # hardware isolation and real-HSM configuration remain a deployment release gate.
       - name: Install PKCS#11 test tools
         run: |
+          # libsofthsm2 carries the provider library; softhsm2 only ships the tools on Debian/Ubuntu.
           sudo apt-get update
-          sudo apt-get install -y softhsm2 opensc
+          sudo apt-get install -y softhsm2 libsofthsm2 opensc
       - name: Install dependencies
         run: uv sync --frozen
       - name: Run the PKCS#11 signing tests against SoftHSM2
@@ -62,14 +63,22 @@ jobs:
           export TAMEION_SOFTHSM_CONF="$RUNNER_TEMP/softhsm2.conf"
           export TAMEION_SOFTHSM_UTIL="$(command -v softhsm2-util)"
           export TAMEION_PKCS11_TOOL="$(command -v pkcs11-tool)"
-          # Prefer the provider library installed by the package over any module proxy.
-          CANDIDATES="$(dpkg -L softhsm2 | grep -E 'libsofthsm2\.so$' || true)"
+          # Prefer the provider library itself over any module proxy.
+          CANDIDATES="$(dpkg -L libsofthsm2 2>/dev/null | grep -E 'libsofthsm2\.so$' || true)"
           echo "candidate PKCS#11 libraries:"; echo "$CANDIDATES"
           export TAMEION_PKCS11_LIB="$(echo "$CANDIDATES" | grep -v '/pkcs11/' | head -1)"
-          if [ -z "$TAMEION_PKCS11_LIB" ]; then export TAMEION_PKCS11_LIB="$(echo "$CANDIDATES" | head -1)"; fi
+          if [ -z "$TAMEION_PKCS11_LIB" ]; then
+            export TAMEION_PKCS11_LIB="$(find /usr/lib -name 'libsofthsm2.so' 2>/dev/null | grep -v '/pkcs11/' | head -1)"
+          fi
           echo "using PKCS#11 library: $TAMEION_PKCS11_LIB"
+          if [ -z "$TAMEION_PKCS11_LIB" ] || [ ! -f "$TAMEION_PKCS11_LIB" ]; then
+            echo "::error::the SoftHSM2 provider library was not found; the token suite cannot run"; exit 1
+          fi
           nm -D "$TAMEION_PKCS11_LIB" | grep -E 'C_Initialize|C_GetFunctionList' || true
-          uv run pytest -q tests/test_pkcs11_config.py tests/test_pkcs11_signer.py tests/test_signer_rotation.py
+          # TAMEION_REQUIRE_PKCS11 makes a silent skip a hard failure, so a green job means the
+          # token suite actually ran rather than being skipped for a missing library.
+          export TAMEION_REQUIRE_PKCS11=1
+          uv run pytest -q -rs tests/test_pkcs11_config.py tests/test_pkcs11_signer.py tests/test_signer_rotation.py
 
   contracts:
     name: Solidity suite
