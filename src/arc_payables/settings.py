@@ -84,6 +84,14 @@ class Settings(BaseSettings):
 
         if self.environment.strip().lower() == "production" and self.auth_mode != "oidc":
             raise ValueError("Production requires AUTH_MODE=oidc.")
+        if self.environment.strip().lower() == "production":
+            # A production deployment must not keep the policy key in the process environment
+            # alongside the application, and must pin the address the guard expects. The
+            # environment backend stays available for testnet and local development.
+            if (self.signer_backend or "env").lower() == "env":
+                raise ValueError("Production requires SIGNER_BACKEND=pkcs11; an environment-held policy key is not accepted.")
+            if not (self.permit_signing_address or "").strip():
+                raise ValueError("Production requires PERMIT_SIGNING_ADDRESS so a wrong policy key is refused at start-up.")
         if self.auth_mode == "testnet_tokens" and self.environment.strip().lower() not in {"local", "test", "testnet", "development"}:
             raise ValueError("Shared tokens are restricted to explicit local/testnet development.")
         if self.auth_mode != "oidc":
@@ -111,9 +119,34 @@ class Settings(BaseSettings):
                 raise ValueError("Approver credentials must be separate from operator, payer and admin credentials.")
         return self
 
-    # Policy signer. `env` is the MVP backend; `kms` must be implemented behind the
-    # PermitSigner interface before use. The key is read only by the payment service.
-    signer_backend: Literal["env", "kms"] = "env"
+    # Policy signer. `env` holds the key in the environment (testnet/MVP); `pkcs11`
+    # keeps it on a PKCS#11 token (HSM, or a SoftHSM2 double in tests only).
+    # `kms` remains an unimplemented fail-closed placeholder. The key or token is
+    # read only by the payment service.
+    signer_backend: Literal["env", "pkcs11", "kms"] = "env"
+    pkcs11_lib_path: str | None = None
+    pkcs11_slot: int | None = None
+    pkcs11_key_label: str | None = None
+    pkcs11_key_id_hex: str = "01"
+    pkcs11_user_pin: str | None = Field(default=None, repr=False)
+    pkcs11_test_backend: bool = False
+    permit_signing_address: str | None = None
+    # Policy signing addresses no longer in use whose historical audit signatures must
+    # still verify after a rotation or compromise. Listed explicitly, so nothing is
+    # accepted implicitly.
+    permit_signing_retired_addresses: tuple[str, ...] = ()
+
+    @property
+    def policy_signing_configured(self) -> bool:
+        """True when the configured backend can produce a policy signature."""
+        backend = (self.signer_backend or "env").lower()
+        if backend == "env":
+            return bool(self.permit_signing_private_key and self.permit_signing_private_key.strip())
+        if backend == "pkcs11":
+            from .pkcs11_signer import pkcs11_settings_present
+
+            return pkcs11_settings_present(self)
+        return False
 
     # Advisory decision layer. Optional by design: everything works with the deterministic
     # policy alone. `policy` uses no advisory layer at all, `heuristics` is the fast
@@ -219,9 +252,8 @@ class Settings(BaseSettings):
             self.circle_wallet_id,
             self.circle_wallet_address,
             self.circle_guard_address,
-            self.permit_signing_private_key,
         )
-        return all(value and value.strip() for value in required)
+        return all(value and value.strip() for value in required) and self.policy_signing_configured
 
     @property
     def planner_configured(self) -> bool:

@@ -76,6 +76,8 @@ Alerts are stored on the pass and shown in the Worker view. A webhook is optiona
 
 ## Architecture and growth limits
 
+The policy signing key is configured with `SIGNER_BACKEND`. `env` keeps it in the environment; `pkcs11` keeps it on a token where it cannot be exported, and requires the PKCS#11 provider library on the host. Both API and worker must use the same backend and token configuration, and a worker that cannot reach the token refuses to spend. Key rotation and recovery are covered in [docs/signing.md](../../docs/signing.md).
+
 `runtime.py` is the composition root shared by the API and worker. The worker builds the same workflow without importing or initializing the FastAPI app. `ports.py` defines the accounting, payment, signer, and evidence-store boundaries. The worker and API coordinate through the durable SQLite database, not process memory.
 
 SQLite WAL mode allows API reads while a worker transaction commits. SQLite still allows only one writer at a time and this database must remain on one host. This deployment is tested with one API process and one worker process. Do not scale either service until cross-process adapter behavior and worker claiming have dedicated tests. A multi-host deployment requires a server database, a complete store implementation behind the evidence-store boundary, and tested transaction semantics for payment authorization and worker claims. It is not a Compose scaling switch.

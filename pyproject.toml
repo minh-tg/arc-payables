@@ -12,6 +12,7 @@ dependencies = [
     "arc-canteen",
     "eth-abi>=5",
     "eth-account>=0.13",
+    "eth-keys>=0.7",
     "eth-utils>=5",
     "fastapi>=0.115",
     "httpx>=0.28",

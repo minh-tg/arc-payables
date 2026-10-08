@@ -57,8 +57,8 @@ def preflight(workflow, settings: Settings, invoice_id: str, *, rpc: RpcClient |
     rpc = rpc or RpcClient(view.rpc_url)
 
     # 1. The chain and the deployed guard, using the same checks as the read-only verifier.
-    signer_address = None
-    if settings.permit_signing_private_key:
+    signer_address = (getattr(settings, "permit_signing_address", None) or "").strip() or None
+    if signer_address is None and settings.permit_signing_private_key:
         from .security import EIP712PermitSigner
 
         signer_address = EIP712PermitSigner(settings.permit_signing_private_key).address

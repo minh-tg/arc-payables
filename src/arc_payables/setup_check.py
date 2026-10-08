@@ -129,8 +129,24 @@ def _accounting_group(settings: Any) -> Group:
 
 
 def _settlement_group(settings: Any) -> Group:
+    backend = (getattr(settings, "signer_backend", "env") or "env").lower()
+    if backend == "pkcs11":
+        return Group(
+            "Settlement (managed PKCS#11 policy key)",
+            "The policy key lives on a PKCS#11 token and cannot be exported. Real HSM for production; SoftHSM2 is a test double only.",
+            (
+                Requirement("SIGNER_BACKEND", "signer_backend", "No signing backend is selected."),
+                Requirement("PKCS11_LIB_PATH", "pkcs11_lib_path", "No PKCS#11 library is configured, so the token cannot be reached."),
+                Requirement("PKCS11_SLOT", "pkcs11_slot", "No token slot is pinned; several tokens would be ambiguous.", required=False),
+                Requirement("PKCS11_KEY_LABEL", "pkcs11_key_label", "No signing key is named, so no permit can be signed."),
+                Requirement("PKCS11_KEY_ID_HEX", "pkcs11_key_id_hex", "No key id is configured."),
+                Requirement("PKCS11_USER_PIN", "pkcs11_user_pin", "No token login is configured, so the key cannot be used.", kind="secret"),
+                Requirement("PERMIT_SIGNING_ADDRESS", "permit_signing_address", "No expected signing address is pinned; a wrong key would not be noticed at startup.", required=False),
+            ),
+        )
     common = (
         Requirement("PERMIT_SIGNING_PRIVATE_KEY", "permit_signing_private_key", "No permit can be signed, so no guarded payment can be authorized.", kind="secret"),
+        Requirement("PERMIT_SIGNING_ADDRESS", "permit_signing_address", "No expected signing address is pinned; a wrong key would not be noticed at startup.", required=False),
     )
     if settings.payment_provider == "circle":
         return Group(
@@ -362,8 +378,8 @@ def _chain_check(settings: Any, *, rpc: Any, provider_view: Any, verify: Any) ->
         view = provider_view(settings)
         # The caller can inject a client; a real one is built from the configured endpoint otherwise.
         rpc = rpc if rpc is not None else RpcClient(view.rpc_url)
-        signer_address = None
-        if settings.permit_signing_private_key:
+        signer_address = (getattr(settings, "permit_signing_address", None) or "").strip() or None
+        if signer_address is None and settings.permit_signing_private_key:
             from .security import EIP712PermitSigner
 
             signer_address = EIP712PermitSigner(settings.permit_signing_private_key).address

@@ -123,13 +123,17 @@ class SQLiteEvidenceStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._audit_signer = audit_signer
 
-    def set_audit_signer(self, signer: Any | None) -> None:
+    def set_audit_signer(self, signer: Any | None, *, retired_addresses: tuple[str, ...] = ()) -> None:
         """Attach the key that signs audit entries, once at start-up.
 
         Optional: without it the chain is still hash-linked, which detects partial edits
         inside the database, but it cannot be distinguished from a fully rewritten log.
+
+        ``retired_addresses`` names policy signing addresses that are no longer in use but
+        whose historical signatures must still verify after a rotation or compromise.
         """
         self._audit_signer = signer
+        self._retired_audit_signers = tuple(address for address in retired_addresses if address)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=15, isolation_level=None)
@@ -626,7 +630,12 @@ class SQLiteEvidenceStore:
             for row in rows
         ]
 
-    def verify_audit_chain(self, expected_signer: str | None = None) -> dict[str, Any]:
+    def verify_audit_chain(
+        self,
+        expected_signer: str | None = None,
+        *,
+        retired_signers: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
         """Recompute the audit chain and report the first entry that does not check out.
 
         Detects an edited payload, a removed entry, a reordered chain and a rewritten tail.
@@ -634,8 +643,17 @@ class SQLiteEvidenceStore:
         against the signer recorded on the entry: an attacker who rewrites a log and records
         their own address as the signer must still fail. Without a configured key the hash
         chain is still verified, but the report says the signatures were not anchored.
+
+        ``retired_signers`` exists for key rotation. An HSM key can be replaced but its
+        historical signatures remain valid evidence, so a rotation may name the previous
+        addresses it still accepts. Only addresses explicitly listed here are accepted:
+        an unlisted key fails exactly as an attacker's would, so this widens nothing by
+        default. It never accepts a signer recorded on the entry that was not listed.
         """
-        expected = expected_signer or (self._audit_signer.address if self._audit_signer is not None else None)
+        current = expected_signer or (self._audit_signer.address if self._audit_signer is not None else None)
+        retired = list(retired_signers) or list(getattr(self, "_retired_audit_signers", ()))
+        accepted = {value.lower() for value in ([current] if current else []) + retired}
+        expected = current
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT id,invoice_id,event_type,state,payload_json,created_at,prev_hash,event_hash,signature,signer "
@@ -670,14 +688,14 @@ class SQLiteEvidenceStore:
                 return failure(problem, row["id"])
             if row["signature"]:
                 signed += 1
-                if expected is None:
+                if not accepted:
                     # Nothing to check the signature against; say so rather than imply trust.
                     unanchored += 1
                 else:
                     recovered = recover_digest_signer(bytes.fromhex(row["event_hash"][2:]), row["signature"])
-                    if recovered is None or recovered.lower() != expected.lower():
+                    if recovered is None or recovered.lower() not in accepted:
                         return failure("signature_is_not_from_the_configured_signer", row["id"])
-                    if (row["signer"] or "").lower() != expected.lower():
+                    if (row["signer"] or "").lower() not in accepted:
                         return failure("recorded_signer_is_not_the_configured_signer", row["id"])
             checked += 1
             expected_prev = row["event_hash"]

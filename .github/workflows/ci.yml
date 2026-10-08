@@ -36,6 +36,35 @@ jobs:
       - name: Run tests
         run: uv run pytest -q
 
+  pkcs11:
+    name: PKCS#11 signing suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      # SoftHSM2 is a software-backed behavior double for the PKCS#11 API, not an HSM.
+      # It exercises the signing path (attributes, low-s, parity, tamper rejection);
+      # hardware isolation and real-HSM configuration remain a deployment release gate.
+      - name: Install PKCS#11 test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y softhsm2 opensc
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run the PKCS#11 signing tests against SoftHSM2
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/softhsm-tokens"
+          printf 'directories.tokendir = %s\nobjectstore.backend = file\n' "$RUNNER_TEMP/softhsm-tokens" > "$RUNNER_TEMP/softhsm2.conf"
+          export TAMEION_TEST_PKCS11=1
+          export TAMEION_SOFTHSM_CONF="$RUNNER_TEMP/softhsm2.conf"
+          export TAMEION_SOFTHSM_UTIL="$(command -v softhsm2-util)"
+          export TAMEION_PKCS11_LIB="$(find /usr/lib -name libsofthsm2.so | head -1)"
+          export TAMEION_PKCS11_TOOL="$(command -v pkcs11-tool)"
+          uv run pytest -q tests/test_pkcs11_signer.py tests/test_signer_rotation.py
+
   contracts:
     name: Solidity suite
     runs-on: ubuntu-latest

@@ -248,8 +248,8 @@ def main() -> None:
     settings = get_settings()
     view = provider_view(settings)
     rpc = RpcClient(args.rpc_url or view.rpc_url)
-    signer_address = None
-    if settings.permit_signing_private_key:
+    signer_address = (getattr(settings, "permit_signing_address", None) or "").strip() or None
+    if signer_address is None and settings.permit_signing_private_key:
         from .security import EIP712PermitSigner
 
         signer_address = EIP712PermitSigner(settings.permit_signing_private_key).address

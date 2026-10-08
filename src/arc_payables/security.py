@@ -76,6 +76,15 @@ class EIP712PermitSigner:
         return "0x" + bytes(signed.signature).hex()
 
 
+def _check_pinned_address(settings, address: str) -> None:
+    """Refuse to start when the key does not match the pinned expected address."""
+    pinned = (getattr(settings, "permit_signing_address", None) or "").strip()
+    if pinned and pinned.lower() != address.lower():
+        raise SignerBackendUnavailable(
+            "The policy signing key does not match PERMIT_SIGNING_ADDRESS; refusing to sign."
+        )
+
+
 def recover_digest_signer(digest: bytes, signature: str) -> str | None:
     """Address that signed a 32-byte digest, or None when the signature is unusable."""
     try:
@@ -92,15 +101,20 @@ def build_permit_signer(settings, private_key: str | None = None) -> "PermitSign
     silently fall back to a local key.
     """
     backend = (getattr(settings, "signer_backend", "env") or "env").lower()
+    if backend == "pkcs11":
+        from .pkcs11_signer import build_pkcs11_signer
+
+        return build_pkcs11_signer(settings)
     if backend == "kms":
         raise SignerBackendUnavailable(
-            "The kms signer backend is not implemented. PERMIT_SIGNING_PRIVATE_KEY signing "
-            "is the only MVP backend. Implement the PermitSigner interface against your KMS "
-            "and set SIGNER_BACKEND=kms once it can sign EIP-712 permits."
+            "The kms signer backend is not implemented. Use SIGNER_BACKEND=env for an "
+            "environment key or SIGNER_BACKEND=pkcs11 for a PKCS#11 token."
         )
     if backend != "env":
-        raise SignerBackendUnavailable(f"Unknown SIGNER_BACKEND {backend!r}; expected 'env' or 'kms'.")
+        raise SignerBackendUnavailable(f"Unknown SIGNER_BACKEND {backend!r}; expected 'env', 'pkcs11' or 'kms'.")
     key = private_key or getattr(settings, "permit_signing_private_key", None)
     if not key:
         raise SignerBackendUnavailable("PERMIT_SIGNING_PRIVATE_KEY is required when SIGNER_BACKEND=env.")
-    return EIP712PermitSigner(key)
+    signer = EIP712PermitSigner(key)
+    _check_pinned_address(settings, signer.address)
+    return signer

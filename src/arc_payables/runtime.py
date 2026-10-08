@@ -89,7 +89,7 @@ def build_workflow(
         # A throwaway signer keeps the non-payment demo constructible; it cannot authorize a payment.
         signer = EIP712PermitSigner("0x" + "01".zfill(64))
 
-    store.set_audit_signer(signer)
+    store.set_audit_signer(signer, retired_addresses=getattr(settings, "permit_signing_retired_addresses", ()) or ())
     policy = DeterministicPolicy(settings, USDCOnlyConverter())
     return APWorkflow(
         store,
