@@ -6,12 +6,13 @@ and are opt-in, because they need a real PKCS#11 library and tools.
 
 from __future__ import annotations
 
+import ctypes
 import time
 
 import pytest
 
 from arc_payables.domain import PaymentPermit
-from arc_payables.pkcs11_signer import PKCS11Error, _initialize
+from arc_payables.pkcs11_signer import PKCS11Error, _InitializeArgs, _initialize
 from arc_payables.security import EIP712PermitSigner, SignerBackendUnavailable, build_permit_signer
 from arc_payables.settings import Settings
 
@@ -40,42 +41,58 @@ class _FakeLoader:
         self.calls: list[str] = []
 
     def C_Initialize(self, arg):
-        self.calls.append("os_locking_args" if arg is not None else "null_args")
+        if arg is None:
+            self.calls.append("null")
+        else:
+            # The init args struct is passed by reference; read its flags field back.
+            struct = ctypes.cast(arg, ctypes.POINTER(_InitializeArgs)).contents
+            self.calls.append("flags=OS_LOCKING" if struct.flags else "flags=0")
         return self.codes.pop(0) if self.codes else 0
 
 
 def test_initialize_prefers_os_locking_and_falls_back_when_refused():
-    """An older token build rejects the OS-locking argument structure.
+    """Some builds reject the OS-locking argument structure, so the ladder must degrade.
 
-    CI found exactly this: Ubuntu's SoftHSM returns CKR_ARGUMENTS_BAD (0x5), and signing
-    then refused to start at all. The fallback must retry with NULL; every other failure
-    must stay closed, and an unrelated error must not be retried.
+    CI found this: Ubuntu's SoftHSM returns CKR_ARGUMENTS_BAD (0x5) for the args struct, and
+    signing then refused to start at all. It must retry with flags=0 and then with NULL
+    (safe because every PKCS#11 call is serialised in-process), while any other failure
+    stays closed and is not retried.
     """
     preferred = _FakeLoader([0])
     _initialize(preferred)
-    assert preferred.calls == ["os_locking_args"]
+    assert preferred.calls == ["flags=OS_LOCKING"]
 
     already = _FakeLoader([0x00000191])  # CKR_CRYPTOKI_ALREADY_INITIALIZED
     _initialize(already)
-    assert already.calls == ["os_locking_args"]
+    assert already.calls == ["flags=OS_LOCKING"]
 
-    fallback = _FakeLoader([0x00000005, 0])
-    _initialize(fallback)
-    assert fallback.calls == ["os_locking_args", "null_args"]
+    # OS-locking rejected, bare args accepted.
+    bare = _FakeLoader([0x00000005, 0])  # CKR_ARGUMENTS_BAD, then OK
+    _initialize(bare)
+    assert bare.calls == ["flags=OS_LOCKING", "flags=0"]
 
-    cant_lock = _FakeLoader([0x0000000A, 0x00000191])
-    _initialize(cant_lock)
-    assert cant_lock.calls == ["os_locking_args", "null_args"]
+    # Both argument forms rejected, so NULL is tried last.
+    nulled = _FakeLoader([0x00000005, 0x0000000A, 0x00000191])  # ARGUMENTS_BAD, CANT_LOCK, already
+    _initialize(nulled)
+    assert nulled.calls == ["flags=OS_LOCKING", "flags=0", "null"]
 
-    hopeless = _FakeLoader([0x00000005, 0x00000007])
+    # Nothing works: refuse, and never pretend the library is usable.
+    hopeless = _FakeLoader([0x00000005, 0x00000005, 0x00000007])
     with pytest.raises(PKCS11Error, match="C_Initialize failed"):
         _initialize(hopeless)
-    assert hopeless.calls == ["os_locking_args", "null_args"]
+    assert hopeless.calls == ["flags=OS_LOCKING", "flags=0", "null"]
 
+    # An unrelated failure is not retried at all.
     broken = _FakeLoader([0x00000007])
     with pytest.raises(PKCS11Error, match="C_Initialize failed"):
         _initialize(broken)
-    assert broken.calls == ["os_locking_args"]
+    assert broken.calls == ["flags=OS_LOCKING"]
+
+    # A rejected second attempt that is not a locking complaint also stops immediately.
+    odd = _FakeLoader([0x00000005, 0x00000007])
+    with pytest.raises(PKCS11Error, match="C_Initialize failed"):
+        _initialize(odd)
+    assert odd.calls == ["flags=OS_LOCKING", "flags=0"]
 
 
 def test_pkcs11_factory_fails_closed_without_a_usable_library(tmp_path):
