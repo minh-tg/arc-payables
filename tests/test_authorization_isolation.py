@@ -146,11 +146,19 @@ def test_signer_backend_factory_uses_env_key_and_fails_closed_for_kms():
     assert env_signer.backend == "env"
     assert env_signer.address.startswith("0x")
 
-    with pytest.raises(SignerBackendUnavailable, match="kms signer backend is not implemented"):
+    with pytest.raises(SignerBackendUnavailable, match="not implemented"):
         build_permit_signer(Settings(_env_file=None, signer_backend="kms", permit_signing_private_key=PERMIT_KEY))
 
     with pytest.raises(SignerBackendUnavailable, match="required"):
         build_permit_signer(Settings(_env_file=None, permit_signing_private_key=None))
+
+
+def test_signer_backend_rejects_a_wrong_pinned_address():
+    with pytest.raises(SignerBackendUnavailable, match="does not match PERMIT_SIGNING_ADDRESS"):
+        build_permit_signer(Settings(_env_file=None, permit_signing_private_key=PERMIT_KEY,
+                                     permit_signing_address="0x" + "00" * 20))
+    with pytest.raises(SignerBackendUnavailable):
+        build_permit_signer(Settings(_env_file=None, signer_backend="pkcs11"))
 
 
 def test_api_never_serializes_signing_or_vendor_credentials():

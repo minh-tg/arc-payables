@@ -32,7 +32,7 @@ from .domain import (
     is_evm_address,
     utcnow,
 )
-from .ports import PaymentMapping, Receivable
+from .ports import PaymentMapping, PermitSigner, Receivable
 from .security import EIP712PermitSigner
 from .store import SQLiteEvidenceStore
 
@@ -308,7 +308,7 @@ class MockPaymentProvider:
     def __init__(
         self,
         store: SQLiteEvidenceStore,
-        signer: EIP712PermitSigner | None = None,
+        signer: PermitSigner | None = None,
         wallet_address: str = "0x0000000000000000000000000000000000000001",
         guard_address: str = "0x0000000000000000000000000000000000000002",
         failure_mode: str | None = None,

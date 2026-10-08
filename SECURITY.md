@@ -36,7 +36,9 @@ production treasury.
 
 * A signing key is read only by the payment service. The advisory layer has no signing tools and
   never receives one.
-* `SIGNER_BACKEND=kms` fails closed rather than falling back to a local key.
+* `SIGNER_BACKEND` is a closed set: `kms` fails closed rather than falling back to a local key, and
+  an unknown value is refused. With `SIGNER_BACKEND=pkcs11`, start-up refuses a token key that is
+  extractable, on the wrong curve, unable to sign, or whose private value can be read.
 * Any configuration that would allow an unbounded payment is refused at deployment: the guard
   cannot be deployed without an explicit budget, and an epoch cap smaller than a single payment is
   rejected.

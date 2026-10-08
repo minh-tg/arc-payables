@@ -36,6 +36,66 @@ jobs:
       - name: Run tests
         run: uv run pytest -q
 
+  pkcs11:
+    name: PKCS#11 signing suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      # SoftHSM2 is a software-backed behavior double for the PKCS#11 API, not an HSM.
+      # It exercises the signing path (attributes, low-s, parity, tamper rejection);
+      # hardware isolation and real-HSM configuration remain a deployment release gate.
+      - name: Install PKCS#11 test tools
+        run: |
+          # libsofthsm2 carries the provider library; softhsm2 only ships the tools on Debian/Ubuntu.
+          sudo apt-get update
+          sudo apt-get install -y softhsm2 libsofthsm2 opensc
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run the PKCS#11 signing tests against SoftHSM2
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/softhsm-tokens"
+          printf 'directories.tokendir = %s\nobjectstore.backend = file\n' "$RUNNER_TEMP/softhsm-tokens" > "$RUNNER_TEMP/softhsm2.conf"
+          export TAMEION_TEST_PKCS11=1
+          export TAMEION_SOFTHSM_CONF="$RUNNER_TEMP/softhsm2.conf"
+          # SoftHSM itself reads SOFTHSM2_CONF, not our TAMEION_-prefixed variable.
+          export SOFTHSM2_CONF="$RUNNER_TEMP/softhsm2.conf"
+          export TAMEION_SOFTHSM_UTIL="$(command -v softhsm2-util)"
+          export TAMEION_PKCS11_TOOL="$(command -v pkcs11-tool)"
+          # Prefer the provider library itself over any module proxy.
+          CANDIDATES="$(dpkg -L libsofthsm2 2>/dev/null | grep -E 'libsofthsm2\.so$' || true)"
+          echo "candidate PKCS#11 libraries:"; echo "$CANDIDATES"
+          export TAMEION_PKCS11_LIB="$(echo "$CANDIDATES" | grep -v '/pkcs11/' | head -1)"
+          if [ -z "$TAMEION_PKCS11_LIB" ]; then
+            export TAMEION_PKCS11_LIB="$(find /usr/lib -name 'libsofthsm2.so' 2>/dev/null | grep -v '/pkcs11/' | head -1)"
+          fi
+          echo "using PKCS#11 library: $TAMEION_PKCS11_LIB"
+          if [ -z "$TAMEION_PKCS11_LIB" ] || [ ! -f "$TAMEION_PKCS11_LIB" ]; then
+            echo "::error::the SoftHSM2 provider library was not found; the token suite cannot run"; exit 1
+          fi
+          nm -D "$TAMEION_PKCS11_LIB" | grep -E 'C_Initialize|C_GetFunctionList' || true
+          # Prove the library initializes before blaming the tests when it does not.
+          uv run --frozen python - <<'PROBE'
+          import ctypes, os
+          lib = ctypes.CDLL(os.environ["TAMEION_PKCS11_LIB"])
+          lib.C_Initialize.argtypes = [ctypes.c_void_p]
+          lib.C_Initialize.restype = ctypes.c_ulong
+          class Args(ctypes.Structure):
+              _fields_ = [(n, ctypes.c_void_p) for n in ("cm", "dm", "lm", "um")] + [("flags", ctypes.c_ulong), ("reserved", ctypes.c_void_p)]
+          print("C_Initialize(NULL) ->", hex(lib.C_Initialize(None)))
+          for flags in (0x2, 0):
+              a = Args(None, None, None, None, flags, None)
+              print(f"C_Initialize(flags={flags}) ->", hex(lib.C_Initialize(ctypes.byref(a))))
+          print("SOFTHSM2_CONF=", os.environ.get("SOFTHSM2_CONF"))
+          PROBE
+          # TAMEION_REQUIRE_PKCS11 makes a silent skip a hard failure, so a green job means the
+          # token suite actually ran rather than being skipped for a missing library.
+          export TAMEION_REQUIRE_PKCS11=1
+          uv run pytest -q -rs tests/test_pkcs11_config.py tests/test_pkcs11_signer.py tests/test_signer_rotation.py
+
   contracts:
     name: Solidity suite
     runs-on: ubuntu-latest

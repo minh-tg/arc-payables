@@ -22,8 +22,7 @@ from .domain import (
     utcnow,
 )
 from .evm import decode_bool, decode_uint256, encode_allowance, encode_approve, encode_balance_of, encode_permit_call, encode_used
-from .ports import PaymentProvider
-from .security import EIP712PermitSigner
+from .ports import PaymentProvider, PermitSigner
 from .settings import Settings
 
 CIRCLE_API_BASE = "https://api.circle.com/v1/w3s"
@@ -65,7 +64,7 @@ class CircleDeveloperControlledWalletProvider(PaymentProvider):
     def __init__(
         self,
         settings: Settings,
-        signer: EIP712PermitSigner,
+        signer: "PermitSigner",
         client: httpx.Client | None = None,
         rpc_client: httpx.Client | None = None,
     ):

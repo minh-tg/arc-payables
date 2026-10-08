@@ -89,6 +89,30 @@ def test_the_setup_report_never_returns_a_secret_value():
     assert rows["CIRCLE_RPC_URL"]["value"] == "https://rpc.example.test/"
 
 
+def test_the_pkcs11_setup_group_reports_missing_settings_without_echoing_the_pin(runtime):
+    """A token PIN is a credential: the setup screen must confirm it is set, never print it."""
+    pin = "2345-must-never-be-echoed"
+    settings = Settings(
+        _env_file=None,
+        signer_backend="pkcs11",
+        pkcs11_lib_path="/usr/lib/softhsm/libsofthsm2.so",
+        pkcs11_key_label="policy-sign",
+        pkcs11_user_pin=pin,
+        permit_signing_address="0x" + "44" * 20,
+    )
+    body = inventory(settings)
+    rendered = str(body)
+    assert pin not in rendered
+    group = next(item for item in body["groups"] if item["name"].startswith("Settlement"))
+    rows = {row["env"]: row for row in group["requirements"]}
+    assert rows["PKCS11_USER_PIN"]["state"] == "set"
+    assert rows["PKCS11_USER_PIN"]["value"] is None
+    assert rows["PKCS11_KEY_LABEL"]["state"] == "set"
+    assert rows["PKCS11_LIB_PATH"]["state"] == "set"
+    # A bare env deployment must not advertise PKCS#11 settings as incomplete.
+    assert not any("PKCS11" in name for name in inventory(runtime["settings"])["missing"])
+
+
 def test_the_local_demo_is_complete_without_a_key_and_says_so_without_alarming(runtime):
     """An empty API key is the demo working as designed, not a defect to shout about."""
     body = inventory(runtime["settings"])
