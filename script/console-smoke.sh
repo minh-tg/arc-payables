@@ -37,9 +37,9 @@ fi
 
 # The fixture is pinned to the demo adapters. A developer with live credentials exported would
 # otherwise have this script, which only exists to look at screens, move real testnet money.
-MOCK="PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock"
+MOCK="PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock SCREENING_PROVIDER=fixture DECISION_LAYER=heuristics API_KEY= APPROVAL_TOKEN= MIN_RESERVE_USDC=2000 MAX_INVOICE_USDC=1000 CRITICAL_SUPPLIER_IDS=[]"
 
-DATABASE_PATH="$DB" uv run arc-payables-seed >/dev/null
+env $MOCK DATABASE_PATH="$DB" uv run arc-payables-seed >/dev/null
 # Drive one pass before rendering. An empty table cannot show a wrong destructure, which is the
 # failure this script exists to catch, and most of the console is empty straight after seeding: no
 # decisions, no payments, no worker steps. One pass fills the settlement log, the invoice's policy
@@ -72,7 +72,8 @@ if [ "$SETTLED" -lt 1 ]; then
   echo "the demo produced no payments, so the settlement log and its outcome words go unchecked" >&2
   exit 3
 fi
-echo "demo fixture: seeded, one worker pass, $SETTLED payment(s) in the settlement log"
+curl -fsS "http://127.0.0.1:$PORT/audit/verify" | python3 -c 'import json,sys; report=json.load(sys.stdin); assert report["ok"], report; assert report["signed"] > 0'
+echo "demo fixture: seeded, one worker pass, $SETTLED payment(s) in the settlement log; audit chain intact"
 
 # The definitions a term can be drawn from. Any term not in this list draws an empty popover.
 CONCEPT_KEYS="$WORKDIR/concept-keys.txt"

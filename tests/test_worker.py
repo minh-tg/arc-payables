@@ -230,6 +230,9 @@ def test_one_broken_invoice_does_not_stop_the_rest(runtime, monkeypatch):
     for invoice_id in (runtime["legitimate_id"], second_id):
         runtime["workflow"].evaluate(invoice_id)
         runtime["workflow"].submit_payment(invoice_id)
+    # Both settled before their local confirmations were lost. A genuinely unresolved first
+    # authorization now correctly blocks starting another obligation.
+    for invoice_id in (runtime["legitimate_id"], second_id):
         _set_payment(runtime, invoice_id, {"confirmation_status": "UNCERTAIN"}, WorkflowState.NEEDS_RECONCILIATION.value)
 
     original = APWorkflow.submit_payment
@@ -280,6 +283,9 @@ def test_a_pass_stays_inside_its_action_budget(runtime):
     for invoice_id in (runtime["legitimate_id"], second_id):
         runtime["workflow"].evaluate(invoice_id)
         runtime["workflow"].submit_payment(invoice_id)
+    # Both settled before their local confirmations were lost. A genuinely unresolved first
+    # authorization now correctly blocks starting another obligation.
+    for invoice_id in (runtime["legitimate_id"], second_id):
         _set_payment(runtime, invoice_id, {"confirmation_status": "UNCERTAIN"}, WorkflowState.NEEDS_RECONCILIATION.value)
 
     report = worker.run_pass(runtime["workflow"], max_actions=1)
@@ -428,6 +434,9 @@ def test_a_streak_of_degraded_passes_crosses_the_alert_threshold(runtime, monkey
     for invoice_id in (runtime["legitimate_id"], second_id):
         runtime["workflow"].evaluate(invoice_id)
         runtime["workflow"].submit_payment(invoice_id)
+    # Both settled before their local confirmations were lost. A genuinely unresolved first
+    # authorization now correctly blocks starting another obligation.
+    for invoice_id in (runtime["legitimate_id"], second_id):
         _set_payment(runtime, invoice_id, {"confirmation_status": "UNCERTAIN"}, WorkflowState.NEEDS_RECONCILIATION.value)
 
     def broken(self, invoice_id):

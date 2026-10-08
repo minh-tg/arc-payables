@@ -103,13 +103,19 @@ Run against a fresh database with default settings, the seeded legitimate invoic
 escalates on seven checks, and the audit chain verifies. Only the chain and the ledger are
 simulated on that path, and every response says so.
 
-The console is the fastest way in. Three commands, no key:
+The console is the fastest way in. With the default mock providers, one command and no key:
 
 ```bash
-uv run arc-payables-seed                 # a payable, a blocked invoice, a treasury and a supplier
 uv run uvicorn arc_payables.api:app      # API and console on 127.0.0.1:8000
-# then open http://127.0.0.1:8000/console/
+# open http://127.0.0.1:8000/console/ and choose Load demo invoices
 ```
+
+Overview guides you through loading examples, evaluating the clean and blocked invoices, explicitly
+confirming a simulated payment, inspecting its ledger entries and verifying the signed history.
+Opening a page never evaluates or pays an invoice. `POST /demo/start` works only with mock accounting
+and payments, fixture screening and no external planner; it preserves existing invoices and refuses
+to overwrite pre-existing accounting fixtures. It never changes configuration or submits funds.
+`uv run arc-payables-seed` remains available for the command-line demo.
 
 Straight after seeding the console is thin: two invoices still waiting to be looked at, an empty
 settlement log, and a worker that has never run. One more command fills every screen, and it is what
@@ -302,9 +308,19 @@ policy, the guard, or the audit chain.
 step, and it contains no data of its own. Every call it makes is an authenticated API call, so the
 same work is available with curl.
 
-The sidebar leads with the four destinations the console is organised around, then the operational
-screens below them. The header names the screen you are on, and the activity panel on Overview prints
-the pass as it ran and states which decision layer is answering, including whether a model is in it.
+The sidebar leads with Overview, Payment queue, Exceptions and Settlements, with Treasury & risk,
+Audit chain, Worker and Setup below. On a phone a Menu control expands the navigation. The header
+states whether payments and accounting are simulated, mixed or real Arc Testnet operations.
+Worker status reports the last recorded pass and its age, never assumes the loop is online, and
+refreshes without discarding an unfinished review. Overview puts planned payments, due obligations,
+reserve headroom and actionable exceptions before the expandable recorded activity.
+
+Mock mode uses a fixed, **public, test-only signing key** across default API and worker processes
+so demonstration audit history survives restarts. This checks demo-chain consistency, not real
+identity or custody. Never fund that key or configure a live guard to trust it. Circle/local
+signing is unchanged and requires separately configured credentials. Existing demo databases
+signed by earlier random mock keys may not verify under this anchor; use a fresh mock database
+for the journey, rather than rewriting historical signatures or suppressing verification.
 
 | View | What it shows |
 | --- | --- |
@@ -364,6 +380,11 @@ empty popover and throws nothing at all.
 The console is shipped code, so its modules are syntax-checked in the test suite: a JavaScript
 error would otherwise produce a blank page that no server-side test would catch.
 
+`bash script/console-journey-smoke.sh` (requires `agent-browser` and Chromium) starts a fresh mock-only
+deployment and exercises loading examples, blocking evidence, missing mode metadata, cancelling and
+confirming a payment, ledger inspection and real audit verification. It also checks stale-route races,
+keyboard navigation, reduced motion and every view at 320px, 390px and desktop widths.
+
 ## Running unattended
 
 The worker is what makes the rest of this operate without somebody pressing a button.
@@ -374,7 +395,7 @@ uv run arc-payables-worker --interval 30           # passes every 30 seconds unt
 uv run arc-payables-worker --interval 30 --autopay  # also pay what the policy already authorized
 ```
 
-A pass does five things and stops:
+A pass runs the enabled steps and stops:
 
 | Step | What it does |
 | --- | --- |
@@ -382,7 +403,7 @@ A pass does five things and stops:
 | `writeback` | Finishes confirmed payments the accounting system has not taken yet, including the case where the payment entry landed and the fee entry did not. A network fee the provider could not name at settlement is asked for again rather than written off, and a failure to name it is a deferral with a backoff, never a permanent disable. |
 | `intake` | Reads the payables the ledger still owes, imports the ones nobody has captured, and evaluates each against the policy. It also re-evaluates a payable it parked until a due date once that date enters the payment window, so an invoice that arrived early becomes payable on its own. Discovery is what makes the queue current without a person. |
 | `rescreen` | Re-screens counterparties past their cadence and moves their risk tier. |
-| `autopay` | Pays the invoices the deterministic policy put in `ELIGIBLE` with a `PAY_NOW` decision. Off unless asked for. |
+| `autopay` | Records a validated plan of invoices already `ELIGIBLE`/`PAY_NOW`, executes the first choice through fresh evaluation and normal authorization, then replans on the changed treasury. Off unless asked for. |
 | `observe` | Reports the balance, the reserve headroom and the guard's budgets. Observation is not evidence, so this writes nothing. |
 
 Run against a live ledger with autopay on, the whole chain runs in one pass: the pass above found
@@ -528,12 +549,22 @@ Individual evaluation answers "may this invoice be paid?". `GET /plan` answers t
 
 The split between advice and money is deliberate:
 
-* **Ordering is advisory.** The heuristic order is expiring discount first, then lateness, then imminent due dates, then the smaller obligation. The sort key is a tuple of business facts, not weights, so each position has a readable reason. With `DECISION_LAYER=dual_process` a planner may reorder the queue.
+* **Ordering is advisory.** The heuristic order is operator-configured critical suppliers first, then expiring discount, lateness, imminent due dates, and the smaller obligation. The sort key is a tuple of business facts, not weights, so each position has a readable reason. With `DECISION_LAYER=dual_process` a planner may reorder the queue.
 * **Spending is deterministic.** The allocation applies the reserve floor and the balance in code, by walking the order and stopping when the next invoice would breach the reserve. A planner may reorder; it may never decide how much leaves.
 
 So the worst a confused planner can do is sequence the same payments differently. Validation requires exactly the offered invoices, each once, each with a reason: an added, omitted, duplicated or unexplained invoice rejects the whole answer and the deterministic order stands.
 
-Building a plan is read-only: it derives its decisions from live evidence without recording them. Every invoice it ranks must still pass its own policy checks and settle through the same guarded payment path. Invoices that are not payable appear in the plan with the reason, so the queue stays visible in full instead of being filtered away.
+`GET /plan` is read-only: it derives decisions from live evidence without recording them. Settled or already-authorized invoices are never proposed as new payments. Invoices that are not payable appear with their reason.
+
+**Closed-loop execution.** With autopay explicitly enabled, the worker records the plan, input fingerprint, ordering rationale and model trace before attempting its first selected invoice. It checks **all competing evidence**, treasury, calendar and configuration again without another model call, re-evaluates the chosen invoice, and uses the unchanged guarded authorization path. Changed inputs invalidate the advice rather than being silently accepted. After each attempt it records the payment/confirmation/ledger outcome and builds a new plan; uncertain or pending settlements stop new spending. Replanning is bounded per pass, and intake and payment share the action cap.
+
+Only previously policy-eligible invoices enter worker plans. Held, unreviewed and human-escalated invoices cannot be promoted by ordering. Approval remains bound to the exact evidence; changed evidence can require human review again. An atomic authorization-revision check prevents concurrent requests from funding different obligations against the same pre-payment balance. Existing settlement retries remain idempotent.
+
+`GET /plans` returns the latest 20 recorded plans and their outcomes; Payment queue shows this history separately from the live preview. Plans with invoices are copied into the audit chain before authorization, and outcomes are audit events too. A record marked `executed` means **an attempt**, not proof of settlement: inspect `confirmation_status` and `erp_status`. A record left `recorded` has no completion proof. After a crash the worker rebuilds advice; it never replays an old plan.
+
+Operator business priorities may be set with `CRITICAL_SUPPLIER_IDS='["SUP-ACME-001"]'`. These tags are advisory, supplied by the operator rather than inferred from invoice prose. The optional LLM receives supplier tags, dates, discounts and the heuristic reasons; code computes affordability and protects the reserve regardless of the proposed order.
+
+Safety/comparison checks: `uv run pytest -q tests/test_worker_planning.py`. These compare rules with mocked valid/invalid model responses under constrained liquidity, changed competing evidence, pending settlements and authorization races. They do **not** benchmark a real model's decision quality, latency or cost. No Jev integration or live-payment setting is enabled by this work.
 
 ## Treasury visibility and counterparty monitoring
 
@@ -599,7 +630,7 @@ which left the first Circle settlement unbookable.
 - Address screening's OpenSanctions provider is implemented behind its interface with deterministic evidence and fail-closed behavior, but no live call has been made (no API key configured), so a real deployment still relies on human review until it is exercised.
 - The fee is measured from the transaction receipt's `gasUsed * effectiveGasPrice`, which Arc reports as 18-decimal native USDC against a 6-decimal token. That conversion is now pinned by a test using a real receipt's numbers. A fee the ledger cannot represent is booked rounded up, and a company whose base currency is the settlement asset needs no rounding at all.
 
-**Not built, on purpose:** the console is a static page over the documented API instead of a product UI, there is no mainnet route, only USDC settlement (currency support is extensible but unimplemented), and there is no KMS signer implementation: `SIGNER_BACKEND=kms` fails closed instead of pretending to sign.
+**Not built:** there is no mainnet route, only USDC settlement (currency support is extensible but unimplemented), and there is no KMS signer implementation: `SIGNER_BACKEND=kms` fails closed instead of pretending to sign. The console now includes guided onboarding and invoice-resolution workflows, but still uses shared API and approval credentials rather than individual accounts or role-based team access.
 
 **Operational prerequisites left to the operator:** replace and human-verify the demo supplier wallet (currently an unverified placeholder), create a narrowly scoped runtime ERPNext user, and decide address-screening vendor/keys.
 

@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     permit_lifetime_seconds: int = 300
     payment_due_window_days: int = 3
     discount_min_percent: Decimal = Decimal("0")
+    # Operator-declared business priorities, never inferred from invoice prose. Advisory only.
+    critical_supplier_ids: tuple[str, ...] = ()
     approval_token: str | None = None
     api_key: str | None = None
 

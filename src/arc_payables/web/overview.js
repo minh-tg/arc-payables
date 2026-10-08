@@ -1,182 +1,81 @@
-// The landing screen: what is owed, what the guard will allow, what is waiting on a person, and
-// what the agent has been doing.
-//
-// The activity panel is the point of this view. The agent's work is otherwise invisible on a screen
-// that shows outcomes, so the pass, its steps and its refusals are printed where a reader lands.
+// Business questions first; operational detail remains available without dominating the landing page.
+import { api, badge, concept, h, lede, logPanel, panel, registerView, sectionHeading, statGrid, table, workerHealth } from './app.js';
+import { demoJourney } from './journey.js';
 
-import { api, badge, concept, h, lede, logPanel, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+const optional = (path) => api(path).catch(() => null);
 
-// A landing screen should not go blank because one optional fact is unavailable.
-const optional = (path, fallback) => api(path).catch(() => fallback);
-
-function clock(value) {
-  // Postgres-style ISO timestamps are the only shape the service emits; anything else is shown as is.
-  const match = typeof value === 'string' ? value.match(/T(\d{2}:\d{2}:\d{2})/) : null;
-  return match ? match[1] : '';
-}
-
-function money(value) {
-  return value === null || value === undefined ? '—' : `${value}`;
-}
-
-function decisionLayer(setup) {
-  for (const group of (setup && setup.groups) || []) {
-    for (const item of group.requirements || []) {
-      if (item.env === 'DECISION_LAYER') return item;
-    }
-  }
-  return null;
-}
-
-function activityLines(status, layer) {
-  const lines = [];
+function activityLines(status) {
+  if (!status) return [{ level: 'warn', message: 'Worker status could not be read. Open Worker to retry.' }];
+  if (!status.last) return [{ level: 'warn', message: 'No background pass recorded. Manual review still works.' }];
   const last = status.last;
-  if (layer) {
-    // Say which layer is answering, and whether a model is in it. An operator who believes there is
-    // one where there is not has been misled by the screen, not by the log.
-    const dual = String(layer.value || '') === 'dual_process';
-    lines.push({
-      level: dual ? 'info' : 'warn',
-      message: dual
-        ? `Decision layer: ${layer.value}. A model advises on trade-offs; the policy still decides.`
-        : `Decision layer: ${layer.value || 'unknown'}. Rule-based, so no model is called on this path.`,
-    });
-  }
-  if (!last) {
-    lines.push({ level: 'warn', message: 'No pass has been recorded, so nothing is running on its own yet.' });
-    return lines;
-  }
-  lines.push({ time: clock(last.started_at), level: 'info', message: 'Pass started.' });
-  for (const step of last.detail && last.detail.steps ? last.detail.steps : []) {
-    const acted = `acted ${step.acted}/${step.examined}`;
-    const skipped = step.skipped ? `, skipped ${step.skipped}` : '';
-    const failed = step.failed ? `, failed ${step.failed}` : '';
-    lines.push({
-      level: step.failed || step.error ? 'error' : step.acted ? 'info' : 'warn',
-      message: `${step.name}: ${acted}${skipped}${failed}${step.error ? ` (${step.error})` : ''}`,
-    });
-  }
-  for (const alert of status.alerts || []) {
-    lines.push({
-      time: clock(last.finished_at),
-      level: alert.severity === 'critical' ? 'error' : 'warn',
-      message: `${alert.code}: ${alert.summary}`,
-    });
-  }
-  lines.push({ time: clock(last.finished_at), level: last.outcome === 'ok' ? 'info' : 'error', message: `Pass finished: ${last.outcome}.` });
-  return lines;
+  return [
+    { level: 'info', message: `Last recorded pass: ${last.started_at}. This is history, not a live stream.` },
+    ...(last.detail?.steps || []).map((step) => ({
+      level: step.failed || step.error ? 'error' : 'info',
+      message: `${step.name}: ${step.acted}/${step.examined} acted, ${step.skipped || 0} skipped, ${step.failed || 0} failed${step.error ? ` · ${step.error}` : ''}`,
+    })),
+    { level: last.outcome === 'ok' ? 'info' : 'error', message: `Pass finished: ${last.outcome}.` },
+  ];
 }
 
 async function renderOverview(root) {
-  const [forecast, attention, worker, setup] = await Promise.all([
-    api('/forecast?days=30'),
-    api('/attention'),
-    optional('/worker/status', {}),
-    optional('/setup', {}),
+  const [forecast, attention, worker, setup, plan, invoices] = await Promise.all([
+    api('/forecast?days=30'), api('/attention'), optional('/worker/status'), optional('/setup'), optional('/plan'), optional('/invoices'),
   ]);
-
-  const caps = forecast.guard_caps_usdc || null;
   const waiting = (attention.critical || 0) + (attention.warning || 0);
-  const layer = decisionLayer(setup);
-
-  root.append(
-    statGrid([
-      {
-        label: 'Due within horizon',
-        value: String(forecast.due_within_horizon_usdc ?? '—'),
-        unit: 'USDC',
-        icon: 'fileText',
-        note: `Over the next ${forecast.horizon_days} days, from the forecast`,
-      },
-      caps
-        ? {
-            label: 'Guard limit',
-            value: String(caps.per_payment ?? '—'),
-            unit: 'USDC / payment',
-            icon: 'shield',
-            concept: 'guard',
-            note: `${caps.epoch} per epoch · ${caps.recipient_epoch} per recipient. Fixed at deployment.`,
-          }
-        : {
-            label: 'Treasury',
-            value: money(forecast.balance_usdc),
-            unit: 'USDC',
-            icon: 'wallet',
-            concept: 'treasury',
-            note: 'No guard caps published by the configured provider',
-          },
-      waiting === 0
-        ? { label: 'Agent escalations', value: '0', icon: 'check', tone: 'good', note: 'Nothing is waiting on a person' }
-        : {
-            label: 'Agent escalations',
-            value: String(waiting),
-            icon: 'alert',
-            tone: 'bad',
-            note: 'Require human judgement to proceed',
-          },
-    ]),
-  );
+  root.append(sectionHeading({ eyebrow: 'Payment operations', title: 'Know what can move. See what needs you.', trailing: h('a', { class: 'btn btn-primary', href: '#/queue' }, 'Open payment queue') }));
+  root.append(lede('Verified supplier invoices, bounded payments, and a ', concept('ledger', 'ledger'), ' that stays in sync. The policy decides what is safe; you decide how to resolve exceptions.'));
+  root.append(statGrid([
+    { label: 'Planned payment value', value: String(plan?.planned_spend_usdc ?? '—'), unit: 'USDC', note: 'Current read-only plan, not payment authorization', icon: 'check' },
+    { label: 'Due in 30 days', value: String(forecast.due_within_horizon_usdc ?? '—'), unit: 'USDC', note: 'Includes obligations the agent cannot yet pay', icon: 'fileText' },
+    { label: 'Available after reserve', value: String(plan?.spendable_usdc ?? '—'), unit: 'USDC', note: `Reserve floor: ${forecast.reserve_floor_usdc ?? '—'} USDC`, concept: 'reserve_floor', icon: 'wallet' },
+    { label: 'Issues needing you', value: String(waiting), tone: waiting ? 'warn' : 'good', note: `${attention.critical || 0} critical · ${attention.warning || 0} warning`, icon: 'alert' },
+  ]));
+  if (!setup) root.append(h('p', { class: 'warn-text', role: 'status' }, 'Environment details unavailable. Payment mode must be confirmed again before submitting.'));
+  const journey = demoJourney(invoices || [], setup?.deployment);
+  if (journey) root.append(h('details', { class: 'demo-guide', open: !(invoices || []).some((row) => row.invoice.id === 'demo-invoice-legitimate' && row.state === 'ERP_RECORDED') }, h('summary', {}, 'Guided demo · no on-chain funds move'), journey));
+  else root.append(panel('Ready for your first payment?',
+    h('p', { class: 'muted' }, 'Check the ledger connection, verify supplier destinations, and preview policy decisions before enabling unattended payments.'),
+    h('a', { class: 'btn', href: '#/setup' }, 'Review setup checklist'),
+  ));
 
   const items = (attention.items || []).slice(0, 5);
-  const itemRows = items.map((item) =>
-    h(
-      'tr',
-      {},
-      h('td', { class: 'mono' }, item.code),
+  const rows = items.map((item) => {
+    const invoice = item.detail?.invoices?.[0] || item.detail?.payments?.[0];
+    const href = invoice ? `#/invoice/${encodeURIComponent(invoice.invoice_id)}` : '#/attention';
+    return h('tr', {},
       h('td', {}, badge(item.severity, item.severity === 'critical' ? 'bad' : 'warn')),
-      h('td', { class: 'text-danger' }, item.summary),
-      h('td', { style: 'text-align:right' }, h('button', { class: 'btn btn-secondary', onclick: () => { location.hash = '#/attention'; } }, 'Review')),
-    ),
+      h('td', {}, item.summary),
+      h('td', {}, invoice?.invoice_number || 'Deployment'),
+      h('td', {}, h('a', { class: 'btn', href }, invoice ? 'Review invoice' : 'Resolve issue')),
+    );
+  });
+  const exceptions = h('section', { class: 'card' },
+    sectionHeading({ eyebrow: 'Next actions', title: 'Needs your judgement', count: (attention.items || []).length, trailing: h('a', { class: 'btn', href: '#/attention' }, 'View all') }),
+    rows.length ? table(['Priority', 'What needs attention', 'Invoice', 'Action'], rows) : h('p', { class: 'muted' }, 'No issues waiting on you. Open the queue to review upcoming payments.'),
   );
+  const health = workerHealth(worker);
+  const coverage = panel('Treasury coverage',
+    h('p', {}, forecast.shortfall ? badge('Shortfall forecast', 'warn') : badge('Covered within horizon', 'good')),
+    forecast.shortfall
+      ? h('p', { class: 'guide-note' }, `${forecast.shortfall_usdc} USDC shortfall from ${forecast.shortfall_date}. Review inflows and payment timing; do not bypass the reserve.`)
+      : h('p', { class: 'muted' }, 'Due obligations are covered while preserving the configured reserve.'),
+    h('a', { class: 'btn', href: '#/treasury' }, 'Review cash coverage'),
+    h('div', { class: 'health-summary' }, badge(health.label, health.tone === 'ok' ? 'good' : health.tone), h('a', { href: '#/worker' }, 'Worker history')),
+  );
+  root.append(h('div', { class: 'split' }, exceptions, coverage));
 
-  const activity = h(
-    'section',
-    { class: 'card' },
-    sectionHeading({ eyebrow: 'Live stream', title: 'Agent activity', count: activityLines(worker, layer).length }),
-    logPanel(activityLines(worker, layer)),
-    lede(
-      'This is the background pass as it ran, not a recording. The ',
-      concept('policy_check', 'policy'),
-      ' decides, the worker only does what a decision already authorized, and it approves nothing.',
-    ),
-  );
-
-  const exceptions = h(
-    'section',
-    { class: 'card' },
-    sectionHeading({
-      eyebrow: 'Action queue',
-      title: 'Exceptions',
-      count: (attention.items || []).length,
-      trailing: h('button', { class: 'btn btn-secondary', onclick: () => { location.hash = '#/attention'; } }, 'View all'),
-    }),
-    items.length
-      ? table(['Code', 'Severity', 'Reason', ''], itemRows)
-      : h('p', { class: 'muted' }, 'Nothing is waiting on a person.'),
-  );
-
-  root.append(
-    h('div', { class: 'split' }, h('div', {}, exceptions), h('div', {}, activity)),
-  );
-
-  root.append(
-    panel(
-      'Coverage',
-      h(
-        'dl',
-        { class: 'facts' },
-        h('dt', {}, concept('treasury', 'Balance')),
-        h('dd', {}, money(forecast.balance_usdc)),
-        h('dt', {}, concept('reserve_floor', 'Reserve floor')),
-        h('dd', {}, money(forecast.reserve_floor_usdc)),
-        h('dt', {}, 'Coverable'),
-        h('dd', {}, money(forecast.coverable_usdc)),
-      ),
-      forecast.shortfall
-        ? h('p', { class: 'error' }, `Shortfall of ${forecast.shortfall_usdc} USDC from ${forecast.shortfall_date}.`, plainWords('attention', 'reserve_breached'))
-        : h('p', {}, badge('every obligation in the horizon is covered while keeping the reserve', 'good')),
-    ),
-  );
+  const caps = forecast.guard_caps_usdc;
+  root.append(h('details', { class: 'card' },
+    h('summary', {}, 'Payment safeguards & recorded activity'),
+    h('p', { class: 'muted' }, caps
+      ? `${caps.per_payment} USDC per payment · ${caps.epoch} per epoch · ${caps.recipient_epoch} per recipient. Fixed at deployment; refunds do not restore spent allowance.`
+      : 'No on-chain guard budgets were published by this provider. Demo values are not deployed contract limits.'),
+    caps?.paused ? badge('Guard paused', 'bad') : null,
+    h('p', { class: 'guide-note' }, 'An agent can advise, but it cannot approve an exception or choose a different recipient.'),
+    logPanel(activityLines(worker)),
+    setup ? h('a', { href: '#/setup' }, 'Configuration & decision layer') : null,
+  ));
 }
 
 registerView('overview', renderOverview);

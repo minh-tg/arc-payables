@@ -48,6 +48,12 @@ function stepNotes(step) {
   }
   if (detail.deferred) notes.push(`${detail.deferred} deferred to the next pass`);
   if (detail.waiting) notes.push(`${detail.waiting} waiting out a writeback backoff`);
+  if (detail.stopped_reason) notes.push(`Stopped: ${detail.stopped_reason}`);
+  if (detail.reevaluated?.length) notes.push(`${detail.reevaluated.length} changed decisions re-evaluated`);
+  for (const item of (detail.plans || []).slice(0, MAX_NOTES)) {
+    notes.push(`Plan ${item.id}: ${item.status || 'outcome not recorded'} · ${item.ordered_by}${item.reason ? ` · ${item.reason}` : ''}`);
+  }
+  if ((detail.plans || []).length > MAX_NOTES) notes.push('More plan choices and outcomes in Payment queue.');
   return notes;
 }
 
@@ -82,6 +88,7 @@ async function renderWorker(root) {
         'the chain about anything still unconfirmed. The worker approves nothing.',
       ),
       status.last ? facts : h('p', { class: 'muted' }, 'No pass has been recorded yet. The loop writes here once it runs.'),
+      h('a', { href: '#/queue' }, 'Inspect recorded payment plans'),
       last && last.detail && last.detail.stopped_reason
         ? h('p', { class: 'error' }, `Stopped: ${last.detail.stopped_reason}`)
         : null,

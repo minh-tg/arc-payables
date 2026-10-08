@@ -18,7 +18,7 @@ function detailTable(item) {
   const detail = item.detail || {};
   if (detail.invoices) {
     return table(
-      ['Invoice', 'Supplier', 'Amount', 'Due'],
+      ['Invoice', 'Supplier', 'Amount', 'Due', 'Action'],
       detail.invoices.map((row) =>
         h(
           'tr',
@@ -27,13 +27,14 @@ function detailTable(item) {
           h('td', {}, row.supplier_id),
           h('td', { class: 'num' }, money(row.amount_usdc)),
           h('td', {}, row.due_date),
+          h('td', {}, h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, 'Review evidence')),
         ),
       ),
     );
   }
   if (detail.payments) {
     return table(
-      ['Invoice', 'Transaction', 'Ledger', 'Attempts', 'Error'],
+      ['Invoice', 'Transaction', 'Ledger', 'Attempts', 'Error', 'Action'],
       detail.payments.map((row) =>
         h(
           'tr',
@@ -43,6 +44,7 @@ function detailTable(item) {
           h('td', {}, row.erp_status || '—'),
           h('td', { class: 'num' }, String(row.erp_attempts || 0)),
           h('td', {}, row.erp_error_code || '—', plainWords('writeback', row.erp_error_code)),
+          h('td', {}, h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, 'Resolve safely')),
         ),
       ),
     );
@@ -105,16 +107,16 @@ async function renderAttention(root) {
   }
   for (const item of data.items) {
     const detail = detailTable(item);
-    const classes = `card finding ${tone(item.severity)}`;
+    const classes = `card finding ${item.severity === 'critical' ? 'critical' : 'warning'}`;
     const head = h(
       'div',
       { class: 'finding-head' },
       h('span', { class: 'finding-code' }, item.code),
       badge(item.severity, tone(item.severity)),
     );
-    const actions = item.code === 'invoice_escalated' || item.code === 'invoice_held'
-      ? h('button', { onclick: () => location.hash = '#/queue' }, 'Review')
-      : null;
+    const destination = item.code === 'reserve_breached' || item.code.includes('screen') ? 'treasury'
+      : item.code.includes('worker') ? 'worker' : item.code === 'audit_chain_broken' ? 'audit' : 'setup';
+    const actions = detail ? null : h('a', { class: 'btn', href: `#/${destination}` }, `Open ${destination === 'treasury' ? 'treasury & risk' : destination}`);
     root.append(
       h(
         'section',

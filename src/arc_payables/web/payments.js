@@ -4,7 +4,7 @@
 // why. A row links to the invoice for the deep evidence, and the lookup accepts whatever an operator
 // is holding, which is usually a transaction hash from a block explorer.
 
-import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+import { actionButton, api, apiKey, badge, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -25,7 +25,7 @@ function outcomeTone(item) {
 }
 
 function outcomeBadge(item) {
-  return badge(item.code, outcomeTone(item));
+  return badge(item.code.replaceAll('_', ' '), outcomeTone(item));
 }
 
 function filters(state, onPick) {
@@ -246,9 +246,23 @@ function reportPanels(report) {
   return panels;
 }
 
-async function renderPayments(root) {
+async function renderPayments(root, [reference] = []) {
   const log = await api('/payments');
-  root.append(sectionHeading({ eyebrow: 'Payment history', title: 'Settlements', count: (log.payments || []).length }));
+  const exportFeedback = h('div', { role: 'status', 'aria-live': 'polite' });
+  const exportCSV = actionButton('Export CSV', async () => {
+    const headers = { Accept: 'text/csv' };
+    if (apiKey()) headers['X-API-Key'] = apiKey();
+    const response = await fetch('/payments/export', { headers });
+    if (!response.ok) throw new Error(`Export failed (HTTP ${response.status}). Check API access and try again.`);
+    const url = URL.createObjectURL(await response.blob());
+    const link = h('a', { href: url, download: 'tameion-settlements.csv' });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    exportFeedback.replaceChildren(h('p', { class: 'muted' }, 'CSV exported from recorded payments.'));
+  }, exportFeedback);
+  root.append(sectionHeading({ eyebrow: 'Payment history', title: 'Settlements', count: (log.payments || []).length, trailing: exportCSV }), exportFeedback);
   const totals = log.totals || {};
   let filter = 'all';
   const tableHost = h('div', {});
@@ -316,7 +330,7 @@ async function renderPayments(root) {
     ),
   );
 
-  const lookupInput = h('input', { placeholder: 'Invoice id, invoice number, payment id or transaction hash' });
+  const lookupInput = h('input', { 'aria-label': 'Payment reference', placeholder: 'Invoice id, invoice number, payment id or transaction hash' });
   const reportHost = h('div', {});
   const lookup = h(
     'button',
@@ -374,6 +388,15 @@ async function renderPayments(root) {
   );
   paintFilters();
   paint();
+  if (reference) {
+    lookupInput.value = decodeURIComponent(reference);
+    try {
+      const report = await api(`/payments/${encodeURIComponent(lookupInput.value)}`);
+      reportHost.replaceChildren(...reportPanels(report));
+    } catch (error) {
+      reportHost.replaceChildren(h('p', { class: 'error', role: 'alert' }, String(error.message)));
+    }
+  }
 }
 
 registerView('payments', renderPayments);
