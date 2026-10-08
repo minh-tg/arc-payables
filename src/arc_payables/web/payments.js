@@ -194,9 +194,13 @@ function reportPanels(report) {
                 [
                   h('tr', {}, h('td', {}, 'What the provider says now'), h('td', {}, outcome.detail)),
                   h('tr', {}, h('td', {}, 'Agrees with our record'), h('td', {}, outcome.agrees_with_record ? badge('yes', 'good') : badge('no', 'bad'))),
-                  h('tr', {}, h('td', {}, 'Fee we booked'), h('td', {}, String(outcome.fee_units_recorded ?? '—'))),
-                  h('tr', {}, h('td', {}, 'Fee reported now'), h('td', {}, String(outcome.fee_units_reported_now ?? '—'))),
-                  h('tr', {}, h('td', {}, 'Fees agree'), h('td', {}, outcome.fee_agrees === null ? '—' : outcome.fee_agrees ? badge('yes', 'good') : badge('no', 'bad'))),
+                  // The two figures are different scopes: everything we absorbed across every
+                  // on-chain operation, against the single operation the provider was asked about.
+                  // Labelling them is what stops a total and a share from looking like a conflict.
+                  h('tr', {}, h('td', {}, 'Fee we booked (all operations)'), h('td', {}, String(outcome.fee_units_recorded ?? '—'))),
+                  h('tr', {}, h('td', {}, `Fee reported now (${outcome.fee_stage_compared || 'settlement'} operation)`), h('td', {}, String(outcome.fee_units_reported_now ?? '—'))),
+                  h('tr', {}, h('td', {}, `Our record for that operation`), h('td', {}, String(outcome.fee_units_recorded_for_stage ?? '—'))),
+                  h('tr', {}, h('td', {}, 'Fees agree for that operation'), h('td', {}, outcome.fee_agrees === null ? '—' : outcome.fee_agrees ? badge('yes', 'good') : badge('no', 'bad'))),
                 ],
               ),
             );

@@ -17,7 +17,8 @@ from .security import recover_digest_signer
 GENESIS_HASH = "0x" + "00" * 32
 
 #: Ceiling on how many live sessions one identity may hold. The table already has a global cap;
-#: without a per-identity one, a single account can fill it and lock everyone else out.
+#: without a per-identity one, a single account can fill it and lock everyone else out. Reaching it
+#: evicts that identity's oldest session rather than refusing the sign-in.
 MAX_SESSIONS_PER_SUBJECT = 20
 
 
@@ -454,7 +455,15 @@ class SQLiteEvidenceStore:
                     "SELECT COUNT(*) FROM auth_sessions WHERE issuer=? AND subject=?", (issuer, subject)
                 ).fetchone()[0]
                 if per_subject >= MAX_SESSIONS_PER_SUBJECT:
-                    raise RuntimeError("Too many sessions for this identity")
+                    # Evict the oldest rather than refusing the sign-in. Refusing would let anyone
+                    # holding valid credentials for this subject lock it out of new sessions until
+                    # one expired, which turns a safety valve into a denial of service.
+                    connection.execute(
+                        "DELETE FROM auth_sessions WHERE session_hash IN ("
+                        "  SELECT session_hash FROM auth_sessions WHERE issuer=? AND subject=?"
+                        "  ORDER BY authenticated_at ASC, session_hash ASC LIMIT ?)",
+                        (issuer, subject, per_subject - MAX_SESSIONS_PER_SUBJECT + 1),
+                    )
                 connection.execute("INSERT INTO auth_sessions VALUES (?,?,?,?,?)",
                                    (session_hash, issuer, subject, authenticated_at, expires_at))
                 connection.commit()

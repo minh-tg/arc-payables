@@ -27,7 +27,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -243,29 +245,37 @@ def create_backup(
     final_path.chmod(0o600)
 
     if hook:
-        # A hook that never returns must not hold the backup run open forever.
+        # A hook that never returns must not hold the backup run open forever, and one that forks
+        # must not leave children behind still holding the destination. It runs in its own process
+        # group so the whole group can be killed, not just the process this code can see.
+        process = subprocess.Popen(
+            [*hook.split(), str(final_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
         try:
-            completed = subprocess.run(
-                [*hook.split(), str(final_path)],
-                capture_output=True,
-                text=True,
-                timeout=hook_timeout_seconds,
-            )
+            hook_stdout, hook_stderr = process.communicate(timeout=hook_timeout_seconds)
         except subprocess.TimeoutExpired:
-            manifest["hook"] = {"command": hook, "returncode": None,
-                                "error": f"did not finish within {hook_timeout_seconds}s"}
+            _kill_process_group(process)
+            manifest["hook"] = {
+                "command": hook,
+                "returncode": None,
+                "error": f"did not finish within {hook_timeout_seconds}s; its process group was killed",
+            }
             manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
             raise BackupError(
                 f"the off-host hook did not finish within {hook_timeout_seconds}s; the backup exists "
                 f"locally at {final_path} but was NOT shipped, so this run is not a completed "
                 "off-host backup"
             )
-        manifest["hook"] = {"command": hook, "returncode": completed.returncode}
-        if completed.returncode != 0:
-            manifest["hook"]["error"] = (completed.stderr or completed.stdout or "")[:400]
+        manifest["hook"] = {"command": hook, "returncode": process.returncode}
+        if process.returncode != 0:
+            manifest["hook"]["error"] = (hook_stderr or hook_stdout or "")[:400]
             manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
             raise BackupError(
-                f"the off-host hook failed ({completed.returncode}); the backup exists locally at "
+                f"the off-host hook failed ({process.returncode}); the backup exists locally at "
                 f"{final_path} but was NOT shipped, so this run is not a completed off-host backup"
             )
 
@@ -280,6 +290,24 @@ def create_backup(
 
 def _backup_files(directory: Path) -> list[Path]:
     return sorted(directory.glob(f"*{BACKUP_SUFFIX}"), key=lambda path: path.name)
+
+
+def _kill_process_group(process: subprocess.Popen) -> None:
+    """Kill a hook and anything it forked, then reap it.
+
+    The hook was started with ``start_new_session=True``, so its process group contains every child
+    it spawned. Killing only the direct child would leave those children running, still holding the
+    destination path this run just reported as unshipped.
+    """
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        process.kill()
+    try:
+        process.communicate(timeout=5)
+    except Exception:
+        # Reaping is best effort: the timeout has already been reported to the operator.
+        pass
 
 
 def _recorded_time(path: Path) -> tuple[str, str]:
