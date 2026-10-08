@@ -261,6 +261,96 @@ def test_a_table_that_does_not_exist_is_absent_not_empty(tmp_path):
     assert dropped.manifest["database"]["counts"]["payment_plans"] is None
 
 
+def test_a_failing_hook_leaves_the_previous_backup_alone(tmp_path):
+    """Pruning before shipping can delete the last good copy while the new one never leaves."""
+    store, _ = _live_database(tmp_path)
+    destination = tmp_path / "backups"
+    keep_me = create_backup(store.path, destination, label="older",
+                            now=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+    with pytest.raises(BackupError, match="NOT shipped"):
+        create_backup(store.path, destination, keep=1, label="newer",
+                      now=lambda: datetime(2026, 1, 2, tzinfo=timezone.utc), hook="false")
+
+    assert keep_me.path.exists(), "the previous backup was pruned even though nothing shipped"
+    assert (destination / f"{keep_me.path.stem}.manifest.json").exists()
+
+
+def test_a_hook_that_never_returns_is_abandoned_and_reported(tmp_path):
+    """A hung hook must not hold the backup run open forever.
+
+    The hook always receives the backup path as its argument, so a hook that ignores extra
+    arguments is the realistic case: a script that blocks after copying.
+    """
+    store, _ = _live_database(tmp_path)
+    slow = tmp_path / "slow-hook.sh"
+    slow.write_text("#!/bin/sh\nsleep 5\n", encoding="utf-8")
+    slow.chmod(0o755)
+
+    with pytest.raises(BackupError, match="did not finish within"):
+        create_backup(store.path, tmp_path / "backups", hook=str(slow), hook_timeout_seconds=1)
+    # The verified local copy is kept and the manifest records what happened.
+    manifest = json.loads(next((tmp_path / "backups").glob("*.manifest.json")).read_text(encoding="utf-8"))
+    assert manifest["hook"]["returncode"] is None
+    assert "did not finish" in manifest["hook"]["error"]
+
+
+def test_a_successful_hook_still_prunes(tmp_path):
+    """The ordering fix must not disable retention."""
+    store, _ = _live_database(tmp_path)
+    destination = tmp_path / "backups"
+    create_backup(store.path, destination, label="older",
+                  now=lambda: datetime(2026, 1, 1, tzinfo=timezone.utc))
+    newest = create_backup(store.path, destination, keep=1, label="newer", hook="true",
+                           now=lambda: datetime(2026, 1, 2, tzinfo=timezone.utc))
+    remaining = sorted(path.stem for path in destination.glob("*.sqlite3"))
+    assert remaining == [newest.path.stem]
+
+
+def test_the_drill_refuses_to_restore_onto_the_live_database(tmp_path):
+    """One typo in --scratch must not destroy the evidence the backup exists to protect."""
+    store, _ = _live_database(tmp_path)
+    result = create_backup(store.path, tmp_path / "backups")
+    with pytest.raises(BackupError, match="live database"):
+        restore_drill(result.path, store.path, live_database=store.path)
+
+
+def test_the_drill_refuses_an_existing_target_unless_forced(tmp_path):
+    store, _ = _live_database(tmp_path)
+    result = create_backup(store.path, tmp_path / "backups")
+    scratch = tmp_path / "scratch" / "restored.sqlite3"
+    scratch.parent.mkdir(parents=True)
+    scratch.write_bytes(b"something already here")
+
+    with pytest.raises(BackupError, match="already exists"):
+        restore_drill(result.path, scratch)
+    assert scratch.read_bytes() == b"something already here", "the existing file was touched"
+
+    forced = restore_drill(result.path, scratch, force=True)
+    assert forced["ok"] is True
+
+
+def test_retention_follows_the_recorded_time_not_the_file_name(tmp_path):
+    """Name order and recorded order can disagree; the manifest is the authority."""
+    from arc_payables.backup import prune_backups
+
+    store, _ = _live_database(tmp_path)
+    destination = tmp_path / "backups"
+    first = create_backup(store.path, destination,
+                          now=lambda: datetime(2026, 1, 2, tzinfo=timezone.utc))
+    second = create_backup(store.path, destination,
+                           now=lambda: datetime(2026, 1, 3, tzinfo=timezone.utc))
+    # Make the recorded times disagree with the file names: "first" now claims to be newer.
+    manifest_path = destination / f"{first.path.stem}.manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["created_at"] = datetime(2026, 1, 4, tzinfo=timezone.utc).isoformat()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    removed = prune_backups(destination, 1)
+    assert removed == [second.path.name], "retention followed the file name, not the recorded time"
+    assert first.path.exists()
+
+
 def test_a_missing_source_is_reported_not_created(tmp_path):
     with pytest.raises(BackupError, match="does not exist"):
         create_backup(tmp_path / "absent.sqlite3", tmp_path / "backups")

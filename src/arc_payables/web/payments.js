@@ -103,9 +103,12 @@ function reportPanels(report) {
         h(
           'dd',
           {},
-          settlement.explorer_url
+          // Only an https link is rendered. The server builds this from a fixed explorer base, but a
+          // link whose href arrives from the API is worth a scheme check rather than trust: a
+          // javascript: URL there would execute on click. The hash is shown regardless.
+          settlement.explorer_url && String(settlement.explorer_url).startsWith('https://')
             ? h('a', { href: settlement.explorer_url, target: '_blank', rel: 'noreferrer' }, settlement.transaction_hash)
-            : '—',
+            : settlement.transaction_hash || '—',
         ),
       ),
     ),

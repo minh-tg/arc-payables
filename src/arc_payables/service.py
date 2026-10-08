@@ -42,6 +42,27 @@ class WorkflowError(RuntimeError):
         super().__init__(message)
 
 
+def _merged_fee(payment: dict, result: PaymentSubmission) -> dict[str, Any]:
+    """Total cost across every operation of this settlement, merged with what was already known.
+
+    Settling can take several on-chain operations, and a provider reporting a settlement's outcome
+    generally names only *that* operation's fee while an allowance operation was measured earlier.
+    Merging by stage keeps the total complete without double counting, because a repeated stage
+    replaces its own entry. Replacing the whole breakdown instead would erase the allowance fee and
+    understate our own cost — the direction that flatters the numbers and hides the mistake.
+    """
+    breakdown = dict(payment.get("fee_breakdown") or {})
+    if result.fee_breakdown:
+        breakdown.update(result.fee_breakdown)
+    elif result.fee_units is not None and breakdown:
+        # A single figure with a breakdown already present: the only stage that can still be
+        # outstanding at this point is the settlement call itself.
+        breakdown["guard"] = int(result.fee_units)
+    if not breakdown:
+        return {"fee_units": result.fee_units, "fee_breakdown": None}
+    return {"fee_units": sum(breakdown.values()), "fee_breakdown": breakdown}
+
+
 def invoice_fingerprint(invoice: InvoiceRecord) -> str:
     raw = invoice_to_dict(invoice)
     raw.pop("created_at", None)
@@ -409,13 +430,13 @@ class APWorkflow:
                 return self.get_invoice(invoice.id)
             return self._confirm_and_writeback(invoice, payment, inspected)
         if inspected.status == PaymentStatus.PENDING:
-            self.store.update_payment(invoice.id, self._submission_updates(inspected), WorkflowState.SUBMITTED.value, "PAYMENT_CONFIRMATION_PENDING", {"provider_transaction_id": inspected.provider_transaction_id})
+            self.store.update_payment(invoice.id, self._submission_updates(inspected, payment), WorkflowState.SUBMITTED.value, "PAYMENT_CONFIRMATION_PENDING", {"provider_transaction_id": inspected.provider_transaction_id})
             return self.get_invoice(invoice.id)
         if inspected.status == PaymentStatus.FAILED:
-            self.store.update_payment(invoice.id, self._submission_updates(inspected), WorkflowState.FAILED.value, "PAYMENT_FAILED", {"failure_code": inspected.failure_code})
+            self.store.update_payment(invoice.id, self._submission_updates(inspected, payment), WorkflowState.FAILED.value, "PAYMENT_FAILED", {"failure_code": inspected.failure_code})
             return self.get_invoice(invoice.id)
         if inspected.status == PaymentStatus.UNCERTAIN:
-            self.store.update_payment(invoice.id, self._submission_updates(inspected), WorkflowState.NEEDS_RECONCILIATION.value, "PAYMENT_RESULT_UNCERTAIN", {"failure_code": inspected.failure_code})
+            self.store.update_payment(invoice.id, self._submission_updates(inspected, payment), WorkflowState.NEEDS_RECONCILIATION.value, "PAYMENT_RESULT_UNCERTAIN", {"failure_code": inspected.failure_code})
             return self.get_invoice(invoice.id)
         # NOT_FOUND is safe to retry only because inspect_payment checked provider and/or
         # on-chain payment-ID state. The adapter also checks the guard before broadcasting.
@@ -441,21 +462,21 @@ class APWorkflow:
             return self.get_invoice(invoice.id)
         if result.status == PaymentStatus.CONFIRMED:
             if not result.transaction_hash:
-                self.store.update_payment(invoice.id, self._submission_updates(result) | {"confirmation_status": "HASH_MISSING"}, WorkflowState.NEEDS_RECONCILIATION.value, "PAYMENT_CONFIRMATION_HASH_MISSING", {})
+                self.store.update_payment(invoice.id, self._submission_updates(result, payment) | {"confirmation_status": "HASH_MISSING"}, WorkflowState.NEEDS_RECONCILIATION.value, "PAYMENT_CONFIRMATION_HASH_MISSING", {})
                 return self.get_invoice(invoice.id)
             return self._confirm_and_writeback(invoice, payment, result)
         if result.status == PaymentStatus.PENDING:
-            self.store.update_payment(invoice.id, self._submission_updates(result) | {"confirmation_status": "PENDING"}, WorkflowState.SUBMITTED.value, "PAYMENT_CONFIRMATION_PENDING", {"provider_transaction_id": result.provider_transaction_id})
+            self.store.update_payment(invoice.id, self._submission_updates(result, payment) | {"confirmation_status": "PENDING"}, WorkflowState.SUBMITTED.value, "PAYMENT_CONFIRMATION_PENDING", {"provider_transaction_id": result.provider_transaction_id})
         elif result.status == PaymentStatus.FAILED:
-            self.store.update_payment(invoice.id, self._submission_updates(result) | {"confirmation_status": "FAILED"}, WorkflowState.FAILED.value, "PAYMENT_FAILED", {"failure_code": result.failure_code})
+            self.store.update_payment(invoice.id, self._submission_updates(result, payment) | {"confirmation_status": "FAILED"}, WorkflowState.FAILED.value, "PAYMENT_FAILED", {"failure_code": result.failure_code})
         else:
-            self.store.update_payment(invoice.id, self._submission_updates(result) | {"confirmation_status": "UNCERTAIN"}, WorkflowState.NEEDS_RECONCILIATION.value, "PAYMENT_RESULT_UNCERTAIN", {"failure_code": result.failure_code})
+            self.store.update_payment(invoice.id, self._submission_updates(result, payment) | {"confirmation_status": "UNCERTAIN"}, WorkflowState.NEEDS_RECONCILIATION.value, "PAYMENT_RESULT_UNCERTAIN", {"failure_code": result.failure_code})
         return self.get_invoice(invoice.id)
 
     def _confirm_and_writeback(self, invoice: InvoiceRecord, payment: dict, result: PaymentSubmission) -> dict[str, Any]:
         self.store.update_payment(
             invoice.id,
-            self._submission_updates(result) | {"confirmation_status": "CONFIRMED", "settled_at": utcnow().isoformat(), "erp_status": "PENDING"},
+            self._submission_updates(result, payment) | {"confirmation_status": "CONFIRMED", "settled_at": utcnow().isoformat(), "erp_status": "PENDING"},
             WorkflowState.CONFIRMED.value,
             "PAYMENT_CONFIRMED",
             {"transaction_hash": result.transaction_hash, "payment_id": payment["payment_id"]},
@@ -964,12 +985,11 @@ class APWorkflow:
         }[action]
 
     @staticmethod
-    def _submission_updates(result: PaymentSubmission) -> dict[str, Any]:
+    def _submission_updates(result: PaymentSubmission, payment: dict) -> dict[str, Any]:
         return {
             "provider_transaction_id": result.provider_transaction_id,
             "transaction_hash": result.transaction_hash,
-            "fee_units": result.fee_units,
-            "fee_breakdown": result.fee_breakdown,
+            **_merged_fee(payment, result),
             "failure_code": result.failure_code,
         }
 

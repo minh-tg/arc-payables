@@ -54,6 +54,35 @@ def signed(desk, subject):
     return client
 
 
+def test_one_identity_cannot_occupy_the_whole_session_table(desk):
+    """A per-identity cap exists so a single account cannot lock everyone else out."""
+    from arc_payables.store import MAX_SESSIONS_PER_SUBJECT, SQLiteEvidenceStore
+
+    store: SQLiteEvidenceStore = desk[0].state.store
+    issuer = desk[1].oidc_issuer
+    for index in range(MAX_SESSIONS_PER_SUBJECT):
+        store.auth_create_session(f"hash-{index}", issuer, "reader", 0, 10**12, 0)
+    with pytest.raises(RuntimeError, match="for this identity"):
+        store.auth_create_session("one-too-many", issuer, "reader", 0, 10**12, 0)
+    # Another identity is unaffected: the cap is per subject, not global.
+    store.auth_create_session("other-identity", issuer, "operator", 0, 10**12, 0)
+    assert store.auth_get_session("other-identity", 0)["subject"] == "operator"
+
+
+def test_live_setup_checks_require_an_operational_role(desk):
+    """The probes reach the chain and the accounting system, so a reader cannot trigger them.
+
+    The inventory stays readable: a reader may see what is configured, but not make the service
+    call outward.
+    """
+    from arc_payables.auth import MUTATIONS
+
+    assert MUTATIONS["setup_checks"] == "operate"
+    reader = signed(desk, "reader")
+    assert reader.post("/setup/checks").status_code == 403
+    assert reader.get("/setup").status_code == 200
+
+
 def test_session_cookie_security_pkce_identity_and_no_token_storage(desk):
     client, response = sign_in(desk, "approver")
     assert response.status_code == 303

@@ -16,6 +16,12 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+#: The `__Host-` prefix is a browser-enforced guarantee: the cookie must be Secure, must not carry
+#: a Domain, and must use path=/. That is why both cookies are scoped "/" rather than to /auth —
+#: a narrower path would silently drop the prefix and with it the guarantee. The cost is that the
+#: short-lived login cookie travels with every request for its five minutes. Loopback development
+#: over plain HTTP cannot satisfy Secure, so it uses the distinct unprefixed names below instead of
+#: weakening the real ones; `secure_cookie` decides which pair is used.
 SESSION_COOKIE = "__Host-arc_payables_session"
 LOGIN_COOKIE = "__Host-arc_payables_login"
 DEV_SESSION_COOKIE = "arc_payables_session"
@@ -32,7 +38,12 @@ MUTATIONS = {
     "link_invoice": "operate", "approve": "approve", "submit_payment": "pay",
     # Existing reconcile route can initiate a payment; it must also require a payer.
     "reconcile_payment": "pay", "retry_erp_writeback": "operate", "rescreen": "operate",
-    "start_demo": "operate", "setup_checks": "read", "verify_payment_endpoint": "read",
+    "start_demo": "operate",
+    # Live probes reach the chain, Circle and the accounting system. They change nothing, but they
+    # do make this service call outward, so they need the role that owns operations rather than any
+    # reader.
+    "setup_checks": "operate",
+    "verify_payment_endpoint": "read",
 }
 
 

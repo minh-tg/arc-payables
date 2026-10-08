@@ -23,7 +23,7 @@ function detailTable(item) {
         h(
           'tr',
           {},
-          h('td', {}, h('a', { href: `#/invoice/${row.invoice_id}` }, row.invoice_number)),
+          h('td', {}, h('a', { href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, row.invoice_number)),
           h('td', {}, row.supplier_id),
           h('td', { class: 'num' }, money(row.amount_usdc)),
           h('td', {}, row.due_date),
@@ -39,7 +39,7 @@ function detailTable(item) {
         h(
           'tr',
           {},
-          h('td', {}, h('a', { href: `#/invoice/${row.invoice_id}` }, row.invoice_number)),
+          h('td', {}, h('a', { href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, row.invoice_number)),
           h('td', {}, row.transaction_hash || '—'),
           h('td', {}, row.erp_status || '—'),
           h('td', { class: 'num' }, String(row.erp_attempts || 0)),

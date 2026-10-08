@@ -181,6 +181,7 @@ def create_backup(
     keep: int | None = None,
     label: str | None = None,
     hook: str | None = None,
+    hook_timeout_seconds: int = 300,
     now: Callable[[], datetime] | None = None,
     verify: bool = True,
 ) -> BackupResult:
@@ -241,11 +242,24 @@ def create_backup(
     manifest_path.chmod(0o600)
     final_path.chmod(0o600)
 
-    removed = prune_backups(target_dir, keep) if keep else []
-    manifest["pruned"] = removed
-
     if hook:
-        completed = subprocess.run([*hook.split(), str(final_path)], capture_output=True, text=True)
+        # A hook that never returns must not hold the backup run open forever.
+        try:
+            completed = subprocess.run(
+                [*hook.split(), str(final_path)],
+                capture_output=True,
+                text=True,
+                timeout=hook_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            manifest["hook"] = {"command": hook, "returncode": None,
+                                "error": f"did not finish within {hook_timeout_seconds}s"}
+            manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+            raise BackupError(
+                f"the off-host hook did not finish within {hook_timeout_seconds}s; the backup exists "
+                f"locally at {final_path} but was NOT shipped, so this run is not a completed "
+                "off-host backup"
+            )
         manifest["hook"] = {"command": hook, "returncode": completed.returncode}
         if completed.returncode != 0:
             manifest["hook"]["error"] = (completed.stderr or completed.stdout or "")[:400]
@@ -254,12 +268,28 @@ def create_backup(
                 f"the off-host hook failed ({completed.returncode}); the backup exists locally at "
                 f"{final_path} but was NOT shipped, so this run is not a completed off-host backup"
             )
+
+    # Pruning runs only after a successful ship. Deleting an older copy before the new one has left
+    # the host can leave the deployment with fewer off-host copies than intended: with keep=1 a
+    # failing hook would remove the previous local copy while the new one never shipped.
+    removed = prune_backups(target_dir, keep) if keep else []
+    manifest["pruned"] = removed
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     return BackupResult(path=final_path, manifest_path=manifest_path, manifest=manifest)
 
 
 def _backup_files(directory: Path) -> list[Path]:
     return sorted(directory.glob(f"*{BACKUP_SUFFIX}"), key=lambda path: path.name)
+
+
+def _recorded_time(path: Path) -> tuple[str, str]:
+    """Sort key for retention: the manifest's own timestamp, then the file name."""
+    manifest = path.parent / f"{path.stem}{MANIFEST_SUFFIX}"
+    try:
+        recorded = str(json.loads(manifest.read_text(encoding="utf-8")).get("created_at") or "")
+    except (OSError, ValueError):
+        recorded = ""
+    return (recorded, path.name)
 
 
 def prune_backups(directory: Path | str, keep: int) -> list[str]:
@@ -272,6 +302,10 @@ def prune_backups(directory: Path | str, keep: int) -> list[str]:
     if keep <= 0:
         return []
     complete = [path for path in _backup_files(target) if (target / f"{path.stem}{MANIFEST_SUFFIX}").exists()]
+    # Ordered by the time the backup records, not by its file name. Name order equals chronological
+    # order only for the bare timestamp: a --label suffix sorts before the unlabeled name for the
+    # same second, which would make a newer backup look older and prune it first.
+    complete = sorted(complete, key=_recorded_time)
     removed: list[str] = []
     for path in complete[:-keep] if len(complete) > keep else []:
         manifest = target / f"{path.stem}{MANIFEST_SUFFIX}"
@@ -281,7 +315,8 @@ def prune_backups(directory: Path | str, keep: int) -> list[str]:
     return removed
 
 
-def restore_drill(backup: Path | str, scratch: Path | str, *, now: Callable[[], datetime] | None = None) -> dict[str, Any]:
+def restore_drill(backup: Path | str, scratch: Path | str, *, now: Callable[[], datetime] | None = None,
+                  live_database: Path | str | None = None, force: bool = False) -> dict[str, Any]:
     """Restore a backup into a scratch path and prove it is usable; never touch the live paths.
 
     Returns the measured restore time and the verification of the *restored* copy, because a
@@ -292,6 +327,18 @@ def restore_drill(backup: Path | str, scratch: Path | str, *, now: Callable[[], 
     destination = Path(scratch)
     if not source.exists():
         raise BackupError(f"backup {source} does not exist")
+    # A drill overwrites its destination, and it is meant to be run on the production host. Naming
+    # the live database here would destroy the very evidence the backup exists to protect, so the
+    # two dangerous destinations are refused rather than trusted to a docstring.
+    if live_database is not None and destination.resolve() == Path(live_database).resolve():
+        raise BackupError(
+            "the drill target is the live database; restore into a disposable path instead. "
+            "Overwriting it would destroy current records that no backup contains."
+        )
+    if destination.exists() and not force:
+        raise BackupError(
+            f"{destination} already exists; pass --force to overwrite it, or choose an empty path"
+        )
     manifest_path = destination.parent / f"{source.stem}{MANIFEST_SUFFIX}"
     if not manifest_path.exists():
         manifest_path = source.parent / f"{source.stem}{MANIFEST_SUFFIX}"
@@ -374,10 +421,16 @@ def drill_main(argv: list[str] | None = None) -> int:
         help="Where to restore. Use a disposable path: the file is overwritten each drill and the "
         "live database must never be named here.",
     )
+    parser.add_argument("--force", action="store_true",
+                        help="Overwrite the scratch path if it already exists")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+
+    from .settings import get_settings
+
     try:
-        report = restore_drill(args.backup, args.scratch)
+        report = restore_drill(args.backup, args.scratch, force=args.force,
+                               live_database=get_settings().database_path)
     except BackupError as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1
@@ -399,6 +452,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Command run with the backup path after it is verified (for example: rclone copy or age). "
         "Its failure fails the run, because a backup that stayed on the host is not an off-host backup.",
     )
+    parser.add_argument("--hook-timeout-seconds", type=int, default=300,
+                        help="Give up on the off-host hook after this long (default: 300)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -407,7 +462,8 @@ def main(argv: list[str] | None = None) -> int:
     database = Path(args.database) if args.database else Path(get_settings().database_path)
     try:
         result = create_backup(
-            database, args.destination, keep=args.keep, label=args.label, hook=args.hook
+            database, args.destination, keep=args.keep, label=args.label, hook=args.hook,
+            hook_timeout_seconds=args.hook_timeout_seconds,
         )
     except BackupError as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
