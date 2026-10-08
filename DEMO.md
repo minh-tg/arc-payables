@@ -37,6 +37,10 @@ export PAYMENT_PROVIDER=local
 export LOCAL_PAYMENT_PRIVATE_KEY=<treasury payer key>
 export LOCAL_PAYMENT_GUARD_ADDRESS=<guard address from the deploy>
 export LOCAL_PAYMENT_RPC_URL=$RPC
+# A real provider with shared credentials needs the explicit testnet-token mode. With the default
+# AUTH_MODE=demo the API refuses every call with 503 api_auth_not_configured, because demo
+# credentials must never open an external-provider deployment. This is a testnet path, not identity.
+export AUTH_MODE=testnet_tokens
 export API_KEY=local-demo-key
 export APPROVAL_TOKEN=local-demo-token
 ```

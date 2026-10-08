@@ -178,7 +178,7 @@ def create_app(
                     raise auth_fail(503, "oidc_unavailable") from exc
             return
         if settings.auth_mode == "demo" and not demo_allowed:
-            raise HTTPException(status_code=503, detail={"code": "api_auth_not_configured", "message": "External providers require OIDC identity or explicit testnet-only token mode."})
+            raise HTTPException(status_code=503, detail={"code": "api_auth_not_configured", "message": "External providers require individual identity (AUTH_MODE=oidc) or an explicit testnet-token deployment (AUTH_MODE=testnet_tokens with API_KEY and APPROVAL_TOKEN). AUTH_MODE=demo only opens the mock adapters."})
         if settings.auth_mode == "testnet_tokens" and not settings.api_key:
             raise HTTPException(status_code=503, detail={"code": "api_auth_not_configured", "message": "Testnet API authentication must be configured."})
         if settings.api_key and (not x_api_key or not hmac.compare_digest(x_api_key.encode(), settings.api_key.encode())):

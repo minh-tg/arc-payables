@@ -259,7 +259,14 @@ export PAYMENT_PROVIDER=local
 export LOCAL_PAYMENT_PRIVATE_KEY=<treasury payer key>
 export LOCAL_PAYMENT_GUARD_ADDRESS=<guard from the deploy>
 export LOCAL_PAYMENT_RPC_URL=$RPC
+# Shared-token access to a real provider must be explicit; the default AUTH_MODE=demo refuses it.
+export AUTH_MODE=testnet_tokens
+export API_KEY=<shared testnet API key>
+export APPROVAL_TOKEN=<shared testnet approval token>
 ```
+
+For a real deployment, use `AUTH_MODE=oidc` instead and read [docs/identity.md](docs/identity.md);
+the shared-token mode is a testnet migration path, not production identity.
 
 Then set `custom_usdc_wallet_address` on the demo Supplier to the supplier address and tick
 `custom_usdc_wallet_verified` **in ERPNext**, by hand. That is deliberately the one step the tooling
