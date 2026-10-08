@@ -45,7 +45,7 @@ def _client(runtime, **overrides) -> TestClient:
 
 
 def test_a_live_deployment_reports_every_missing_setting_with_its_consequence(runtime):
-    body = _client(runtime, payment_provider="circle", accounting_provider="frappe").get(
+    body = _client(runtime, payment_provider="circle", accounting_provider="frappe", auth_mode="testnet_tokens").get(
         "/setup", headers={"X-API-Key": "setup-test-key"}
     ).json()
 

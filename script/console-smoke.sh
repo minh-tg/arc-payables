@@ -37,7 +37,7 @@ fi
 
 # The fixture is pinned to the demo adapters. A developer with live credentials exported would
 # otherwise have this script, which only exists to look at screens, move real testnet money.
-MOCK="PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock SCREENING_PROVIDER=fixture DECISION_LAYER=heuristics API_KEY= APPROVAL_TOKEN= MIN_RESERVE_USDC=2000 MAX_INVOICE_USDC=1000 CRITICAL_SUPPLIER_IDS=[]"
+MOCK="ENVIRONMENT=local AUTH_MODE=demo PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock SCREENING_PROVIDER=fixture DECISION_LAYER=heuristics API_KEY= APPROVAL_TOKEN= MIN_RESERVE_USDC=2000 MAX_INVOICE_USDC=1000 CRITICAL_SUPPLIER_IDS=[]"
 
 env $MOCK DATABASE_PATH="$DB" uv run arc-payables-seed >/dev/null
 # Drive one pass before rendering. An empty table cannot show a wrong destructure, which is the

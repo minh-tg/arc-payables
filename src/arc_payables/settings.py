@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -59,6 +59,57 @@ class Settings(BaseSettings):
     critical_supplier_ids: tuple[str, ...] = ()
     approval_token: str | None = None
     api_key: str | None = None
+
+    # Individual identities for one business per deployment. Demo credentials cannot
+    # be used with external providers; shared testnet tokens require explicit opt-in.
+    auth_mode: Literal["demo", "oidc", "testnet_tokens"] = "demo"
+    metrics_api_key: str | None = Field(default=None, repr=False)
+    oidc_issuer: str | None = None
+    oidc_client_id: str | None = None
+    oidc_client_secret: str | None = Field(default=None, repr=False)
+    oidc_redirect_uri: str | None = None
+    oidc_subject_roles: dict[str, tuple[Literal["reader", "operator", "approver", "payer", "admin"], ...]] = Field(default_factory=dict)
+    oidc_mfa_claim: Literal["amr", "acr"] = "amr"
+    oidc_mfa_values: tuple[str, ...] = ("mfa",)
+    oidc_session_seconds: int = Field(default=900, ge=60, le=3600)
+    oidc_max_auth_age_seconds: int = Field(default=900, ge=60, le=3600)
+    oidc_clock_skew_seconds: int = Field(default=15, ge=0, le=60)
+    oidc_timeout_seconds: float = Field(default=5, gt=0, le=30)
+    oidc_allow_insecure_localhost: bool = False
+
+    @model_validator(mode="after")
+    def validate_identity_configuration(self):
+        from urllib.parse import urlsplit
+        from ipaddress import ip_address
+
+        if self.environment.strip().lower() == "production" and self.auth_mode != "oidc":
+            raise ValueError("Production requires AUTH_MODE=oidc.")
+        if self.auth_mode == "testnet_tokens" and self.environment.strip().lower() not in {"local", "test", "testnet", "development"}:
+            raise ValueError("Shared tokens are restricted to explicit local/testnet development.")
+        if self.auth_mode != "oidc":
+            return self
+        if not all((self.oidc_issuer, self.oidc_client_id, self.oidc_redirect_uri, self.oidc_subject_roles, self.oidc_mfa_values)):
+            raise ValueError("OIDC requires issuer, client ID, redirect URI, subject roles and MFA values.")
+        if self.environment.strip().lower() == "production" and self.oidc_allow_insecure_localhost:
+            raise ValueError("Production OIDC cannot permit insecure localhost.")
+        for value in (self.oidc_issuer, self.oidc_redirect_uri):
+            url = urlsplit(value)
+            try:
+                loopback = url.hostname == "localhost" or ip_address(url.hostname).is_loopback
+            except ValueError:
+                loopback = False
+            if (not url.hostname or url.username or url.password or url.query or url.fragment
+                    or (url.scheme != "https" and not (
+                        self.oidc_allow_insecure_localhost and loopback and url.scheme == "http"))):
+                raise ValueError("OIDC URLs require HTTPS; explicit loopback HTTP is for development only.")
+        if urlsplit(self.oidc_redirect_uri).path != "/auth/callback":
+            raise ValueError("OIDC redirect URI must use /auth/callback.")
+        for subject, roles in self.oidc_subject_roles.items():
+            if not subject.strip() or not roles:
+                raise ValueError("Each OIDC subject needs at least one role.")
+            if "approver" in roles and ({"operator", "payer", "admin"} & set(roles)):
+                raise ValueError("Approver credentials must be separate from operator, payer and admin credentials.")
+        return self
 
     # Policy signer. `env` is the MVP backend; `kms` must be implemented behind the
     # PermitSigner interface before use. The key is read only by the payment service.

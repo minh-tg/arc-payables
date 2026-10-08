@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import time
 import uuid
 from dataclasses import asdict
 from datetime import date, datetime, timezone
@@ -104,6 +105,10 @@ def invoice_from_dict(raw: dict[str, Any]) -> InvoiceRecord:
     for key in ("purchase_order_ids", "receipt_ids"):
         data[key] = tuple(data.get(key, ()))
     return InvoiceRecord(**data)
+
+
+class ReviewerRevoked(ValueError):
+    """Reviewer revocation won the race against an approval/authorization write."""
 
 
 class DuplicateInvoiceNumber(ValueError):
@@ -345,18 +350,29 @@ class SQLiteEvidenceStore:
                 connection.rollback()
                 raise
 
+    @staticmethod
+    def _auth_assert_not_revoked(connection, actor: dict) -> None:
+        if connection.execute("SELECT 1 FROM auth_revoked_subjects WHERE issuer=? AND subject=?",
+                              (actor.get("issuer"), actor.get("subject"))).fetchone():
+            raise ReviewerRevoked("Reviewer identity was revoked")
+
     def record_approval(self, invoice_id: str, approval: dict) -> None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 row = connection.execute("SELECT approval_json FROM invoices WHERE id=?", (invoice_id,)).fetchone()
                 prior = json.loads(row["approval_json"]) if row and row["approval_json"] else []
+                if approval.get("reviewer_identity"):
+                    self._auth_assert_not_revoked(connection, approval["reviewer_identity"])
                 prior.append(approval)
                 connection.execute(
                     "UPDATE invoices SET approval_json=?, updated_at=? WHERE id=?",
                     (canonical_json(prior), utcnow().isoformat(), invoice_id),
                 )
-                self._append_event(connection, invoice_id, "HUMAN_APPROVAL_RECORDED", self._state(connection, invoice_id), {"reviewer": approval["reviewer"], "approved": approval["approved"], "acknowledged_checks": approval["acknowledged_checks"]})
+                payload = {"reviewer": approval["reviewer"], "approved": approval["approved"], "acknowledged_checks": approval["acknowledged_checks"]}
+                if approval.get("reviewer_identity"):
+                    payload["reviewer_identity"] = approval["reviewer_identity"]
+                self._append_event(connection, invoice_id, "HUMAN_APPROVAL_RECORDED", self._state(connection, invoice_id), payload)
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -367,13 +383,108 @@ class SQLiteEvidenceStore:
             row = connection.execute("SELECT approval_json FROM invoices WHERE id=?", (invoice_id,)).fetchone()
         return json.loads(row["approval_json"]) if row and row["approval_json"] else None
 
+    def record_identity_action(self, invoice_id: str, action: str, actor: dict) -> None:
+        """Record verified intent, not a claim that the requested action succeeded."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute("SELECT state FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+                self._auth_assert_not_revoked(connection, actor)
+                if row is not None:
+                    self._append_event(connection, invoice_id, "AUTHENTICATED_ACTION_REQUESTED", row["state"],
+                                       {"action": action, "identity": actor})
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def auth_save_login(self, state_hash: str, nonce_hash: str, verifier: str, browser_hash: str, now: int) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute("DELETE FROM auth_login_states WHERE expires_at<=?", (now,))
+                if connection.execute("SELECT COUNT(*) FROM auth_login_states").fetchone()[0] >= 1000:
+                    raise RuntimeError("Too many pending logins")
+                connection.execute("INSERT INTO auth_login_states(state_hash,nonce_hash,verifier,expires_at,browser_hash) VALUES (?,?,?,?,?)",
+                                   (state_hash, nonce_hash, verifier, now + 300, browser_hash))
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def auth_consume_login(self, state_hash: str, browser_hash: str, now: int) -> dict | None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute("SELECT * FROM auth_login_states WHERE state_hash=? AND browser_hash=? AND expires_at>?",
+                                         (state_hash, browser_hash, now)).fetchone()
+                if row is not None:
+                    connection.execute("DELETE FROM auth_login_states WHERE state_hash=?", (state_hash,))
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return dict(row) if row else None
+
+    def auth_subject_revoked(self, issuer: str, subject: str) -> bool:
+        with self._connect() as connection:
+            return connection.execute("SELECT 1 FROM auth_revoked_subjects WHERE issuer=? AND subject=?",
+                                      (issuer, subject)).fetchone() is not None
+
+    def auth_create_session(self, session_hash: str, issuer: str, subject: str,
+                            authenticated_at: int, expires_at: int, now: int) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute("DELETE FROM auth_sessions WHERE expires_at<=?", (now,))
+                if connection.execute("SELECT 1 FROM auth_revoked_subjects WHERE issuer=? AND subject=?",
+                                      (issuer, subject)).fetchone():
+                    raise ValueError("Identity revoked")
+                if connection.execute("SELECT COUNT(*) FROM auth_sessions").fetchone()[0] >= 10000:
+                    raise RuntimeError("Too many sessions")
+                connection.execute("INSERT INTO auth_sessions VALUES (?,?,?,?,?)",
+                                   (session_hash, issuer, subject, authenticated_at, expires_at))
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def auth_get_session(self, session_hash: str, now: int) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT s.* FROM auth_sessions s LEFT JOIN auth_revoked_subjects r "
+                "ON r.issuer=s.issuer AND r.subject=s.subject "
+                "WHERE s.session_hash=? AND s.expires_at>? AND r.subject IS NULL", (session_hash, now)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def auth_delete_session(self, session_hash: str) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM auth_sessions WHERE session_hash=?", (session_hash,))
+
+    def auth_revoke_subject(self, issuer: str, subject: str, actor: str, now: int) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute("INSERT INTO auth_revoked_subjects VALUES (?,?,?,?) "
+                                   "ON CONFLICT(issuer,subject) DO UPDATE SET revoked_by=excluded.revoked_by,revoked_at=excluded.revoked_at",
+                                   (issuer, subject, actor, now))
+                connection.execute("DELETE FROM auth_sessions WHERE issuer=? AND subject=?", (issuer, subject))
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
     def payment_authorization_revision(self) -> int:
         """Monotonic authorization count: payments are retained even when settlement fails."""
         with self._connect() as connection:
             return int(connection.execute("SELECT COUNT(*) FROM payments").fetchone()[0])
 
     def create_payment(self, invoice_id: str, payment: dict, *, expected_revision: int | None = None,
-                       expected_invoice_hash: str | None = None, expected_approval: dict | None = None) -> tuple[dict, bool]:
+                       expected_invoice_hash: str | None = None, expected_approval: list | None = None,
+                       expected_reviewers: list[dict] | None = None,
+                       expected_requester: dict | None = None,
+                       expected_session_hash: str | None = None) -> tuple[dict, bool]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -407,6 +518,16 @@ class SQLiteEvidenceStore:
                             or decision.get("action") != "PAY_NOW"
                             or decision.get("evidence_hash") != payment["decision_evidence_hash"]):
                         raise ValueError("Invoice decision changed during prepayment checks")
+                for actor in expected_reviewers or []:
+                    self._auth_assert_not_revoked(connection, actor)
+                if expected_requester:
+                    self._auth_assert_not_revoked(connection, expected_requester)
+                    session = connection.execute(
+                        "SELECT 1 FROM auth_sessions WHERE session_hash=? AND issuer=? AND subject=? AND expires_at>?",
+                        (expected_session_hash, expected_requester["issuer"], expected_requester["subject"], int(time.time())),
+                    ).fetchone()
+                    if session is None:
+                        raise ValueError("Requesting identity session ended before authorization")
                 connection.execute(
                     "INSERT INTO payments(payment_id,invoice_id,idempotency_key,record_json,state,updated_at) VALUES(?,?,?,?,?,?)",
                     (payment["payment_id"], invoice_id, payment["idempotency_key"], canonical_json(payment), payment["state"], utcnow().isoformat()),

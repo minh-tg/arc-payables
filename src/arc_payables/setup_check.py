@@ -81,6 +81,9 @@ def _rows(group: Group, settings: Any) -> list[dict[str, Any]]:
     rows = []
     for requirement in group.requirements:
         value = getattr(settings, requirement.attribute, None)
+        if (requirement.env == "AUTH_MODE" and value == "demo" and
+                (settings.payment_provider != "mock" or settings.accounting_provider != "mock")):
+            value = None  # Demo credentials cannot open an external-provider deployment.
         rows.append(
             {
                 "env": requirement.env,
@@ -201,13 +204,25 @@ def _limits_group(settings: Any) -> Group:
 
 
 def _access_group(settings: Any) -> Group:
-    # The API refuses to start an external integration without a key, so an empty key is the local
-    # demo working as designed and a live deployment missing its door.
-    external = settings.payment_provider == "circle" or settings.accounting_provider == "frappe"
+    external = settings.payment_provider != "mock" or settings.accounting_provider != "mock"
+    mode = getattr(settings, "auth_mode", "demo")
+    if mode == "oidc":
+        return Group("Access", "Individual, MFA-verified identities and server-assigned roles. Shared tokens are ignored.", (
+            Requirement("AUTH_MODE", "auth_mode", "External access requires individual identity or explicit testnet-token mode."),
+            Requirement("OIDC_ISSUER", "oidc_issuer", "No trusted identity provider is configured.", kind="url"),
+            Requirement("OIDC_CLIENT_ID", "oidc_client_id", "The registered client audience cannot be verified."),
+            Requirement("OIDC_REDIRECT_URI", "oidc_redirect_uri", "No canonical browser origin or callback is configured.", kind="url"),
+            Requirement("OIDC_SUBJECT_ROLES", "oidc_subject_roles", "No individual has an assigned role.", kind="secret"),
+            Requirement("OIDC_MFA_CLAIM", "oidc_mfa_claim", "The IdP's MFA proof cannot be checked."),
+            Requirement("OIDC_MFA_VALUES", "oidc_mfa_values", "The approved MFA assurance values are unknown."),
+            Requirement("OIDC_CLIENT_SECRET", "oidc_client_secret", "Required only for a registered confidential client.", kind="secret", required=False),
+        ))
+    external = external or mode == "testnet_tokens"
     return Group(
         "Access",
-        "Who may call the API and who may approve. Both are empty in the local demo, which is why the demo needs no key.",
+        "Shared credentials are demo/testnet-only, not individual production identity. External providers require an explicit auth mode.",
         (
+            Requirement("AUTH_MODE", "auth_mode", "Demo mode blocks external-provider access; configure OIDC or explicit testnet-token mode."),
             Requirement("API_KEY", "api_key", "The API refuses to start an external integration without it, so nothing external would run.", kind="secret", required=external),
             Requirement("APPROVAL_TOKEN", "approval_token", "Human approval is disabled outright, so an escalated invoice cannot be cleared.", kind="secret", required=external),
         ),

@@ -400,7 +400,7 @@ def test_api_flow_against_the_executor_reports_a_real_transaction(tmp_path, chai
     from fastapi.testclient import TestClient
 
     settings, store, provider, workflow, invoice_id, suspicious_id = _workflow(
-        tmp_path, chain, api=circle, api_key="test-api-key"
+        tmp_path, chain, api=circle, api_key="test-api-key", auth_mode="testnet_tokens"
     )
     client = TestClient(create_app(settings=settings, store=store, accounting=workflow.accounting, payment_provider=provider))
     headers = {"X-API-Key": "test-api-key"}

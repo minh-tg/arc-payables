@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .auth import MUTATIONS, OIDCAuth, fail as auth_fail, mount_auth
 from .attention import build_attention
 from .audit_log import list_payments, payment_report, verify_payment
 from .deliberation import build_order_planner
@@ -92,12 +93,12 @@ class InvoiceImportInput(StrictModel):
 
 class InvoiceLinkInput(StrictModel):
     purchase_invoice_id: str = Field(min_length=1, max_length=140)
-    reviewer: str = Field(min_length=1, max_length=120)
+    reviewer: str | None = Field(default=None, min_length=1, max_length=120)
     note: str | None = Field(default=None, max_length=1000)
 
 
 class ApprovalInput(StrictModel):
-    reviewer: str = Field(min_length=1, max_length=120)
+    reviewer: str | None = Field(default=None, min_length=1, max_length=120)
     approved: bool
     note: str = Field(min_length=1, max_length=1000)
     acknowledged_checks: list[str] = Field(default_factory=list, max_length=30)
@@ -114,6 +115,7 @@ def create_app(
     accounting=None,
     payment_provider=None,
     signer=None,
+    oidc_client=None,
 ) -> FastAPI:
     settings = settings or get_settings()
     workflow = build_workflow(
@@ -145,33 +147,78 @@ def create_app(
     if web_dir.is_dir():
         app.mount("/console", StaticFiles(directory=web_dir, html=True), name="console")
 
-    def require_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None) -> None:
-        external = settings.payment_provider == "circle" or settings.accounting_provider == "frappe"
-        if external and not settings.api_key:
-            raise HTTPException(status_code=503, detail={"code": "api_auth_not_configured", "message": "API authentication must be configured before enabling vendor integrations."})
-        if settings.api_key and (not x_api_key or not hmac.compare_digest(x_api_key, settings.api_key)):
+    from .mock_adapters import MockAccountingConnector, MockPaymentProvider
+    demo_allowed = (
+        settings.payment_provider == "mock" and settings.accounting_provider == "mock"
+        and isinstance(accounting, MockAccountingConnector) and isinstance(payment_provider, MockPaymentProvider)
+    )
+    oidc = OIDCAuth(settings, store, oidc_client) if settings.auth_mode == "oidc" else None
+    app.state.identity_auth = oidc
+    mount_auth(app, oidc, settings.auth_mode if demo_allowed or settings.auth_mode != "demo" else "identity_required")
+
+    @app.middleware("http")
+    async def identity_cache_policy(request: Request, call_next):
+        response = await call_next(request)
+        if settings.auth_mode == "oidc" or request.url.path.startswith("/auth/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    def require_api_key(request: Request, x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None) -> None:
+        if oidc is not None:
+            permission = "read" if request.method in {"GET", "HEAD"} else MUTATIONS.get(request.scope["route"].name)
+            if permission is None:
+                raise auth_fail(403, "forbidden")
+            actor = oidc.authorize(request, permission)
+            if request.method == "POST" and request.path_params.get("invoice_id"):
+                try:
+                    store.record_identity_action(request.path_params["invoice_id"], request.scope["route"].name, actor.record())
+                except Exception as exc:
+                    raise auth_fail(503, "oidc_unavailable") from exc
+            return
+        if settings.auth_mode == "demo" and not demo_allowed:
+            raise HTTPException(status_code=503, detail={"code": "api_auth_not_configured", "message": "External providers require OIDC identity or explicit testnet-only token mode."})
+        if settings.auth_mode == "testnet_tokens" and not settings.api_key:
+            raise HTTPException(status_code=503, detail={"code": "api_auth_not_configured", "message": "Testnet API authentication must be configured."})
+        if settings.api_key and (not x_api_key or not hmac.compare_digest(x_api_key.encode(), settings.api_key.encode())):
             raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Valid API credentials are required."})
 
     def require_metrics_access(
+        request: Request,
         x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
         authorization: Annotated[str | None, Header()] = None,
     ) -> None:
-        """The scrape credential. A bearer token is accepted because Prometheus cannot send X-API-Key."""
-        if not settings.api_key:
-            return
+        """Dedicated read-only scrape credential, never a staff/approval credential."""
+        credential = settings.metrics_api_key if oidc is not None else settings.api_key
         presented = x_api_key
         if not presented and authorization and authorization.lower().startswith("bearer "):
             presented = authorization[7:].strip()
-        if not presented or not hmac.compare_digest(presented, settings.api_key):
-            raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Valid API credentials are required."})
+        if credential and presented and hmac.compare_digest(presented.encode(), credential.encode()):
+            return
+        require_api_key(request, x_api_key)
 
     def require_human_approval_token(
+        request: Request,
         x_approval_token: Annotated[str | None, Header(alias="X-Approval-Token")] = None,
     ) -> None:
+        if oidc is not None:
+            # Endpoint permission was checked already. A distinct approver identity,
+            # not a shared credential or client-declared reviewer, authorizes approval.
+            return
         if not settings.approval_token:
             raise HTTPException(status_code=503, detail={"code": "human_approval_not_configured", "message": "Human approval is disabled until an approval credential is configured."})
-        if not x_approval_token or not hmac.compare_digest(x_approval_token, settings.approval_token):
+        if not x_approval_token or not hmac.compare_digest(x_approval_token.encode(), settings.approval_token.encode()):
             raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Valid human-review credentials are required."})
+
+    def reviewer(request: Request, supplied: str | None) -> str:
+        if oidc is not None:
+            if supplied is not None:
+                raise HTTPException(status_code=422, detail={"code": "reviewer_managed", "message": "Reviewer identity is derived from your verified session, not request data."})
+            return request.state.identity.id
+        if not supplied:
+            raise HTTPException(status_code=422, detail={"code": "reviewer_required", "message": "Development review requires a reviewer name."})
+        return supplied
 
     def validate_idempotency_key(value: str) -> str:
         try:
@@ -229,10 +276,12 @@ def create_app(
             bool(settings.circle_ready) if settings.payment_provider == "circle" else bool(settings.local_payment_ready)
         )
         frappe_configured = settings.accounting_provider != "frappe" or bool(getattr(accounting, "configured", False))
-        ready_value = db_ready and provider_configured and frappe_configured
+        identity_ready = oidc is not None or (settings.auth_mode == "demo" and demo_allowed) or (settings.auth_mode == "testnet_tokens" and bool(settings.api_key))
+        ready_value = db_ready and provider_configured and frappe_configured and identity_ready
         response = {
             "status": "ready" if ready_value else "not_ready",
             "database": db_ready,
+            "identity_configured": identity_ready,
             "payment_provider_configured": provider_configured,
             "accounting_connector_configured": frappe_configured,
             "live_erp_writeback_enabled": bool(settings.accounting_provider == "frappe" and settings.frappe_accounting_ready),
@@ -368,25 +417,31 @@ def create_app(
         return workflow.evaluate(invoice_id)
 
     @app.post("/invoices/{invoice_id}/link", tags=["workflow"], dependencies=[Depends(require_api_key), Depends(require_human_approval_token)])
-    def link_invoice(invoice_id: str, body: InvoiceLinkInput) -> dict[str, Any]:
+    def link_invoice(request: Request, invoice_id: str, body: InvoiceLinkInput) -> dict[str, Any]:
         """Match a captured invoice to an ERPNext payable record.
 
         This is the only way a captured invoice becomes payable, and it adopts the accounting
         record's amount, currency and lines. Approving the captured document itself never does.
         """
-        return workflow.link_to_purchase_invoice(invoice_id, body.purchase_invoice_id, body.reviewer)
+        return workflow.link_to_purchase_invoice(invoice_id, body.purchase_invoice_id, reviewer(request, body.reviewer))
 
     @app.post("/invoices/{invoice_id}/approval", tags=["workflow"], dependencies=[Depends(require_api_key), Depends(require_human_approval_token)])
-    def approve(invoice_id: str, body: ApprovalInput) -> dict[str, Any]:
-        return workflow.approve(invoice_id, body.model_dump())
+    def approve(request: Request, invoice_id: str, body: ApprovalInput) -> dict[str, Any]:
+        record = body.model_dump()
+        record["reviewer"] = reviewer(request, body.reviewer)
+        if oidc is not None:
+            record["reviewer_identity"] = request.state.identity.record()
+        return workflow.approve(invoice_id, record)
 
     @app.post("/invoices/{invoice_id}/payment", tags=["payments"], dependencies=[Depends(require_api_key)])
-    def submit_payment(invoice_id: str) -> dict[str, Any]:
-        return workflow.submit_payment(invoice_id)
+    def submit_payment(request: Request, invoice_id: str) -> dict[str, Any]:
+        return workflow.submit_payment(invoice_id, authorization_identity=request.state.identity.record() if oidc else None,
+                                       authorization_session_hash=request.state.session_hash if oidc else None)
 
     @app.post("/invoices/{invoice_id}/payment/reconcile", tags=["payments"], dependencies=[Depends(require_api_key)])
-    def reconcile_payment(invoice_id: str) -> dict[str, Any]:
-        return workflow.submit_payment(invoice_id)
+    def reconcile_payment(request: Request, invoice_id: str) -> dict[str, Any]:
+        return workflow.submit_payment(invoice_id, authorization_identity=request.state.identity.record() if oidc else None,
+                                       authorization_session_hash=request.state.session_hash if oidc else None)
 
     @app.post("/invoices/{invoice_id}/payment/erp-writeback", tags=["accounting"], dependencies=[Depends(require_api_key)])
     def retry_erp_writeback(invoice_id: str) -> dict[str, Any]:

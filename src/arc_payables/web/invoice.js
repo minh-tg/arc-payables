@@ -1,5 +1,5 @@
 // One decision workspace. UI affordances never replace the server's policy or authorization.
-import { actionButton, api, approvalToken, badge, concept, confirmPayment, deploymentContext, deploymentLabel, explain, h, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
+import { actionButton, api, approvalToken, can, usesOIDC, badge, concept, confirmPayment, deploymentContext, deploymentLabel, explain, h, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
 
 export function invoiceActions(detail) {
   const checks = detail.decision?.policy_checks || [];
@@ -51,15 +51,15 @@ async function renderInvoice(root, [invoiceId]) {
     h('p', { class: 'guide-note' }, `Linked payable: ${invoice.purchase_invoice_id || 'Not linked'}. Supplier wallet changes must be verified in the accounting system, not on this screen.`),
   ));
 
-  if (!invoice.purchase_invoice_id && !detail.payment) {
+  if (!invoice.purchase_invoice_id && !detail.payment && can('operate')) {
     const payable = field('ERPNext Purchase Invoice', 'linked-payable', 'Purchase Invoice name');
-    const reviewer = field('Reviewer', 'link-reviewer', 'Your name');
+    const reviewer = usesOIDC() ? null : field('Reviewer', 'link-reviewer', 'Your name');
     root.append(panel('Link independent accounting evidence',
-      h('p', { class: 'muted' }, 'A captured invoice is not payable until it matches an accounting payable. Linking requires a human approval token.'),
-      h('div', { class: 'review-fields' }, payable.node, reviewer.node),
+      h('p', { class: 'muted' }, usesOIDC() ? 'Linking requires your verified operator identity; the invoice cannot choose its own payable.' : 'A captured invoice is not payable until it matches an accounting payable. Linking requires a human approval token.'),
+      h('div', { class: 'review-fields' }, payable.node, reviewer?.node),
       actionButton('Link to ERP payable', async () => {
-        if (!payable.input.reportValidity() || !reviewer.input.reportValidity()) return;
-        await mutate(`${base}/link`, { approval: true, body: { purchase_invoice_id: payable.input.value.trim(), reviewer: reviewer.input.value.trim() } });
+        if (!payable.input.reportValidity() || (reviewer && !reviewer.input.reportValidity())) return;
+        await mutate(`${base}/link`, { approval: true, body: { purchase_invoice_id: payable.input.value.trim(), ...(reviewer ? { reviewer: reviewer.input.value.trim() } : {}) } });
       }, feedback),
     ));
   }
@@ -75,15 +75,15 @@ async function renderInvoice(root, [invoiceId]) {
                 : decision ? decision.reason : 'Evaluate the independent evidence first. This action never moves funds.'),
   );
   const controls = h('div', { class: 'action-row' });
-  if (actions.evaluate) controls.append(actionButton(decision ? 'Re-evaluate evidence' : 'Evaluate invoice', () => mutate(`${base}/evaluate`), feedback, { class: !decision ? 'btn-primary' : '', 'data-action': 'evaluate' }));
-  if (actions.pay) controls.append(actionButton(setup?.deployment?.payment_provider === 'mock' ? 'Review simulated payment' : 'Review payment', async () => {
+  if (actions.evaluate && can('operate')) controls.append(actionButton(decision ? 'Re-evaluate evidence' : 'Evaluate invoice', () => mutate(`${base}/evaluate`), feedback, { class: !decision ? 'btn-primary' : '', 'data-action': 'evaluate' }));
+  if (actions.pay && can('pay')) controls.append(actionButton(setup?.deployment?.payment_provider === 'mock' ? 'Review simulated payment' : 'Review payment', async () => {
     // Re-read the mode at the moment of confirmation. Unknown/missing metadata must fail closed.
     const deployment = await deploymentContext();
     if (!supplier?.wallet || !supplier.wallet_verified) throw new Error('A human-verified supplier destination is required.');
     if (await confirmPayment(invoice, supplier, deployment)) await mutate(`${base}/payment`);
   }, feedback, { class: 'btn-primary', disabled: !supplier?.wallet_verified, 'data-action': 'review-payment' }));
-  if (actions.writeback) controls.append(actionButton('Retry ledger writeback', () => mutate(`${base}/payment/erp-writeback`), feedback, { class: 'btn-primary' }));
-  if (actions.reconcile) controls.append(actionButton('Reconcile existing payment', () => mutate(`${base}/payment/reconcile`), feedback));
+  if (actions.writeback && can('operate')) controls.append(actionButton('Retry ledger writeback', () => mutate(`${base}/payment/erp-writeback`), feedback, { class: 'btn-primary' }));
+  if (actions.reconcile && can('pay')) controls.append(actionButton('Reconcile existing payment', () => mutate(`${base}/payment/reconcile`), feedback));
   if (detail.payment) controls.append(h('a', { class: 'btn', href: `#/payments/${encodeURIComponent(invoice.id)}` }, 'Open settlement report'));
   next.append(controls, feedback);
   root.append(next);
@@ -99,20 +99,20 @@ async function renderInvoice(root, [invoiceId]) {
         h('td', {}, check.detail, !check.passed ? h('p', { class: 'muted' }, explain('checks', check.code)) : null),
       ))),
     ));
-    if (actions.approve) {
-      const reviewer = field('Reviewer', 'approval-reviewer', 'Your name');
+    if (actions.approve && can('approve')) {
+      const reviewer = usesOIDC() ? null : field('Reviewer', 'approval-reviewer', 'Your name');
       const note = field('Decision note', 'approval-note', 'Why these exceptions are acceptable');
       const boxes = actions.reviewable.map((check) => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: check.code }), h('span', {}, check.code, h('span', { class: 'muted' }, ` · ${check.detail}`))));
       root.append(panel('Acknowledge reviewable exceptions',
-        h('p', { class: 'muted' }, 'A separate approval token is required. Acknowledge every listed exception and explain your judgement. Amount and destination cannot change.'),
-        !approvalToken() ? h('p', { class: 'warn-text' }, 'Add your approval token in the navigation credentials section. Do not paste it into a decision note.') : null,
-        h('div', { class: 'checks' }, boxes), h('div', { class: 'review-fields' }, reviewer.node, note.node),
+        h('p', { class: 'muted' }, usesOIDC() ? 'Your verified approver identity will be recorded. Acknowledge every listed exception; amount and destination cannot change.' : 'A separate approval token is required. Acknowledge every listed exception and explain your judgement. Amount and destination cannot change.'),
+        !usesOIDC() && !approvalToken() ? h('p', { class: 'warn-text' }, 'Add your approval token in the navigation credentials section. Do not paste it into a decision note.') : null,
+        h('div', { class: 'checks' }, boxes), h('div', { class: 'review-fields' }, reviewer?.node, note.node),
         actionButton('Record approval & re-evaluate', async () => {
-          if (!reviewer.input.reportValidity() || !note.input.reportValidity()) return;
+          if ((reviewer && !reviewer.input.reportValidity()) || !note.input.reportValidity()) return;
           const acknowledged = boxes.filter((box) => box.querySelector('input').checked).map((box) => box.querySelector('input').value);
           if (acknowledged.length !== boxes.length) throw new Error('Acknowledge every listed exception before recording approval.');
-          await mutate(`${base}/approval`, { approval: true, body: { reviewer: reviewer.input.value.trim(), approved: true, note: note.input.value.trim(), acknowledged_checks: acknowledged } });
-        }, feedback),
+          await mutate(`${base}/approval`, { approval: true, body: { ...(reviewer ? { reviewer: reviewer.input.value.trim() } : {}), approved: true, note: note.input.value.trim(), acknowledged_checks: acknowledged } });
+        }, feedback, { 'data-action': 'record-approval' }),
       ));
     }
     root.append(h('details', { class: 'card' }, h('summary', {}, 'Decision provenance'),

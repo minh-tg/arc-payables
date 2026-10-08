@@ -44,7 +44,7 @@ The API healthcheck requests `/ready`. This checks database access and required 
 
 The worker healthcheck reads the latest `worker_runs.finished_at` value from the shared database. It marks the worker unhealthy if no pass was recorded in the last 15 minutes, or five worker intervals, whichever is longer. An unhealthy healthcheck is visible in `podman-compose ps`; Compose does not restart a still-running container just because its healthcheck failed. The restart policy handles process exit. Use `/worker/status` to inspect pass outcomes, alerts, and consecutive failures.
 
-Open `http://127.0.0.1:8000/console/`, enter the API key, then select **Worker**. The view shows the last pass, its steps, alerts, and any alert delivery errors. The `API_KEY` protects `/worker/status` and `/metrics`.
+Configure [individual OIDC identity](../../docs/identity.md) before exposing external-provider access. Use **Sign in with SSO**, then select **Worker**. The view shows the last pass, its steps, alerts, and any alert delivery errors. `AUTH_MODE=testnet_tokens` is an explicit development-only migration path for shared API/approval tokens, not production identity. OIDC ignores those tokens. A separate `METRICS_API_KEY` may be provisioned for read-only scraping; it cannot authorize staff or financial actions.
 
 Useful commands:
 

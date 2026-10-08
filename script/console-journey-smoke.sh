@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 command -v agent-browser >/dev/null
-env PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock SCREENING_PROVIDER=fixture DECISION_LAYER=heuristics \
+env ENVIRONMENT=local AUTH_MODE=demo PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock SCREENING_PROVIDER=fixture DECISION_LAYER=heuristics \
   API_KEY= APPROVAL_TOKEN= MIN_RESERVE_USDC=2000 MAX_INVOICE_USDC=1000 CRITICAL_SUPPLIER_IDS='[]' \
   DATABASE_PATH="$WORKDIR/demo.sqlite3" uv run uvicorn arc_payables.api:app --port "$PORT" >"$WORKDIR/api.log" 2>&1 &
 SERVER_PID=$!
@@ -74,7 +74,7 @@ browser wait 700
 check "if(document.querySelector('#view').textContent.includes('Know what can move')) throw Error('Stale route overwrote queue'); window.fetch=window.originalFetch;"
 # Populate real durable worker advice, still using only local mock providers. Opening history
 # must not start payments, and expanded long evidence identifiers must fit a phone viewport.
-env PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock SCREENING_PROVIDER=fixture DECISION_LAYER=heuristics \
+env ENVIRONMENT=local AUTH_MODE=demo PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock SCREENING_PROVIDER=fixture DECISION_LAYER=heuristics \
   API_KEY= APPROVAL_TOKEN= MIN_RESERVE_USDC=2000 MAX_INVOICE_USDC=1000 CRITICAL_SUPPLIER_IDS='[]' \
   DATABASE_PATH="$WORKDIR/demo.sqlite3" uv run arc-payables-worker --once --autopay --intake >/dev/null
 curl -fsS "http://127.0.0.1:$PORT/plans" | python3 -c 'import json,sys; rows=json.load(sys.stdin)["plans"]; assert any(r["status"]=="executed" for r in rows)'

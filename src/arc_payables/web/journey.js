@@ -1,5 +1,5 @@
 // The guided demo uses real workflow records. Merely opening this view never changes them.
-import { actionButton, api, badge, h, panel, refresh } from './app.js';
+import { actionButton, api, badge, can, h, panel, refresh } from './app.js';
 
 export function journeyProgress(invoices) {
   const eligible = invoices.find((row) => row.invoice.id === 'demo-invoice-legitimate');
@@ -13,7 +13,7 @@ export function journeyProgress(invoices) {
 }
 
 export function demoJourney(invoices, deployment) {
-  if (!deployment?.demo_available) return null;
+  if (!deployment?.demo_available || !can('operate')) return null;
   const progress = journeyProgress(invoices);
   const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
   const invoiceLink = (row, text) => row ? h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(row.invoice.id)}` }, text) : null;

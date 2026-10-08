@@ -541,8 +541,11 @@
         </div>
 
         <div class="nav-end">
+          <div id="identity-controls" role="status" aria-live="polite"></div>
+          <div id="shared-credentials">
           <label class="field" for="api-key">API access key<input id="api-key" type="password" placeholder="Not needed for default demo" autocomplete="off" /></label>
           <label class="field" for="approval-token">Human approval token<input id="approval-token" type="password" placeholder="Only for reviewable exceptions" autocomplete="off" /></label>
+          </div>
           <div class="row">
             <button id="theme-toggle" type="button" title="Switch between light and dark">Theme: light</button>
             <button id="guide-toggle" type="button" title="Explain the terms, or stop explaining them">Explaining: on</button>
@@ -567,14 +570,14 @@
               Arc Testnet only for real payments. Mock providers simulate settlement and accounting.
               The destination can only ever be a human-verified supplier wallet.
             </p>
-            <p>Credentials live in this browser tab's session storage only. Everything shown here is also available from the documented HTTP API.</p>
+            <p>OIDC sessions use HttpOnly cookies. Demo/testnet shared tokens use this tab's session storage only. Everything shown here is also available from the documented HTTP API.</p>
           </footer>
         </main>
       </div>
     </div>
 
     <script type="module">
-      import { apiKey, approvalToken, guided, icon, refresh, refreshShell, setApiKey, setApprovalToken, setGuided, setTheme, startRouter, theme } from './app.js';
+      import { apiKey, approvalToken, guided, icon, initializeIdentity, refresh, refreshShell, setApiKey, setApprovalToken, setGuided, setTheme, startRouter, theme } from './app.js';
       import './overview.js';
       import './queue.js';
       import './attention.js';
@@ -638,6 +641,7 @@
         document.getElementById('view').focus();
       });
 
+      await initializeIdentity();
       startRouter();
     </script>
   </body>
