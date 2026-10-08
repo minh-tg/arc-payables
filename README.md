@@ -37,6 +37,10 @@ It also orders the queue when the balance cannot cover every invoice (`GET /plan
 balance stops covering what is due (`GET /forecast`), and re-screens counterparties on a schedule so
 a change in risk blocks later payments (`GET /suppliers`).
 
+`arc-payables-reconcile` compares every recorded payment with the guard's own settlement log and
+reports the disagreements it can prove, keeping a proven fault separate from an unresolved question
+(see [docs/production-settlement.md](docs/production-settlement.md)).
+
 A console at `/console` reads all of it. No screen is available only in the browser; each one calls
 the documented API.
 

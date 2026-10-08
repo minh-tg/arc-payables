@@ -46,6 +46,16 @@ The worker healthcheck reads the latest `worker_runs.finished_at` value from the
 
 Configure [individual OIDC identity](../../docs/identity.md) before exposing external-provider access. Use **Sign in with SSO**, then select **Worker**. The view shows the last pass, its steps, alerts, and any alert delivery errors. `AUTH_MODE=testnet_tokens` is an explicit development-only migration path for shared API/approval tokens, not production identity. OIDC ignores those tokens. A separate `METRICS_API_KEY` may be provisioned for read-only scraping; it cannot authorize staff or financial actions.
 
+## Reconciliation and incident response
+
+`arc-payables-reconcile` compares every recorded payment with the guard's own `PaymentExecuted` log. It is read-only: it signs nothing, sends nothing and repairs nothing. Run it after unattended payment runs and before closing a period, and after any incident. Exit codes: `0` clean, `1` a blocking disagreement between the books and the chain, `2` the chain could not be read.
+
+```sh
+podman-compose -f deploy/arc-payables/docker-compose.yml exec api arc-payables-reconcile
+```
+
+On a blocking finding, stop unattended spending first (`WORKER_AUTOPAY=false`), preserve the database and the raw logs, and resolve it by hand. Do not edit records to make the report pass. Absence of a settlement is only proof when the search started at block 0; a bounded range reports uncertainty instead. See [docs/production-settlement.md](../../docs/production-settlement.md) for the finding reference and the release gates that a real settlement deployment still needs.
+
 Useful commands:
 
 ```sh
