@@ -2,7 +2,7 @@
 // a setting, because credentials belong in the environment and secret files rather than in a page
 // reachable with one shared API key.
 
-import { api, badge, concept, h, lede, panel, plainWords, registerView, sectionHeading, table } from './app.js';
+import { api, badge, can, concept, h, lede, panel, plainWords, registerView, sectionHeading, table } from './app.js';
 
 function stateBadge(state) {
   if (state === 'set') return badge('set', 'good');
@@ -131,7 +131,9 @@ async function renderSetup(root) {
         { class: 'muted' },
         'Reads only. Nothing is signed, sent or written. The chain check reads back the guard address, its policy signer, its payment token and every cap, and the wallet balance.',
       ),
-      h('div', { class: 'credentials' }, run),
+      can('operate')
+        ? h('div', { class: 'credentials' }, run)
+        : h('p', { class: 'muted' }, 'Running live checks needs the operator role. The inventory above is read-only and always available.'),
       results,
     ),
   );

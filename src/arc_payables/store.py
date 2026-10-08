@@ -16,6 +16,10 @@ from .security import recover_digest_signer
 #: Previous-hash value for the first event in the chain.
 GENESIS_HASH = "0x" + "00" * 32
 
+#: Ceiling on how many live sessions one identity may hold. The table already has a global cap;
+#: without a per-identity one, a single account can fill it and lock everyone else out.
+MAX_SESSIONS_PER_SUBJECT = 20
+
 
 def _event_digest(event: dict[str, Any]) -> bytes:
     """Digest of one audit entry, including the exact stored payload text.
@@ -446,6 +450,11 @@ class SQLiteEvidenceStore:
                     raise ValueError("Identity revoked")
                 if connection.execute("SELECT COUNT(*) FROM auth_sessions").fetchone()[0] >= 10000:
                     raise RuntimeError("Too many sessions")
+                per_subject = connection.execute(
+                    "SELECT COUNT(*) FROM auth_sessions WHERE issuer=? AND subject=?", (issuer, subject)
+                ).fetchone()[0]
+                if per_subject >= MAX_SESSIONS_PER_SUBJECT:
+                    raise RuntimeError("Too many sessions for this identity")
                 connection.execute("INSERT INTO auth_sessions VALUES (?,?,?,?,?)",
                                    (session_hash, issuer, subject, authenticated_at, expires_at))
                 connection.commit()

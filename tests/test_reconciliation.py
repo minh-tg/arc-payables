@@ -371,6 +371,48 @@ def test_an_event_from_another_contract_in_the_same_transaction_is_not_the_settl
     assert RECORDED_TRANSACTION_LACKS_EVENT in _kinds(report)
 
 
+def test_a_settlement_reached_through_an_intermediary_is_still_recognised(tmp_path):
+    """Settlement can reach the guard via another contract, so the log is matched to the guard.
+
+    Filtering on the transaction's recipient address instead would skip the guard's own event here
+    and report a blocking "the recorded transaction is not the settlement" for a transaction that
+    settled correctly - a false alarm in the tool an operator reads during an incident.
+    """
+    workflow, store, invoice_id = _workflow(tmp_path)
+    payment = _settle(workflow, invoice_id)
+    tx_hash = payment["transaction_hash"]
+
+    forwarding = "0x" + "ab" * 20
+    receipt = {"to": forwarding, "logs": [_log(payment, tx_hash=tx_hash)]}
+    report = reconcile(
+        store,
+        _settings(tmp_path),
+        rpc=StubRpc(logs=[], latest=10_000, receipts={tx_hash: receipt}),
+        from_block=9_000,
+    )
+    assert report.findings == [], [finding.to_dict() for finding in report.findings]
+    assert report.ok is True
+
+
+def test_a_foreign_event_is_not_the_settlement_however_the_transaction_was_addressed(tmp_path):
+    """A foreign event must not be accepted just because the transaction was addressed elsewhere."""
+    workflow, store, invoice_id = _workflow(tmp_path)
+    payment = _settle(workflow, invoice_id)
+    tx_hash = payment["transaction_hash"]
+
+    foreign = dict(_log(payment, tx_hash=tx_hash))
+    foreign["address"] = OTHER_GUARD
+    receipt = {"to": "0x" + "ab" * 20, "logs": [foreign]}
+    report = reconcile(
+        store,
+        _settings(tmp_path),
+        rpc=StubRpc(logs=[], latest=10_000, receipts={tx_hash: receipt}),
+        from_block=9_000,
+    )
+    assert report.ok is False
+    assert RECORDED_TRANSACTION_LACKS_EVENT in _kinds(report)
+
+
 def test_a_named_transaction_the_node_does_not_know_is_blocking(tmp_path):
     """The record names a transaction that does not exist: an exact, not a windowed, disagreement."""
     workflow, store, invoice_id = _workflow(tmp_path)

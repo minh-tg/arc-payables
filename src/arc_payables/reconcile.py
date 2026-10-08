@@ -531,7 +531,7 @@ def reconcile(
             # An exact transaction is better evidence than a window, and needs no range. When it
             # settles the question the record is finished: a second, weaker finding about the same
             # payment would only dilute the first.
-            observed, concluded = _observation_from_receipt(rpc, record["transaction_hash"], findings, record)
+            observed, concluded = _observation_from_receipt(rpc, record["transaction_hash"], findings, record, guard)
             if concluded and observed is None:
                 continue
 
@@ -619,7 +619,7 @@ def reconcile(
 
 
 def _observation_from_receipt(
-    rpc: Any, transaction_hash: str, findings: list[Finding], record: dict[str, Any]
+    rpc: Any, transaction_hash: str, findings: list[Finding], record: dict[str, Any], guard: str
 ) -> tuple[Observation | None, bool]:
     """Look for the settlement inside a specific transaction the record names.
 
@@ -659,7 +659,11 @@ def _observation_from_receipt(
         )
         return None, True
     for log in receipt.get("logs") or []:
-        if _normalise_address(log.get("address")) != _normalise_address(receipt.get("to")):
+        # The event must come from the guard being reconciled, not merely from whatever address the
+        # transaction was sent to. Settlement can reach the guard through an intermediary, and
+        # comparing against receipt["to"] would then skip a real settlement and report a blocking
+        # mismatch about a transaction that did settle correctly.
+        if _normalise_address(log.get("address")) != _normalise_address(guard):
             continue
         decoded = _decode_payment_log(log)
         if decoded is not None and decoded.payment_id == str(record.get("payment_id") or ""):

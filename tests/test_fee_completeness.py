@@ -114,6 +114,75 @@ def test_a_failure_after_the_allowance_still_records_what_was_spent(tmp_path):
     assert payment["fee_breakdown"] == {"approve": APPROVE_FEE}
 
 
+def test_resuming_a_payment_keeps_the_allowance_fee_and_the_total(tmp_path):
+    """The failure mode that matters: a resumed payment must not shrink the recorded cost.
+
+    Real adapters answer an inspection with the settlement operation's own receipt, which names one
+    fee and no breakdown. Writing that straight onto the record erased the allowance fee measured at
+    submission time, so a crash-and-resume quietly understated our cost and destroyed the evidence
+    of where it went.
+    """
+    from arc_payables.domain import PaymentStatus, PaymentSubmission
+
+    _, store, workflow, invoice_id, provider = _workflow(tmp_path)
+    workflow.evaluate(invoice_id)
+    workflow.submit_payment(invoice_id)
+    settled = store.get_payment(invoice_id)
+    assert settled["fee_units"] == GUARD_FEE + APPROVE_FEE
+
+    # Rewind to the state a crash between approval and settlement leaves behind: the allowance fee
+    # is recorded, the settlement has no local confirmation yet.
+    store.update_payment(
+        invoice_id,
+        {"confirmation_status": "PENDING", "transaction_hash": None,
+         "provider_transaction_id": "0x" + "ab" * 32,
+         "fee_units": APPROVE_FEE, "fee_breakdown": {"approve": APPROVE_FEE}},
+        "SUBMITTED",
+        "TEST_REWIND_FOR_RESUME",
+    )
+
+    # What LocalKeyPaymentProvider._status_from_receipt and Circle's _circle_status return: the
+    # settlement transaction's cost, with no per-stage breakdown.
+    original = provider.inspect_payment
+    provider.inspect_payment = lambda payment: PaymentSubmission(
+        PaymentStatus.CONFIRMED, transaction_hash="0x" + "cd" * 32, fee_units=GUARD_FEE
+    )
+    try:
+        result = workflow.submit_payment(invoice_id)
+    finally:
+        provider.inspect_payment = original
+
+    assert result["state"] == WorkflowState.ERP_RECORDED.value
+    resumed = store.get_payment(invoice_id)
+    assert resumed["fee_units"] == GUARD_FEE + APPROVE_FEE, "the allowance fee was discarded on resume"
+    assert resumed["fee_breakdown"] == {"approve": APPROVE_FEE, "guard": GUARD_FEE}
+
+
+def test_a_repeated_inspection_does_not_double_count_a_stage(tmp_path):
+    """Merging must be idempotent: two confirmations of the same settlement are not two fees."""
+    from arc_payables.domain import PaymentStatus, PaymentSubmission
+    from arc_payables.service import _merged_fee
+
+    _, store, workflow, invoice_id, _ = _workflow(tmp_path)
+    workflow.evaluate(invoice_id)
+    workflow.submit_payment(invoice_id)
+    payment = store.get_payment(invoice_id)
+
+    same = PaymentSubmission(PaymentStatus.CONFIRMED, transaction_hash=payment["transaction_hash"],
+                             fee_units=GUARD_FEE, fee_breakdown={"approve": APPROVE_FEE, "guard": GUARD_FEE})
+    assert _merged_fee(payment, same) == {"fee_units": GUARD_FEE + APPROVE_FEE,
+                                          "fee_breakdown": {"approve": APPROVE_FEE, "guard": GUARD_FEE}}
+
+
+def test_a_payment_with_no_measured_fee_records_none_rather_than_zero(tmp_path):
+    """No measurement is not the same as a free payment."""
+    from arc_payables.domain import PaymentStatus, PaymentSubmission
+    from arc_payables.service import _merged_fee
+
+    empty = PaymentSubmission(PaymentStatus.CONFIRMED, transaction_hash="0x" + "ee" * 32)
+    assert _merged_fee({}, empty) == {"fee_units": None, "fee_breakdown": None}
+
+
 def test_operation_fees_are_summed_per_stage_rather_than_overwritten():
     """Two operations of the same stage (a reset then a new allowance) both count."""
     breakdown: dict[str, int] = {}

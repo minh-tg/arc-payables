@@ -97,7 +97,7 @@ async function renderAudit(root) {
     h(
       'tr',
       {},
-      h('td', {}, h('a', { href: `#/invoice/${row.invoice_id}` }, row.invoice_number)),
+      h('td', {}, h('a', { href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, row.invoice_number)),
       h('td', {}, row.supplier_id),
       h('td', {}, clock(row.settled_at || row.confirmed_at)),
       h('td', {}, row.confirmation_status),
