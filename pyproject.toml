@@ -33,6 +33,9 @@ arc-payables-rescreen = "arc_payables.monitoring_cli:main"
 arc-payables-receivables = "arc_payables.receivables_cli:main"
 arc-payables-worker = "arc_payables.worker:main"
 arc-payables-reconcile = "arc_payables.reconcile:main"
+arc-payables-backup = "arc_payables.backup:main"
+arc-payables-restore-drill = "arc_payables.backup:drill_main"
+arc-payables-alert-test = "arc_payables.alert_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/arc_payables"]

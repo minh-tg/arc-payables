@@ -64,6 +64,17 @@ podman-compose -f deploy/arc-payables/docker-compose.yml restart api worker
 podman-compose -f deploy/arc-payables/docker-compose.yml down
 ```
 
+## Backups and restore drills
+
+`arc-payables-backup` takes a consistent copy with SQLite's online backup API, verifies it before publishing, and writes a manifest recording its checksum, row counts, audit-chain status and the newest data it contains. `arc-payables-restore-drill` restores a backup into a disposable path and proves it is usable, reporting the measured restore time.
+
+```sh
+podman-compose -f deploy/arc-payables/docker-compose.yml exec api arc-payables-backup --destination /backups --keep 48
+uv run arc-payables-restore-drill --backup /backups/arc-payables-<stamp>.sqlite3 --scratch /tmp/drill/restored.sqlite3
+```
+
+Use `--hook` to ship each backup off-host and to encrypt it; a failing hook fails the run, because a backup that stayed on the host is not an off-host backup. `arc-payables-alert-test` proves that alerts actually reach a person. RPO/RTO, the restore procedure, ownership and the incident runbook are in [docs/operations.md](../../docs/operations.md). Do not scale the worker to multiple replicas: SQLite allows one writer and the loop is not a distributed queue.
+
 `down` preserves the `arc-payables-data` volume. Do not use `down -v` unless deleting all invoice, payment, and audit history is intentional. Use SQLite's backup API to back up the live database. Do not copy only the `.sqlite3` file while the service is running because WAL transactions may still be in sidecar files.
 
 ## Metrics scrape
