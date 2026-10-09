@@ -33,7 +33,7 @@ def test_every_policy_check_the_service_can_return_has_plain_words():
 def test_every_table_says_something_and_never_grants_authority():
     for name in (
         "STATES", "DECISIONS", "SCREENING", "ATTENTION", "OUTCOMES",
-        "CONFIRMATIONS", "STEPS", "PASSES", "ALERTS", "WRITEBACK", "GUARD", "SETUP", "TIERS", "CONCEPTS",
+        "CONFIRMATIONS", "STEPS", "PASSES", "ALERTS", "WRITEBACK", "GUARD", "SETUP", "TIERS", "CONCEPTS", "AUDIT",
     ):
         table = getattr(e, name)
         assert table, f"{name} must not be empty"

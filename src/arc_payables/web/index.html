@@ -18,6 +18,8 @@
       :root {
         --radius: 8px;
         --radius-sm: 6px;
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
       }
 
       /* One flat surface system, two themes. Light is the default. Nothing is conveyed by hue alone:
@@ -164,8 +166,10 @@
         padding: 7px 8px; border-radius: var(--radius-sm);
         color: var(--muted); font-size: 13.5px; font-weight: 500;
         text-decoration: none; border: 1px solid transparent; border-bottom: 1px solid transparent;
+        transition: background-color 140ms ease, color 140ms ease, transform 140ms var(--ease-out);
       }
       nav a.nav-item:hover { color: var(--fg); background: var(--bg); }
+      nav a.nav-item:active { transform: scale(0.98); }
       nav a.nav-item.active {
         color: var(--fg); background: var(--accent-soft); border-color: var(--accent-soft-border);
         box-shadow: inset 3px 0 0 var(--accent);
@@ -198,7 +202,10 @@
 
       .header {
         position: sticky; top: 0; z-index: 10;
-        background: var(--surface); border-bottom: 1px solid var(--border);
+        background: color-mix(in srgb, var(--surface) 84%, transparent);
+        backdrop-filter: blur(12px) saturate(180%);
+        -webkit-backdrop-filter: blur(12px) saturate(180%);
+        border-bottom: 1px solid var(--border);
         padding: 14px 24px;
         display: flex; align-items: center; justify-content: space-between; gap: 16px;
       }
@@ -218,7 +225,14 @@
       main { flex: 1; padding: 24px; overflow-y: auto; }
       #view { max-width: 1200px; margin: 0 auto; }
       .view { display: none; }
-      .view.active { display: block; }
+      .view.active {
+        display: block;
+        animation: view-enter 160ms var(--ease-out);
+      }
+      @keyframes view-enter {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
 
       /* A view opens with an eyebrow, its title and a row count, so a long table never looks like it
          began somewhere off screen. */
@@ -373,8 +387,10 @@
         border-radius: var(--radius); box-shadow: var(--shadow);
         padding: 12px 14px; font-size: 13px; line-height: 1.5;
         pointer-events: none;
+        transition: opacity 140ms var(--ease-out), transform 140ms var(--ease-out);
+        transform-origin: top center;
       }
-      .concept-tip[hidden] { display: none; }
+      .concept-tip[hidden] { display: none; opacity: 0; transform: scale(0.97); }
       .concept-tip-action { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); color: var(--muted); }
       .concept-tip-action[hidden] { display: none; }
 
@@ -387,10 +403,13 @@
         background: var(--surface); color: var(--fg);
         border: 1px solid var(--border); border-radius: var(--radius-sm);
         padding: 7px 14px; font-family: inherit; font-size: 13px; font-weight: 500;
-        cursor: pointer; transition: background-color 140ms ease, border-color 140ms ease;
+        cursor: pointer;
+        transition: transform 140ms var(--ease-out), background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+        user-select: none;
       }
       button:hover:not(:disabled), .btn:hover { border-color: var(--border-strong); background: var(--bg); }
-      button:disabled { opacity: 0.45; cursor: default; }
+      button:active:not(:disabled), .btn:active:not(:disabled) { transform: scale(0.97); }
+      button:disabled { opacity: 0.45; cursor: default; transform: none; }
       .btn-primary { background: var(--accent); border-color: var(--accent); color: oklch(100% 0 0); }
       button.btn-primary:hover:not(:disabled), .btn.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
       .btn-secondary { background: var(--surface); border-color: var(--border); color: var(--fg); }
@@ -401,8 +420,9 @@
         border: 1px solid var(--border); border-radius: var(--radius-sm);
         padding: 9px 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px;
         width: 100%; max-width: 560px; outline: none;
+        transition: border-color 140ms ease, box-shadow 140ms ease;
       }
-      input:focus { border-color: var(--accent); }
+      input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
       :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 
       dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0 18px; margin: 0; }

@@ -4,7 +4,7 @@
 // why. A row links to the invoice for the deep evidence, and the lookup accepts whatever an operator
 // is holding, which is usually a transaction hash from a block explorer.
 
-import { actionButton, api, apiKey, badge, can, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+import { actionButton, api, apiKey, badge, can, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
 
 // Every recorded payment compared with the guard's own settlement log. Reads the chain and signs or
 // sends nothing. Absence is only proof when the search began at block 0, so the coverage is shown.
@@ -291,8 +291,8 @@ function reportPanels(report) {
         'p',
         {},
         report.audit.ok
-          ? badge(`intact · ${report.audit.entries} entries`, 'good')
-          : badge(`broken: ${report.audit.reason}`, 'bad'),
+          ? badge(`Intact · ${report.audit.entries} entries verified`, 'good')
+          : badge(`Integrity failure: ${explain('audit', report.audit.reason) || humanizeCode(report.audit.reason)}`, 'bad'),
       ),
       table(
         ['When', 'Event', 'State', 'Why', 'Entry hash'],

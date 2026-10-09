@@ -4,7 +4,7 @@
 // no global event endpoint behind the console, so the button is real and the per-payment history is
 // reached through the invoice it belongs to, rather than being invented here.
 
-import { api, badge, concept, h, lede, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+import { api, badge, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
 
 function clock(value) {
   const match = typeof value === 'string' ? value.match(/T(\d{2}:\d{2}:\d{2})/) : null;
@@ -51,10 +51,20 @@ async function renderAudit(root) {
                 )
               : h(
                   'div',
-                  {},
-                  badge(`broken at entry ${result.first_broken_id}`, 'bad'),
-                  h('p', { class: 'text-danger', style: 'margin-top:8px' }, result.reason || 'The chain did not verify.'),
-                  plainWords('attention', 'audit_chain_broken'),
+                  { class: 'card finding critical', style: 'margin-top:12px' },
+                  h(
+                    'div',
+                    { class: 'finding-head' },
+                    badge(`Integrity failure · Entry #${result.first_broken_id}`, 'bad'),
+                    result.reason ? h('span', { class: 'finding-code' }, result.reason) : null,
+                  ),
+                  h(
+                    'p',
+                    { class: 'text-danger', style: 'margin-top:6px; font-weight:600;' },
+                    explain('audit', result.reason) || humanizeCode(result.reason) || 'The audit chain did not verify.',
+                  ),
+                  plainWords('audit', result.reason),
+                  nextStep('audit', result.reason),
                 ),
           );
         } catch (error) {

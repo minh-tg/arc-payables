@@ -562,6 +562,14 @@ export function nextStep(kind, code) {
   return h('p', { class: 'guide-note' }, h('span', { class: 'guide-note-label' }, 'What to do next: '), action);
 }
 
+export function humanizeCode(code) {
+  if (!code || typeof code !== 'string') return '';
+  return code
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 const views = new Map();
 
 // What the header calls each view. The nav labels the same destinations; these are the page titles,

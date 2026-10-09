@@ -1,7 +1,7 @@
 // What needs a person. Read-only: the work waiting on a human and the alerts the last pass raised,
 // taken from the same snapshot the metrics are rendered from, so the two cannot disagree.
 
-import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+import { api, badge, concept, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
 
 function tone(severity) {
   if (severity === 'critical') return 'bad';
@@ -111,7 +111,7 @@ async function renderAttention(root) {
     const head = h(
       'div',
       { class: 'finding-head' },
-      h('span', { class: 'finding-code' }, item.code),
+      h('span', { class: 'finding-code' }, humanizeCode(item.code)),
       badge(item.severity, tone(item.severity)),
     );
     const destination = item.code === 'reserve_breached' || item.code.includes('screen') ? 'treasury'
@@ -134,7 +134,7 @@ async function renderAttention(root) {
     h(
       'tr',
       {},
-      h('td', {}, badge(item.code, tone(item.severity))),
+      h('td', {}, badge(humanizeCode(item.code), tone(item.severity))),
       h('td', {}, item.severity),
       h('td', {}, item.summary),
     ),

@@ -376,6 +376,27 @@ CONCEPTS: dict[str, dict[str, Any]] = {
 }
 
 
+#: Reasons an audit chain verification can fail.
+AUDIT: dict[str, dict[str, Any]] = {
+    "signature_is_not_from_the_configured_signer": _row(
+        "Signature does not match the active policy signing authority.",
+        "Verify that PERMIT_SIGNING_ADDRESS matches the signing key, or add rotated addresses to PERMIT_SIGNING_RETIRED_ADDRESSES.",
+    ),
+    "recorded_signer_is_not_the_configured_signer": _row(
+        "Recorded signer address differs from the configured policy authority.",
+        "Ensure historical rotated keys are explicitly listed in PERMIT_SIGNING_RETIRED_ADDRESSES.",
+    ),
+    "prev_hash_does_not_match_the_previous_entry": _row(
+        "Hash link broken: previous entry hash does not match the preceding event.",
+        "An intermediate record may have been deleted, reordered, or skipped. Inspect raw database events.",
+    ),
+    "entry_contents_do_not_match_its_hash": _row(
+        "Digest mismatch: entry contents do not match the recorded hash.",
+        "The event payload was modified after creation. Check database access logs for manual modifications.",
+    ),
+}
+
+
 #: Every table this module publishes to the console, in the order they are served. The console's
 #: test suite walks this list and fails if a table reaches no screen at all, which is how seven of
 #: these sat served, tested and rendered nowhere until it existed.
@@ -395,6 +416,7 @@ PUBLISHED: tuple[str, ...] = (
     "SETUP",
     "TIERS",
     "CONCEPTS",
+    "AUDIT",
 )
 
 

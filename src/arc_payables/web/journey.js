@@ -1,5 +1,5 @@
 // The guided demo uses real workflow records. Merely opening this view never changes them.
-import { actionButton, api, badge, can, h, panel, refresh } from './app.js';
+import { actionButton, api, badge, can, explain, h, humanizeCode, panel, refresh } from './app.js';
 
 export function journeyProgress(invoices) {
   const eligible = invoices.find((row) => row.invoice.id === 'demo-invoice-legitimate');
@@ -35,7 +35,7 @@ export function demoJourney(invoices, deployment) {
       const result = await api('/audit/verify');
       feedback.replaceChildren(result.ok
         ? badge(`Verified now · ${result.checked} entries · ${result.signed} signed`, 'good')
-        : badge(`Broken at ${result.first_broken_id}: ${result.reason}`, 'bad'));
+        : badge(`Integrity failure · Entry #${result.first_broken_id}: ${explain('audit', result.reason) || humanizeCode(result.reason)}`, 'bad'));
     }, feedback)],
   ];
   return panel('Your first payment, without moving funds',

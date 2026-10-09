@@ -1,5 +1,5 @@
 // One decision workspace. UI affordances never replace the server's policy or authorization.
-import { actionButton, api, approvalToken, can, usesOIDC, badge, concept, confirmPayment, deploymentContext, deploymentLabel, explain, h, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
+import { actionButton, api, approvalToken, can, usesOIDC, badge, concept, confirmPayment, deploymentContext, deploymentLabel, explain, h, humanizeCode, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
 
 export function invoiceActions(detail) {
   const checks = detail.decision?.policy_checks || [];
@@ -93,7 +93,10 @@ async function renderInvoice(root, [invoiceId]) {
     root.append(panel('Evidence checks',
       h('p', { class: 'muted' }, `${checks.filter((check) => check.passed).length}/${checks.length} checks passed. Blocking evidence and reviewable exceptions are different decisions.`),
       table(['Check', 'Result', 'What you can do', 'Evidence'], checks.map((check) => h('tr', {},
-        h('td', {}, check.code),
+        h('td', {},
+          h('div', { style: 'font-weight: 500;' }, humanizeCode(check.code)),
+          h('div', { class: 'muted mono', style: 'font-size: 11px; margin-top: 2px;' }, check.code),
+        ),
         h('td', {}, badge(check.passed ? 'Passed' : 'Failed', check.passed ? 'good' : 'bad')),
         h('td', {}, check.passed ? 'Nothing needed' : check.overridable && check.requires_human ? 'Human review permitted' : 'Correct evidence · no override'),
         h('td', {}, check.detail, !check.passed ? h('p', { class: 'muted' }, explain('checks', check.code)) : null),
@@ -102,7 +105,13 @@ async function renderInvoice(root, [invoiceId]) {
     if (actions.approve && can('approve')) {
       const reviewer = usesOIDC() ? null : field('Reviewer', 'approval-reviewer', 'Your name');
       const note = field('Decision note', 'approval-note', 'Why these exceptions are acceptable');
-      const boxes = actions.reviewable.map((check) => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: check.code }), h('span', {}, check.code, h('span', { class: 'muted' }, ` · ${check.detail}`))));
+      const boxes = actions.reviewable.map((check) => h('label', { class: 'check' },
+        h('input', { type: 'checkbox', value: check.code }),
+        h('span', {},
+          h('span', { style: 'font-weight: 500;' }, humanizeCode(check.code)),
+          h('span', { class: 'muted' }, ` · ${check.detail}`),
+        ),
+      ));
       root.append(panel('Acknowledge reviewable exceptions',
         h('p', { class: 'muted' }, usesOIDC() ? 'Your verified approver identity will be recorded. Acknowledge every listed exception; amount and destination cannot change.' : 'A separate approval token is required. Acknowledge every listed exception and explain your judgement. Amount and destination cannot change.'),
         !usesOIDC() && !approvalToken() ? h('p', { class: 'warn-text' }, 'Add your approval token in the navigation credentials section. Do not paste it into a decision note.') : null,
@@ -132,7 +141,20 @@ async function renderInvoice(root, [invoiceId]) {
   root.append(panel(concept('audit_chain', 'Verifiable history'),
     actionButton('Verify audit chain', async () => {
       const result = await api('/audit/verify');
-      verdict.replaceChildren(result.ok ? badge(`Intact · ${result.checked} entries · ${result.signed} signed (whole database)`, 'good') : badge(`Broken at entry ${result.first_broken_id}: ${result.reason}`, 'bad'));
+      verdict.replaceChildren(
+        result.ok
+          ? badge(`Intact · ${result.checked} entries · ${result.signed} signed`, 'good')
+          : h('div', { class: 'card finding critical', style: 'margin-top: 10px; padding: 12px;' },
+              h('div', { class: 'finding-head' },
+                badge(`Integrity failure · Entry #${result.first_broken_id}`, 'bad'),
+                result.reason ? h('span', { class: 'finding-code' }, result.reason) : null,
+              ),
+              h('p', { class: 'text-danger', style: 'margin-top: 6px; font-weight: 600; font-size: 13px;' },
+                explain('audit', result.reason) || humanizeCode(result.reason) || 'The audit chain did not verify.',
+              ),
+              plainWords('audit', result.reason),
+            ),
+      );
     }, verdict, { 'data-action': 'verify-audit' }), verdict,
     table(['When', 'Event', 'State', 'Entry hash', 'Signature'], events.map((event) => h('tr', {}, h('td', {}, event.created_at), h('td', {}, event.type), h('td', {}, event.state), h('td', { title: event.event_hash || '' }, short(event.event_hash)), h('td', {}, event.signature ? badge('Signed', 'good') : 'Unsigned')))),
   ));
