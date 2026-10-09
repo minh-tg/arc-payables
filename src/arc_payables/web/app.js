@@ -400,7 +400,7 @@ export function statGrid(items) {
           h('div', { class: 'label' }, term ? concept(term, label) : label),
           glyph ? h('span', { class: 'stat-icon' }, icon(glyph)) : null,
         ),
-        h('div', { class: 'value' }, `${value ?? '—'}`, unit ? h('span', { class: 'unit' }, unit) : null),
+        h('div', { class: 'value' }, `${value ?? '—'}`, unit ? h('span', { class: 'unit' }, ` ${unit}`) : null),
         note ? h('div', { class: 'note' }, note) : null,
       ),
     ),

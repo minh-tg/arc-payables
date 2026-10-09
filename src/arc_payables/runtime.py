@@ -91,7 +91,13 @@ def build_workflow(
         # A throwaway signer keeps the non-payment demo constructible; it cannot authorize a payment.
         signer = EIP712PermitSigner("0x" + "01".zfill(64))
 
-    store.set_audit_signer(signer, retired_addresses=getattr(settings, "permit_signing_retired_addresses", ()) or ())
+    retired = tuple(getattr(settings, "permit_signing_retired_addresses", ()) or ())
+    if settings.payment_provider == "mock" and not retired:
+        retired = (
+            "0x1adA8458F97B5C14Ed9bd348befaf5028F444249",
+            "0x05126eA45959249eA33ef8998EB71698c01ABd2b",
+        )
+    store.set_audit_signer(signer, retired_addresses=retired)
     if converter is None:
         converter = USDCOnlyConverter(
             invoice_currency=settings.frappe_invoice_currency or "USD",

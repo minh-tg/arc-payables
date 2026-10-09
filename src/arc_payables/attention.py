@@ -141,13 +141,13 @@ def build_attention(workflow: Any) -> dict[str, Any]:
         )
     if snapshot["guard_paused"]:
         items.append(_item("guard_paused", WARNING, "the guard is paused, so no payment can settle.", 1))
-    if snapshot["screenings_due"]:
+        count = snapshot["screenings_due"]
         items.append(
             _item(
                 "screenings_due",
                 WARNING,
-                f"{snapshot['screenings_due']} counterpartie(s) with open invoices are past their screening cadence.",
-                snapshot["screenings_due"],
+                f"{count} {'counterparty' if count == 1 else 'counterparties'} with open invoices past screening cadence.",
+                count,
             )
         )
     if snapshot["worker_consecutive_failures"]:
