@@ -729,4 +729,21 @@ export function startRouter() {
   route();
   // Refresh health without re-rendering forms or discarding an operator's unsaved review.
   setInterval(() => { if (!document.hidden) refreshShell(); }, 30000);
+
+  // Live Server-Sent Events stream for instant console updates
+  if (typeof EventSource !== 'undefined') {
+    const key = apiKey();
+    const url = key ? `/events/stream?api_key=${encodeURIComponent(key)}` : '/events/stream';
+    try {
+      const stream = new EventSource(url);
+      stream.addEventListener('update', () => {
+        refreshShell();
+      });
+      stream.onerror = () => {
+        // Fall back gracefully to background polling interval
+      };
+    } catch (e) {
+      // EventSource fallback
+    }
+  }
 }

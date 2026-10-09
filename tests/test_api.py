@@ -111,3 +111,11 @@ def test_idempotency_key_requires_uuid_v4(runtime):
     response = runtime["client"].post("/invoices", headers={"Idempotency-Key": str(uuid.UUID(int=1))}, json=payload)
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "invalid_idempotency_key"
+
+
+def test_events_stream_connects_and_receives_hello(runtime):
+    response = runtime["client"].get("/events/stream?limit=1")
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    assert "event: connect" in response.text
+    assert '"connected": true' in response.text

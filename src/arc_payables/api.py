@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
+import json
+import queue
 import re
 import uuid
 from pathlib import Path
@@ -9,9 +12,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -19,7 +22,7 @@ from .auth import MUTATIONS, OIDCAuth, fail as auth_fail, mount_auth
 from .attention import build_attention
 from .audit_log import list_payments, payment_report, verify_payment
 from .deliberation import build_order_planner
-from .domain import InvoiceLine, InvoiceRecord, usdc_to_units
+from .domain import InvoiceLine, InvoiceRecord, usdc_to_units, utcnow
 from .forecast import build_forecast
 from .monitoring import rescreen_suppliers, supplier_risk_overview
 from .prioritisation import PaymentPrioritiser
@@ -32,6 +35,27 @@ from .store import SQLiteEvidenceStore
 
 ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 HASH_RE = re.compile(r"^(?:0x)?[a-fA-F0-9]{64}$")
+
+
+class EventBroadcaster:
+    def __init__(self) -> None:
+        self._subscribers: set[queue.Queue] = set()
+
+    def subscribe(self) -> queue.Queue:
+        q: queue.Queue = queue.Queue(maxsize=100)
+        self._subscribers.add(q)
+        return q
+
+    def unsubscribe(self, q: queue.Queue) -> None:
+        self._subscribers.discard(q)
+
+    def broadcast(self, event_type: str, data: dict[str, Any] | None = None) -> None:
+        payload = {"type": event_type, "timestamp": utcnow().isoformat(), "data": data or {}}
+        for q in list(self._subscribers):
+            try:
+                q.put_nowait(payload)
+            except Exception:
+                pass
 
 
 class StrictModel(BaseModel):
@@ -144,6 +168,8 @@ def create_app(
     app.state.workflow = workflow
     app.state.settings = settings
     app.state.store = store
+    broadcaster = EventBroadcaster()
+    app.state.broadcaster = broadcaster
 
     # The operator console: static files, no build step. Serving the shell needs no key because it
     # contains no data; every request it makes is authenticated like any other API call.
@@ -169,7 +195,12 @@ def create_app(
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 
-    def require_api_key(request: Request, x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None) -> None:
+    def require_api_key(
+        request: Request,
+        x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+        api_key_query: Annotated[str | None, Query(alias="api_key")] = None,
+    ) -> None:
+        presented = x_api_key or api_key_query
         if oidc is not None:
             permission = "read" if request.method in {"GET", "HEAD"} else MUTATIONS.get(request.scope["route"].name)
             if permission is None:
@@ -185,7 +216,7 @@ def create_app(
             raise HTTPException(status_code=503, detail={"code": "api_auth_not_configured", "message": "External providers require individual identity (AUTH_MODE=oidc) or an explicit testnet-token deployment (AUTH_MODE=testnet_tokens with API_KEY and APPROVAL_TOKEN). AUTH_MODE=demo only opens the mock adapters."})
         if settings.auth_mode == "testnet_tokens" and not settings.api_key:
             raise HTTPException(status_code=503, detail={"code": "api_auth_not_configured", "message": "Testnet API authentication must be configured."})
-        if settings.api_key and (not x_api_key or not hmac.compare_digest(x_api_key.encode(), settings.api_key.encode())):
+        if settings.api_key and (not presented or not hmac.compare_digest(presented.encode(), settings.api_key.encode())):
             raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Valid API credentials are required."})
 
     def require_metrics_access(
@@ -622,6 +653,7 @@ def create_app(
             )
         try:
             tx = setter(True)
+            broadcaster.broadcast("guard_paused", {"paused": True})
             return {"ok": True, "paused": True, "transaction": tx if isinstance(tx, str) else None}
         except Exception as exc:
             raise HTTPException(status_code=500, detail={"code": "guard_pause_failed", "message": str(exc)}) from exc
@@ -637,9 +669,45 @@ def create_app(
             )
         try:
             tx = setter(False)
+            broadcaster.broadcast("guard_unpaused", {"paused": False})
             return {"ok": True, "paused": False, "transaction": tx if isinstance(tx, str) else None}
         except Exception as exc:
             raise HTTPException(status_code=500, detail={"code": "guard_unpause_failed", "message": str(exc)}) from exc
+
+    @app.get("/events/stream", tags=["operations"])
+    def events_stream(
+        request: Request,
+        x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+        api_key: Annotated[str | None, Query()] = None,
+        limit: Annotated[int, Query(ge=0, le=1000)] = 0,
+    ) -> StreamingResponse:
+        """Server-Sent Events stream for real-time console updates."""
+        require_api_key(request, x_api_key=x_api_key, api_key_query=api_key)
+        q = broadcaster.subscribe()
+
+        def generator():
+            sent = 0
+            try:
+                yield f"event: connect\ndata: {json.dumps({'connected': True, 'time': utcnow().isoformat()})}\n\n"
+                sent += 1
+                if limit and sent >= limit:
+                    return
+                while True:
+                    try:
+                        event = q.get(timeout=10.0)
+                        yield f"event: update\ndata: {json.dumps(event)}\n\n"
+                        sent += 1
+                        if limit and sent >= limit:
+                            return
+                    except queue.Empty:
+                        yield f"event: ping\ndata: {json.dumps({'time': utcnow().isoformat()})}\n\n"
+                        sent += 1
+                        if limit and sent >= limit:
+                            return
+            finally:
+                broadcaster.unsubscribe(q)
+
+        return StreamingResponse(generator(), media_type="text/event-stream")
 
     @app.get("/backups", tags=["operations"], dependencies=[Depends(require_api_key)])
     def list_backup_files() -> dict[str, Any]:
