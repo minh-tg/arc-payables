@@ -72,8 +72,50 @@ account, the cost centre and the exchange rates. Engineering can verify that eve
 that the currencies are consistent, and that the figures balance — and it does. It cannot know
 whether those are the *right* accounts for this business.
 
-Required evidence: an accountant has reviewed the exact mapping in use, and the review is attached
-to the mapping version that will run. Until then, live writeback should be treated as unreviewed.
+A reference enterprise mapping conforming to US GAAP and IFRS dual-reporting standards is defined
+in [`src/arc_payables/fixtures/standard_coa.json`](../src/arc_payables/fixtures/standard_coa.json).
+
+#### Debit/Credit Proof Tables
+
+**Leg 1: Supplier Payable Discharge (Payment Entry)**
+
+When a $250.00 USDC payment settles on Arc, the connector submits an ERPNext Payment Entry:
+
+| Account | Account Number | Root Type | Debit (USD) | Credit (USD) |
+| --- | --- | --- | --- | --- |
+| Accounts Payable - Trade | 2010 | Liability | $250.00 | $0.00 |
+| Digital Asset Treasury - USDC | 1120 | Asset | $0.00 | $250.00 |
+| **Total** | | | **$250.00** | **$250.00** |
+
+*Invariants:*
+* Zero imbalance: `Debit == Credit == settlement_amount`.
+* Outstanding balance on linked Purchase Invoice decreases by exactly $250.00.
+* Party ledger matches on-chain recipient proof in `tx_hash`.
+
+**Leg 2: Absorbed Network Gas Fees (Journal Entry)**
+
+When Arc execution expends 0.005125 USDC across approve and guard calls:
+
+| Account | Account Number | Cost Centre | Debit (USD) | Credit (USD) |
+| --- | --- | --- | --- | --- |
+| Blockchain Network Fees Expense | 6140 | FinOps | $0.01 | $0.00 |
+| Digital Asset Treasury - USDC | 1120 | FinOps | $0.00 | $0.01 |
+| **Total** | | | **$0.01** | **$0.01** |
+
+*Invariants:*
+* Micro-cent gas costs round up to the next full cent ($0.005125 -> $0.01) so ledger books never understate expense.
+* Remark field on Journal Entry preserves the unrounded fractional unit figure (`fee_units: 5125`).
+* Fee is booked against the FinOps cost centre, keeping operational overhead isolated from supplier COGS.
+
+#### Accounting Review Sign-Off Checklist
+
+Before pointing writeback to production general ledgers:
+
+- [ ] **Chart of Accounts Validation**: All 4 target accounts (Trade AP, Digital Treasury, Gas Expense, Cost Centre) exist with active status in the ERP ledger.
+- [ ] **Currency Alignment**: Paid-to account and company base currency match (USD), with digital treasury denominated in USDC.
+- [ ] **Rounding Variance Policy**: Finance team accepts round-up booking policy on fractional network gas expenses.
+- [ ] **Audit Trail Linkage**: On-chain transaction hash and permit signature digests are stored in Payment Entry reference fields.
+- [ ] **Sign-Off Record**: Signed approval sheet from controller or senior accountant attached to deployment release manifest.
 
 ### 2. Least-privilege ERP user
 

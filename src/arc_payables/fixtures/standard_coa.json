@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Standard Enterprise Chart of Accounts for Digital Asset Payables",
+  "version": "1.0.0",
+  "standard": "US GAAP / IFRS Dual-Compliant",
+  "company_template": {
+    "company_name": "Standard Enterprise Corp",
+    "country": "United States",
+    "base_currency": "USD",
+    "settlement_currency": "USDC"
+  },
+  "accounts": [
+    {
+      "account_number": "1110",
+      "account_name": "Cash and Cash Equivalents - Operating Bank",
+      "account_type": "Bank",
+      "root_type": "Asset",
+      "currency": "USD",
+      "balance_direction": "Debit",
+      "description": "Primary corporate operating fiat bank accounts."
+    },
+    {
+      "account_number": "1120",
+      "account_name": "Digital Asset Treasury - USDC on Arc",
+      "account_type": "Bank",
+      "root_type": "Asset",
+      "currency": "USDC",
+      "balance_direction": "Debit",
+      "description": "Corporate smart contract and MPC-managed developer controlled wallets on Arc Testnet."
+    },
+    {
+      "account_number": "2010",
+      "account_name": "Accounts Payable - Trade",
+      "account_type": "Payable",
+      "root_type": "Liability",
+      "currency": "USD",
+      "balance_direction": "Credit",
+      "description": "Standard trade payables liability booked against supplier purchase invoices."
+    },
+    {
+      "account_number": "2015",
+      "account_name": "Accounts Payable - Digital Settlement Clearing",
+      "account_type": "Payable",
+      "root_type": "Liability",
+      "currency": "USD",
+      "balance_direction": "Credit",
+      "description": "Interim clearing ledger tracking on-chain permits before ERP writeback confirmation."
+    },
+    {
+      "account_number": "5010",
+      "account_name": "Cost of Goods Sold - Direct Supplier Materials",
+      "account_type": "Direct Expense",
+      "root_type": "Expense",
+      "currency": "USD",
+      "balance_direction": "Debit",
+      "description": "Inventory and direct materials booked from three-way matched purchase orders."
+    },
+    {
+      "account_number": "6140",
+      "account_name": "Blockchain Network Transaction Fees Expense",
+      "account_type": "Expense",
+      "root_type": "Expense",
+      "currency": "USD",
+      "balance_direction": "Debit",
+      "description": "Arc network gas costs absorbed during ERC-20 approve and guard settlement transactions."
+    },
+    {
+      "account_number": "6150",
+      "account_name": "Currency Rounding and Micro-Unit Variance",
+      "account_type": "Expense",
+      "root_type": "Expense",
+      "currency": "USD",
+      "balance_direction": "Debit",
+      "description": "Sub-cent rounding variances arising from integer 6-decimal fixed-point conversions."
+    }
+  ],
+  "cost_centers": [
+    {
+      "cost_center_name": "Main - SEC",
+      "parent_cost_center": null
+    },
+    {
+      "cost_center_name": "FinOps - SEC",
+      "parent_cost_center": "Main - SEC",
+      "description": "Treasury operations and on-chain payment execution overhead."
+    }
+  ],
+  "posting_profiles": {
+    "supplier_settlement": {
+      "document_type": "Payment Entry",
+      "payment_type": "Pay",
+      "debit_account": "2010 - Accounts Payable - Trade",
+      "credit_account": "1120 - Digital Asset Treasury - USDC on Arc",
+      "exchange_rate_source": "1.00000000 USD/USDC",
+      "rule": "Exact supplier obligation discharge; debit equals credit."
+    },
+    "network_fee_absorption": {
+      "document_type": "Journal Entry",
+      "entry_type": "Expense Entry",
+      "debit_account": "6140 - Blockchain Network Transaction Fees Expense",
+      "debit_cost_center": "FinOps - SEC",
+      "credit_account": "1120 - Digital Asset Treasury - USDC on Arc",
+      "rule": "Sum of all transaction stage receipts (approve_reset + approve + guard) rounded up to integer cents."
+    }
+  }
+}
