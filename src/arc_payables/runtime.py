@@ -10,7 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from .circle_adapter import CircleDeveloperControlledWalletProvider
-from .currency import USDCOnlyConverter
+from .currency import MultiCurrencyConverter, USDCOnlyConverter
+from .ports import CurrencyConverter
 from .domain import ScreeningStatus
 from .frappe_adapter import FrappeAccountingConnector
 from .local_payment import LocalKeyPaymentProvider
@@ -49,6 +50,7 @@ def build_workflow(
     accounting: Any | None = None,
     payment_provider: Any | None = None,
     signer: Any | None = None,
+    converter: CurrencyConverter | None = None,
 ) -> APWorkflow:
     """Construct the durable workflow and its providers for either process entry point."""
     store = store or SQLiteEvidenceStore(settings.database_path)
@@ -90,7 +92,12 @@ def build_workflow(
         signer = EIP712PermitSigner("0x" + "01".zfill(64))
 
     store.set_audit_signer(signer, retired_addresses=getattr(settings, "permit_signing_retired_addresses", ()) or ())
-    policy = DeterministicPolicy(settings, USDCOnlyConverter())
+    if converter is None:
+        converter = USDCOnlyConverter(
+            invoice_currency=settings.frappe_invoice_currency or "USD",
+            settlement_to_invoice_rate=settings.settlement_to_invoice_rate,
+        )
+    policy = DeterministicPolicy(settings, converter)
     return APWorkflow(
         store,
         accounting,

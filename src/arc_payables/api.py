@@ -144,6 +144,7 @@ def create_app(
     payment_provider=None,
     signer=None,
     oidc_client=None,
+    converter=None,
 ) -> FastAPI:
     settings = settings or get_settings()
     workflow = build_workflow(
@@ -152,6 +153,7 @@ def create_app(
         accounting=accounting,
         payment_provider=payment_provider,
         signer=signer,
+        converter=converter,
     )
     store = workflow.store
     accounting = workflow.accounting
@@ -366,10 +368,16 @@ def create_app(
             guard = limits() if limits else None
         except Exception:
             guard = None
+        can_pause = hasattr(workflow.payment_provider, "set_guard_paused")
         if guard:
             body["guard"] = {
                 "paused": bool(guard.get("paused", 0)),
-                "can_pause": hasattr(workflow.payment_provider, "set_guard_paused"),
+                "can_pause": can_pause,
+            }
+        elif can_pause:
+            body["guard"] = {
+                "paused": bool(getattr(workflow.payment_provider, "_guard_paused", False)),
+                "can_pause": True,
             }
         return body
 

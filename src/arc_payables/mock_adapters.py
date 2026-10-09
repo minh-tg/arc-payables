@@ -337,18 +337,6 @@ class MockPaymentProvider:
         self.deferred_fee = deferred_fee
         self._guard_paused = False
 
-    def guard_limits(self) -> dict[str, int]:
-        return {
-            "per_payment_cap": 1_000 * USDC_SCALE,
-            "epoch_cap": 10_000 * USDC_SCALE,
-            "recipient_epoch_cap": 2_500 * USDC_SCALE,
-            "epoch_length": 86400,
-            "paused": 1 if self._guard_paused else 0,
-        }
-
-    def guard_epoch_spent(self) -> int:
-        return 0
-
     def set_guard_paused(self, paused: bool) -> str:
         self._guard_paused = bool(paused)
         return "0x" + hashlib.sha256(f"mock-pause:{paused}".encode()).hexdigest()

@@ -83,7 +83,16 @@ def accounting_source_consistency(
     so the two can never disagree about the conversion, currencies, or line items.
     """
     configured = (getattr(converter, "invoice_currency", "") or "").upper()
-    expected_erp_units = converter.invoice_units_from_settlement(invoice.amount_units, configured)
+    target_currency = (accounting.source_invoice_currency or configured).upper()
+    if invoice.currency.upper() == target_currency:
+        expected_erp_units = invoice.amount_units
+    else:
+        settlement_units = converter.settlement_amount_usdc(invoice.amount_units, invoice.currency)
+        expected_erp_units = (
+            converter.invoice_units_from_settlement(settlement_units, target_currency)
+            if settlement_units is not None
+            else None
+        )
     present = all((
         accounting.source_invoice_amount_units is not None,
         accounting.source_invoice_currency,
@@ -94,10 +103,10 @@ def accounting_source_consistency(
     ))
     matches = bool(
         present
-        and configured
+        and target_currency
         and expected_erp_units is not None
         and accounting.source_invoice_amount_units == expected_erp_units
-        and str(accounting.source_invoice_currency).upper() == configured
+        and str(accounting.source_invoice_currency).upper() == target_currency
         and accounting.source_invoice_number == invoice.invoice_number
         and accounting.source_supplier_id == invoice.supplier_id
         and accounting.source_invoice_id == (invoice.purchase_invoice_id or invoice.id)
@@ -106,7 +115,7 @@ def accounting_source_consistency(
     if matches:
         detail = (
             "Invoice amount, currency, supplier reference, linked ERP invoice, and line items match "
-            f"the accounting source at the configured {configured} settlement rate."
+            f"the accounting source at the configured {target_currency} settlement rate."
         )
     else:
         detail = "Invoice data does not match a linked, trusted Purchase Invoice in the accounting system."
@@ -405,7 +414,17 @@ class DeterministicPolicy:
             missing.append("Purchase Receipt evidence.")
 
         currency_ok = self.converter.settlement_amount_usdc(invoice.amount_units, invoice.currency) is not None
-        checks.append(PolicyCheck("settlement_currency", currency_ok, "Invoice currency is USDC; no implicit FX conversion is applied." if currency_ok else f"{invoice.currency.upper()} has no explicitly configured USDC settlement rate." , (amount_ref,), not currency_ok, False))
+        if invoice.currency.upper() == "USDC":
+            currency_detail = "Invoice currency is USDC; no implicit FX conversion is applied."
+        elif currency_ok:
+            converted_usdc = self.converter.settlement_amount_usdc(invoice.amount_units, invoice.currency) or 0
+            currency_detail = (
+                f"Settlement rate converts {invoice.currency.upper()} invoice into "
+                f"{units_to_usdc(converted_usdc)} USDC without implicit FX drift."
+            )
+        else:
+            currency_detail = f"{invoice.currency.upper()} has no explicitly configured USDC settlement rate."
+        checks.append(PolicyCheck("settlement_currency", currency_ok, currency_detail, (amount_ref,), not currency_ok, False))
         if not currency_ok:
             missing.append("Explicit currency conversion configuration; MVP accepts USDC-denominated invoices only.")
 
