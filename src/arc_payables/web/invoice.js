@@ -42,11 +42,34 @@ async function renderInvoice(root, [invoiceId]) {
   root.append(h('ol', { class: 'payment-stages', 'aria-label': 'Payment lifecycle' },
     [['Evidence', Boolean(decision)], ['Authorized', Boolean(detail.payment)], ['Settled', detail.payment?.confirmation_status === 'CONFIRMED'], ['Ledger recorded', detail.state === 'ERP_RECORDED']].map(([label, complete]) => h('li', { class: complete ? 'done' : '' }, `${complete ? '✓ ' : ''}${label}`)),
   ));
-  root.append(panel('Where this payment would go',
-    lede('The ', concept('wallet', 'trusted destination'), ' comes only from a human-verified supplier record. The invoice cannot choose where its own money goes.'),
+  const addressesMatch = supplier?.wallet && invoice.invoice_payee_address && supplier.wallet.toLowerCase() === invoice.invoice_payee_address.toLowerCase();
+  const addressBadge = !invoice.invoice_payee_address
+    ? badge('Not provided on document', 'neutral')
+    : addressesMatch
+      ? badge('Matches ERP record · Verification passed', 'good')
+      : badge('Mismatch ignored · Document address discarded', 'warn');
+
+  const addressNote = !invoice.invoice_payee_address
+    ? 'No address was printed on the invoice. Payout safely uses the verified ERP record.'
+    : addressesMatch
+      ? 'The invoice prints the correct address. Payout routes exclusively to the verified ERP record on the left.'
+      : 'The document prints a different address (potential invoice tampering). The agent safely pays the verified ERP record on the left.';
+
+  root.append(panel('Where this payment will go',
+    lede('Payouts route exclusively to the verified supplier record in your accounting system. The agent never sends funds to an address printed on an invoice document, preventing invoice tampering fraud.'),
     h('div', { class: 'destination-grid' },
-      h('div', { class: 'destination trusted' }, h('h3', {}, 'Trusted supplier destination'), h('p', { class: 'mono' }, supplier?.wallet || 'No supplier wallet configured'), badge(supplier?.wallet_verified ? 'Human verified' : 'Not verified · payment blocked', supplier?.wallet_verified ? 'good' : 'bad')),
-      h('div', { class: 'destination' }, h('h3', {}, 'Address printed on invoice'), h('p', { class: 'mono' }, invoice.invoice_payee_address || 'Not supplied'), badge('Untrusted · never used as destination', 'warn')),
+      h('div', { class: 'destination trusted' },
+        h('h3', {}, 'Verified payout destination (ERP master record)'),
+        h('p', { class: 'mono' }, supplier?.wallet || 'No supplier wallet configured'),
+        badge(supplier?.wallet_verified ? 'Active destination · Human verified' : 'Not verified · payment blocked', supplier?.wallet_verified ? 'good' : 'bad'),
+        h('p', { class: 'muted', style: 'font-size: 11.5px; margin-top: 8px; margin-bottom: 0;' }, 'This is the destination that receives funds on chain.'),
+      ),
+      h('div', { class: 'destination' },
+        h('h3', {}, 'Address printed on invoice document'),
+        h('p', { class: 'mono' }, invoice.invoice_payee_address || 'Not supplied on document'),
+        addressBadge,
+        h('p', { class: 'muted', style: 'font-size: 11.5px; margin-top: 8px; margin-bottom: 0;' }, addressNote),
+      ),
     ),
     h('p', { class: 'guide-note' }, `Linked payable: ${invoice.purchase_invoice_id || 'Not linked'}. Supplier wallet changes must be verified in the accounting system, not on this screen.`),
   ));

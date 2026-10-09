@@ -397,6 +397,8 @@
       a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid var(--border-strong); }
       a:hover { color: var(--accent); border-bottom-color: var(--accent); }
       nav a.nav-item { border-bottom: 1px solid transparent; }
+      a.btn { text-decoration: none; border-bottom: 1px solid transparent; }
+      a.btn:hover { border-bottom-color: transparent; }
 
       button, .btn {
         display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -407,13 +409,14 @@
         transition: transform 140ms var(--ease-out), background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
         user-select: none;
       }
-      button:hover:not(:disabled), .btn:hover { border-color: var(--border-strong); background: var(--bg); }
+      button:hover:not(:disabled), .btn:hover { border-color: var(--border-strong); background: var(--bg); color: var(--fg); }
       button:active:not(:disabled), .btn:active:not(:disabled) { transform: scale(0.97); }
       button:disabled { opacity: 0.45; cursor: default; transform: none; }
-      .btn-primary { background: var(--accent); border-color: var(--accent); color: oklch(100% 0 0); }
-      button.btn-primary:hover:not(:disabled), .btn.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+      .btn-primary, button.btn-primary, a.btn-primary { background: var(--accent); border-color: var(--accent); color: oklch(100% 0 0); }
+      button.btn-primary:hover:not(:disabled), .btn.btn-primary:hover, a.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: oklch(100% 0 0); }
       .btn-secondary { background: var(--surface); border-color: var(--border); color: var(--fg); }
-      :root[data-theme='dark'] .btn-primary, :root[data-theme='dark'] .brand-mark { color: #0a0f1e; }
+      :root[data-theme='dark'] .btn-primary, :root[data-theme='dark'] button.btn-primary, :root[data-theme='dark'] a.btn-primary { color: #0a0f1e; }
+      :root[data-theme='dark'] .btn-primary:hover, :root[data-theme='dark'] button.btn-primary:hover, :root[data-theme='dark'] a.btn-primary:hover { color: #0a0f1e; }
 
       input {
         background: var(--input-bg); color: var(--fg);
