@@ -56,13 +56,87 @@ async function renderQueue(root) {
   const [plan, invoices, history] = await Promise.all([api('/plan'), api('/invoices'), api('/plans')]);
   root.append(sectionHeading({ eyebrow: 'Plan', title: 'Payment queue', count: invoices.length }));
 
+  const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
+  const evaluate = async (invoiceId) => {
+    await api(`/invoices/${encodeURIComponent(invoiceId)}/evaluate`, { method: 'POST' });
+    await refresh();
+  };
+
+  const invoiceRows = invoices.map(({ invoice, state, payment }) =>
+    h(
+      'tr',
+      {},
+      h(
+        'td',
+        {},
+        h('a', { href: `#/invoice/${encodeURIComponent(invoice.id)}`, style: 'font-weight: 500;' }, invoice.invoice_number || invoice.id),
+        invoice.invoice_number ? h('span', { class: 'muted mono', style: 'display: block; font-size: 11px; margin-top: 2px;' }, invoice.id) : null,
+      ),
+      h('td', {}, invoice.supplier_id || '—'),
+      h('td', { class: 'num' }, money(invoice.amount)),
+      h('td', {}, invoice.due_date || '—'),
+      h('td', {}, badge(state, stateTone(state))),
+      h(
+        'td',
+        {},
+        payment
+          ? h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(invoice.id)}` }, 'View payment')
+          : can('operate')
+            ? actionButton('Evaluate', () => evaluate(invoice.id), feedback)
+            : h('span', { class: 'muted' }, 'Operator role required'),
+      ),
+    ),
+  );
+
   root.append(
     panel(
-      'Treasury',
+      'Invoices in queue',
       lede(
-        'This is a read-only preview, not an execution record. The worker plans only policy-eligible invoices and rechecks before each payment. Every invoice is priced in ',
-        concept('usdc', 'USDC'),
-        ', a digital dollar, so nothing here depends on an exchange rate.',
+        'All supplier invoices evaluated against configured policy checks. Select an invoice to inspect line items, match evidence, or resolve exceptions.',
+      ),
+      table(['Invoice', 'Supplier', 'Amount', 'Due', 'State', 'Action'], invoiceRows),
+      feedback,
+    ),
+  );
+
+  root.append(
+    can('operate')
+      ? addPayablePanel()
+      : panel('Add a payable', h('p', { class: 'muted' }, 'Operator role required to import or record an invoice.')),
+  );
+
+  const orderedRows = plan.ordered.map((entry, index) =>
+    h(
+      'tr',
+      {},
+      h('td', {}, String(index + 1)),
+      h('td', {}, h('a', { href: `#/invoice/${encodeURIComponent(entry.invoice_id)}` }, entry.invoice_number)),
+      h('td', {}, entry.supplier_id),
+      h('td', { class: 'num' }, money(entry.amount_usdc)),
+      h('td', {}, (entry.reasons || []).join(', ') || '—'),
+      h('td', { class: 'num' }, money(entry.projected_balance_usdc)),
+      h('td', {}, entry.reason),
+    ),
+  );
+  root.append(panel('Pay in this order', table(['#', 'Invoice', 'Supplier', 'Amount', 'Why', 'Balance after', 'Detail'], orderedRows)));
+
+  const excludedRows = plan.excluded.map((entry) =>
+    h(
+      'tr',
+      {},
+      h('td', {}, h('a', { href: `#/invoice/${encodeURIComponent(entry.invoice_id)}` }, entry.invoice_number)),
+      h('td', { class: 'num' }, money(entry.amount_usdc)),
+      h('td', {}, entry.decision_action ? badge(entry.decision_action, stateTone(entry.decision_action)) : '—'),
+      h('td', {}, entry.reason, nextStep('decisions', entry.decision_action)),
+    ),
+  );
+  root.append(panel('Not payable now', table(['Invoice', 'Amount', 'Policy', 'Reason'], excludedRows)));
+
+  root.append(
+    panel(
+      'Treasury capacity',
+      lede(
+        'Read-only preview of spendable balance after accounting for the reserve floor. The worker plans only policy-eligible invoices and rechecks balances before each payment.',
       ),
       h(
         'dl',
@@ -102,35 +176,6 @@ async function renderQueue(root) {
     ),
   );
 
-  const orderedRows = plan.ordered.map((entry, index) =>
-    h(
-      'tr',
-      {},
-      h('td', {}, String(index + 1)),
-      h('td', {}, h('a', { href: `#/invoice/${entry.invoice_id}` }, entry.invoice_number)),
-      h('td', {}, entry.supplier_id),
-      h('td', { class: 'num' }, money(entry.amount_usdc)),
-      h('td', {}, (entry.reasons || []).join(', ') || '—'),
-      h('td', { class: 'num' }, money(entry.projected_balance_usdc)),
-      h('td', {}, entry.reason),
-    ),
-  );
-  root.append(panel('Pay in this order', table(['#', 'Invoice', 'Supplier', 'Amount', 'Why', 'Balance after', 'Detail'], orderedRows)));
-
-  const excludedRows = plan.excluded.map((entry) =>
-    h(
-      'tr',
-      {},
-      h('td', {}, h('a', { href: `#/invoice/${entry.invoice_id}` }, entry.invoice_number)),
-      h('td', { class: 'num' }, money(entry.amount_usdc)),
-      h('td', {}, entry.decision_action ? badge(entry.decision_action, stateTone(entry.decision_action)) : '—'),
-      // "Not payable now" is where a first-time operator meets ESCALATE and has no idea what to do
-      // about it, so the guided view answers that beside the reason.
-      h('td', {}, entry.reason, nextStep('decisions', entry.decision_action)),
-    ),
-  );
-  root.append(panel('Not payable now', table(['Invoice', 'Amount', 'Policy', 'Reason'], excludedRows)));
-
   const labels = {
     recorded: ['Outcome not recorded', 'warn'], executed: ['Payment attempted', ''],
     invalidated: ['Replanned', 'warn'], deferred: ['Deferred', 'warn'],
@@ -168,49 +213,6 @@ async function renderQueue(root) {
     historyRows.length ? table(['Recorded at', 'Outcome', 'Ordered by', 'Selected invoice', 'Settlement', 'Evidence'], historyRows)
       : h('p', { class: 'muted' }, 'No worker plans recorded yet. Manual payments do not create worker plans.'),
   ));
-
-  const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
-  const evaluate = async (invoiceId) => {
-    await api(`/invoices/${encodeURIComponent(invoiceId)}/evaluate`, { method: 'POST' });
-    await refresh();
-  };
-
-  // The list endpoint answers with an object per invoice carrying its own state, not a pair.
-  const invoiceRows = invoices.map(({ invoice, state, payment }) =>
-    h(
-      'tr',
-      {},
-      h('td', {}, h('a', { href: `#/invoice/${invoice.id}` }, invoice.id)),
-      h('td', {}, invoice.invoice_number),
-      h('td', { class: 'num' }, money(invoice.amount)),
-      h('td', {}, invoice.due_date),
-      h('td', {}, badge(state, stateTone(state))),
-      h(
-        'td',
-        {},
-        payment ? h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(invoice.id)}` }, 'View payment') : can('operate') ? actionButton('Evaluate', () => evaluate(invoice.id), feedback) : h('span', { class: 'muted' }, 'Operator role required'),
-      ),
-    ),
-  );
-
-  root.append(
-    can('operate')
-      ? addPayablePanel()
-      : panel('Add a payable', h('p', { class: 'muted' }, 'Operator role required to import or record an invoice.')),
-  );
-
-  root.append(
-    panel(
-      'All invoices',
-      lede(
-        'Every invoice, whatever state it is in, with the row that says why. The state is the ',
-        concept('policy_check', 'policy'),
-        ' result, not a human judgement.',
-      ),
-      table(['ID', 'Number', 'Amount', 'Due', 'State', 'Action'], invoiceRows),
-      feedback,
-    ),
-  );
 }
 
 registerView('queue', renderQueue);

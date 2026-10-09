@@ -73,13 +73,13 @@ async function renderAttention(root) {
         'Everything here is something the system would not decide on its own. It is waiting for a '
           + 'person, and none of it moves money while it waits. An item is either an ',
         concept('escalation', 'escalation'),
-        ' or a payment whose result nobody knows yet.',
+        ' or an unconfirmed payment awaiting reconciliation.',
       ),
       h(
         'p',
         {},
         data.items.length === 0
-          ? badge('nothing is waiting on a human', 'good')
+          ? badge('Queue is clear · No pending actions', 'good')
           : h(
               'span',
               {},

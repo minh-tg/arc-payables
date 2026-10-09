@@ -94,11 +94,11 @@ async function renderAudit(root) {
       { label: 'Settlements recorded', value: String(totals.settled ?? 0), icon: 'fileText', note: 'Payments the chain accepted and the books took' },
       { label: 'Payment chains shown', value: String(payments.length), icon: 'shield', note: 'Open an invoice for events; verification reports actual signed-entry counts' },
       {
-        label: 'Results nobody knows',
+        label: 'Unreconciled settlements',
         value: String(broken),
         icon: 'alert',
         tone: broken ? 'bad' : 'good',
-        note: broken ? 'Reconcile these against the chain' : 'Every recorded result is known',
+        note: broken ? 'Requires ledger reconciliation' : 'All payment outcomes reconciled',
       },
     ]),
   );

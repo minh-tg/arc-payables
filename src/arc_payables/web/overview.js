@@ -9,7 +9,7 @@ function activityLines(status) {
   if (!status.last) return [{ level: 'warn', message: 'No background pass recorded. Manual review still works.' }];
   const last = status.last;
   return [
-    { level: 'info', message: `Last recorded pass: ${last.started_at}. This is history, not a live stream.` },
+    { level: 'info', message: `Last recorded pass: ${last.started_at}. Tasks run on a periodic schedule.` },
     ...(last.detail?.steps || []).map((step) => ({
       level: step.failed || step.error ? 'error' : 'info',
       message: `${step.name}: ${step.acted}/${step.examined} acted, ${step.skipped || 0} skipped, ${step.failed || 0} failed${step.error ? ` · ${step.error}` : ''}`,

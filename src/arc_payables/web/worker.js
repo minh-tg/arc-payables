@@ -75,7 +75,7 @@ function alertTestPanel() {
   return panel(
     'Alert delivery test',
     lede(
-      'Alerts are recorded on every pass, whether or not anyone receives them. This sends one labelled test alert, so you find out now if nobody would be told.',
+      'Alerts are recorded on every pass. This sends a labelled test alert to verify notification delivery.',
     ),
     h('div', { class: 'credentials' }, send),
     feedback,
