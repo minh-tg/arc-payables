@@ -137,6 +137,22 @@ async function renderSetup(root) {
       results,
     ),
   );
+
+  root.append(provisioningPanel());
+}
+
+// Provisioning creates accounts, roles and sandbox documents in ERPNext. The console does not apply it:
+// the preview is read-only, and applying is a deliberate command-line step on a disposable sandbox.
+function provisioningPanel() {
+  return panel(
+    'ERPNext provisioning',
+    lede(
+      'Prepares the sandbox company, roles and demo documents that the connector needs. It writes to the ledger system, so it stays a command-line step.',
+    ),
+    h('p', { class: 'muted' }, 'Preview first. Without --apply the command only reads and prints what it would create:'),
+    h('pre', {}, "uv run arc-payables-erpnext-bootstrap --company 'Arc Demo Inc' --wallet <supplier wallet> --quantity 1 --rate 0.01 --invoice-reference <reference>"),
+    h('p', { class: 'muted' }, 'Add --apply only when the preview shows exactly what you intend. Credentials come from the environment, never from the command line.'),
+  );
 }
 
 registerView('setup', renderSetup);

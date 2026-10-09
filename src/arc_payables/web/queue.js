@@ -6,6 +6,52 @@ function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
 }
 
+// Two ways in. Importing adopts the accounting record, which is the normal route. Recording a document
+// holds it until a person links it to a payable, because a captured document is not a payable.
+function addPayablePanel() {
+  const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
+
+  const importId = h('input', { type: 'text', maxlength: '140', autocomplete: 'off', placeholder: 'ACC-PINV-2026-00007' });
+  const importButton = actionButton('Import payable', async () => {
+    const external = importId.value.trim();
+    if (!external) throw new Error('Enter the ERPNext purchase invoice number to import.');
+    const created = await api('/invoices/import', { method: 'POST', body: { external_invoice_id: external } });
+    window.location.hash = `#/invoice/${encodeURIComponent(created.invoice.id)}`;
+  }, feedback, { class: 'btn-primary' });
+
+  const fields = {
+    supplier_id: h('input', { type: 'text', maxlength: '140', autocomplete: 'off' }),
+    invoice_number: h('input', { type: 'text', maxlength: '140', autocomplete: 'off' }),
+    invoice_date: h('input', { type: 'date' }),
+    due_date: h('input', { type: 'date' }),
+    amount: h('input', { type: 'text', inputmode: 'decimal', placeholder: '0.01', autocomplete: 'off' }),
+  };
+  const labels = {
+    supplier_id: 'Supplier ID', invoice_number: 'Invoice number', invoice_date: 'Invoice date',
+    due_date: 'Due date', amount: 'Amount (USDC)',
+  };
+  const recordButton = actionButton('Record invoice', async () => {
+    const body = { currency: 'USDC' };
+    for (const key of Object.keys(fields)) body[key] = fields[key].value.trim();
+    const missing = Object.keys(fields).filter((key) => !body[key]).map((key) => labels[key]);
+    if (missing.length) throw new Error(`Fill in: ${missing.join(', ')}.`);
+    const created = await api('/invoices', { method: 'POST', body });
+    window.location.hash = `#/invoice/${encodeURIComponent(created.invoice.id)}`;
+  }, feedback);
+
+  return panel(
+    'Add a payable',
+    h('h3', {}, 'Import from ERPNext'),
+    h('p', { class: 'muted' }, 'Adopts the accounting record\'s amount, currency and lines. This is the normal route into the queue.'),
+    h('div', { class: 'credentials' }, h('label', { class: 'field' }, h('span', {}, 'ERPNext purchase invoice'), importId), importButton),
+    h('h3', {}, 'Record an invoice document'),
+    h('p', { class: 'muted' }, 'A document recorded here is held until someone links it to an ERPNext payable. Its own text never sets the amount or the destination.'),
+    h('div', { class: 'stats' }, Object.keys(fields).map((key) => h('label', { class: 'field' }, h('span', {}, labels[key]), fields[key]))),
+    h('div', { class: 'credentials' }, recordButton),
+    feedback,
+  );
+}
+
 async function renderQueue(root) {
   const [plan, invoices, history] = await Promise.all([api('/plan'), api('/invoices'), api('/plans')]);
   root.append(sectionHeading({ eyebrow: 'Plan', title: 'Payment queue', count: invoices.length }));
@@ -145,6 +191,12 @@ async function renderQueue(root) {
         payment ? h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(invoice.id)}` }, 'View payment') : can('operate') ? actionButton('Evaluate', () => evaluate(invoice.id), feedback) : h('span', { class: 'muted' }, 'Operator role required'),
       ),
     ),
+  );
+
+  root.append(
+    can('operate')
+      ? addPayablePanel()
+      : panel('Add a payable', h('p', { class: 'muted' }, 'Operator role required to import or record an invoice.')),
   );
 
   root.append(

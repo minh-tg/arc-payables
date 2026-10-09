@@ -1,10 +1,58 @@
 // Treasury visibility: forward coverage against what is coming, and the counterparty risk that
 // constrains it. Both are read-only except for re-screening.
 
-import { api, badge, concept, h, lede, panel, plainWords, refresh, registerView, sectionHeading, statGrid, table } from './app.js';
+import { actionButton, api, badge, can, concept, h, lede, panel, plainWords, refresh, registerView, sectionHeading, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
+}
+
+// Expected inflows as the forecast counts them. Syncing reads open sales invoices from the accounting
+// system; marking one collected stops counting it. Neither authorizes or moves anything.
+// A sync re-renders the view, which would erase its own confirmation, so the message is carried across
+// the re-render once and shown by the panel that draws next.
+let syncFlash = null;
+
+async function receivablesPanel() {
+  const listing = await api('/receivables');
+  const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
+  if (syncFlash) {
+    feedback.append(h('p', { role: 'status' }, syncFlash));
+    syncFlash = null;
+  }
+  const sync = can('operate')
+    ? actionButton('Sync from accounting', async () => {
+        const outcome = await api('/receivables/sync', { method: 'POST' });
+        syncFlash = `${outcome.recorded} open sales invoice(s) recorded as expected inflows.`;
+        await refresh();
+      }, feedback, { class: 'btn-primary' })
+    : h('p', { class: 'muted' }, 'Operator role required to sync.');
+  const rows = listing.receivables.map((item) =>
+    h(
+      'tr',
+      {},
+      h('td', {}, item.external_id),
+      h('td', {}, item.customer || '—'),
+      h('td', {}, item.reference || '—'),
+      h('td', { class: 'num' }, money(item.amount_usdc)),
+      h('td', {}, item.expected_date),
+      h('td', {}, can('operate')
+        ? actionButton('Mark collected', async () => {
+            await api(`/receivables/${encodeURIComponent(item.external_id)}/collect`, { method: 'POST' });
+            await refresh();
+          }, feedback)
+        : '—'),
+    ),
+  );
+  return panel(
+    'Receivables from accounting',
+    lede(
+      'Money customers owe, counted into the running balance on its expected date. Once it has arrived, mark it collected so it stops counting.',
+    ),
+    h('div', { class: 'credentials' }, sync),
+    feedback,
+    table(['Sales invoice', 'Customer', 'Reference', 'Amount', 'Expected', 'Action'], rows),
+  );
 }
 
 async function renderTreasury(root) {
@@ -118,6 +166,8 @@ async function renderTreasury(root) {
       table(['Sales invoice', 'Customer', 'Reference', 'Amount', 'Expected', 'Days'], inflowRows),
     ),
   );
+
+  root.append(await receivablesPanel());
 
   const rescreen = h(
     'button',

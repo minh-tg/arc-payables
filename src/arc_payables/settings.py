@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     alert_min_interval_seconds: int = 3600
     alert_after_consecutive_failures: int = 3
 
+    # Local backups written from the console or the CLI. An off-host copy is the CLI's `--hook`, so
+    # the console never ships data anywhere on its own.
+    backup_directory: Path = Path("data/backups")
+    backup_keep: int = 48
+
     max_invoice_usdc: Decimal = Decimal("1000")
     min_reserve_usdc: Decimal = Decimal("2000")
     max_treasury_snapshot_age_seconds: int = 90

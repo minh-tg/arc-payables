@@ -4,7 +4,67 @@
 // why. A row links to the invoice for the deep evidence, and the lookup accepts whatever an operator
 // is holding, which is usually a transaction hash from a block explorer.
 
-import { actionButton, api, apiKey, badge, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+import { actionButton, api, apiKey, badge, can, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+
+// Every recorded payment compared with the guard's own settlement log. Reads the chain and signs or
+// sends nothing. Absence is only proof when the search began at block 0, so the coverage is shown.
+function reconciliationPanel() {
+  const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
+  const resultHost = h('div', {});
+  const run = actionButton('Reconcile with the chain', async () => {
+    const report = await api('/reconciliation/run', { method: 'POST' });
+    resultHost.replaceChildren(...reconciliationResult(report));
+  }, feedback, { class: 'btn-primary' });
+  return panel(
+    'Reconcile with the chain',
+    lede(
+      'This compares every recorded payment with what the guard settled on chain. It reads only. Run it after unattended payments and before closing a period.',
+    ),
+    can('operate')
+      ? h('div', { class: 'credentials' }, run)
+      : h('p', { class: 'muted' }, 'Operator role required to run reconciliation.'),
+    feedback,
+    resultHost,
+  );
+}
+
+function reconciliationResult(report) {
+  const coverage = report.coverage || {};
+  const fromBlock = coverage.complete_from_block;
+  const searched = fromBlock === 0
+    ? 'block 0, so an absent settlement is proven absent'
+    : 'a bounded or unstated range, so an absent settlement is not proof of absence';
+  const summary = report.blocking
+    ? badge(`${report.blocking} blocking finding(s)`, 'bad')
+    : badge('no blocking disagreement', 'good');
+  const facts = h(
+    'dl',
+    { class: 'facts' },
+    h('dt', {}, 'Provider'), h('dd', {}, coverage.provider || '—'),
+    h('dt', {}, 'Guard'), h('dd', { class: 'mono' }, coverage.guard_address || '—'),
+    h('dt', {}, 'Records compared'), h('dd', {}, String(report.records)),
+    h('dt', {}, 'Settlement events seen'), h('dd', {}, String(report.observations)),
+    h('dt', {}, 'Searched'), h('dd', {}, searched),
+  );
+  const findingRows = (report.findings || []).map((item) =>
+    h(
+      'tr',
+      {},
+      h('td', {}, badge(item.severity, item.severity === 'blocking' ? 'bad' : 'warn')),
+      h('td', {}, item.kind),
+      h('td', {}, item.detail),
+      h('td', {}, item.invoice_id ? h('a', { href: `#/payments/${encodeURIComponent(item.invoice_id)}` }, 'Open report') : '—'),
+      h('td', { class: 'mono' }, item.transaction_hash ? `${item.transaction_hash.slice(0, 10)}…` : '—'),
+    ),
+  );
+  return [
+    h('p', {}, summary, h('span', { class: 'muted' }, ` ${report.review} for review`)),
+    facts,
+    findingRows.length
+      ? table(['Severity', 'Kind', 'Detail', 'Payment', 'Transaction'], findingRows)
+      : h('p', { class: 'muted' }, 'Nothing to report: every recorded payment is accounted for.'),
+  ];
+}
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -336,6 +396,8 @@ async function renderPayments(root, [reference] = []) {
       h('p', { class: 'muted' }, 'A payment that failed is in the log too, with the reason. A log that only holds successes cannot answer the question an operator actually has.'),
     ),
   );
+
+  root.append(reconciliationPanel());
 
   const lookupInput = h('input', { 'aria-label': 'Payment reference', placeholder: 'Invoice id, invoice number, payment id or transaction hash' });
   const reportHost = h('div', {});

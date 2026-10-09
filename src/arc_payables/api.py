@@ -104,6 +104,10 @@ class ApprovalInput(StrictModel):
     acknowledged_checks: list[str] = Field(default_factory=list, max_length=30)
 
 
+class RestoreDrillInput(StrictModel):
+    backup: str = Field(min_length=1, max_length=200)
+
+
 class APIError(BaseModel):
     code: str
     message: str
@@ -582,6 +586,150 @@ def create_app(
     def verify_audit() -> dict[str, Any]:
         """Recompute the audit chain, so a reviewer can tell the record was not rewritten."""
         return store.verify_audit_chain()
+
+    @app.post("/reconciliation/run", tags=["audit"], dependencies=[Depends(require_api_key)])
+    def run_reconciliation() -> dict[str, Any]:
+        """Compare every recorded payment with what the guard settled on chain. Reads only.
+
+        An unreadable chain is refused rather than reported as clean: no comparison happened, and
+        that is a different answer from "nothing is wrong".
+        """
+        from .reconcile import ReconciliationUnavailable, reconcile
+
+        try:
+            return reconcile(store, settings).to_dict()
+        except ReconciliationUnavailable as exc:
+            raise HTTPException(status_code=503, detail={"code": "chain_unreadable", "message": str(exc)}) from exc
+
+    @app.get("/backups", tags=["operations"], dependencies=[Depends(require_api_key)])
+    def list_backup_files() -> dict[str, Any]:
+        """Backups held on this host, newest first. A file without a manifest is shown as incomplete."""
+        from .backup import list_backups
+
+        rows = list_backups(settings.backup_directory)
+        return {"backups": rows, "count": len(rows)}
+
+    @app.post("/backups", status_code=status.HTTP_201_CREATED, tags=["operations"], dependencies=[Depends(require_api_key)])
+    def create_backup_now() -> dict[str, Any]:
+        """Back up the live database locally, verify the copy, then publish it with its manifest.
+
+        Local only. An off-host copy is the CLI's --hook, which is deliberately not reachable from
+        here: nothing leaves the host because a button was pressed.
+        """
+        from .backup import BackupError, create_backup, data_reaches
+
+        try:
+            result = create_backup(settings.database_path, settings.backup_directory, keep=settings.backup_keep)
+        except BackupError as exc:
+            raise HTTPException(status_code=409, detail={"code": "backup_failed", "message": str(exc)}) from exc
+        manifest = result.manifest
+        return {
+            "name": result.path.name,
+            "size_bytes": manifest.get("size_bytes"),
+            "sha256": manifest.get("sha256"),
+            "data_reaches": data_reaches((manifest.get("database") or {}).get("recovery_point")),
+            "pruned": manifest.get("pruned", []),
+        }
+
+    @app.post("/backups/restore-drill", tags=["operations"], dependencies=[Depends(require_api_key)])
+    def run_restore_drill(body: RestoreDrillInput) -> dict[str, Any]:
+        """Restore one held backup into a disposable file and prove the copy is usable.
+
+        The backup is chosen from the listing, never by a path, and the drill cannot target the live
+        database. Nothing in the live store changes.
+        """
+        from .backup import BackupError, list_backups, restore_drill
+        from .domain import utcnow
+
+        names = {row["name"] for row in list_backups(settings.backup_directory)}
+        if body.backup not in names:
+            raise HTTPException(status_code=404, detail={"code": "backup_not_found", "message": "No held backup has that name."})
+        scratch = settings.backup_directory / "drills" / f"restore-{utcnow():%Y%m%dT%H%M%S%fZ}.sqlite3"
+        try:
+            drill = restore_drill(settings.backup_directory / body.backup, scratch, live_database=settings.database_path)
+        except BackupError as exc:
+            raise HTTPException(status_code=409, detail={"code": "restore_drill_failed", "message": str(exc)}) from exc
+        # The drill's own report names filesystem paths. The console needs the verdict, not the host layout.
+        return {
+            "ok": drill["ok"],
+            "name": body.backup,
+            "restore_seconds": drill["restore_seconds"],
+            "checked_at": drill["checked_at"],
+            "manifest_created_at": drill.get("manifest_created_at"),
+            "checkpoint": drill.get("checkpoint"),
+            "counts": (drill.get("database") or {}).get("counts"),
+        }
+
+    @app.get("/receivables", tags=["planning"], dependencies=[Depends(require_api_key)])
+    def list_open_receivables_endpoint() -> dict[str, Any]:
+        """Expected inflows not yet collected, in expected-date order. They inform the forecast only."""
+        rows = store.list_open_receivables()
+        return {
+            "receivables": [{**row, "amount_usdc": row["amount_units"] / 10**6} for row in rows],
+            "count": len(rows),
+        }
+
+    @app.post("/receivables/sync", tags=["planning"], dependencies=[Depends(require_api_key)])
+    def sync_receivables() -> dict[str, Any]:
+        """Read open Sales Invoices from the accounting system and record them as expected inflows.
+
+        Re-running this replaces a row by its external id, so it never double counts. Nothing here
+        authorizes or moves anything.
+        """
+        try:
+            receivables = accounting.list_receivables()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={"code": "accounting_unreadable", "message": "The accounting system could not be read. Nothing was recorded."},
+            ) from exc
+        for receivable in receivables:
+            store.record_receivable({
+                "external_id": receivable.external_id,
+                "customer": receivable.customer,
+                "reference": receivable.reference,
+                "amount_units": receivable.amount_units,
+                "currency": receivable.currency,
+                "expected_date": receivable.expected_date.isoformat(),
+                "source": receivable.source,
+            })
+        return {"recorded": len(receivables)}
+
+    @app.post("/receivables/{external_id}/collect", tags=["planning"], dependencies=[Depends(require_api_key)])
+    def collect_receivable(external_id: str) -> dict[str, Any]:
+        """Stop counting an expected inflow once its money has arrived."""
+        if not store.mark_receivable_collected(external_id):
+            raise HTTPException(status_code=404, detail={"code": "receivable_not_found", "message": "No open receivable has that id. Nothing changed."})
+        return {"collected": external_id}
+
+    @app.post("/alerts/test", tags=["operations"], dependencies=[Depends(require_api_key)])
+    def send_test_alert() -> dict[str, Any]:
+        """Send one clearly labelled test alert through the sink the worker uses.
+
+        The destination is reported as its host only: a webhook URL can carry a credential in its path.
+        """
+        from urllib.parse import urlsplit
+
+        from .alerting import WARNING, Alert, WebhookSink
+
+        url = settings.alert_webhook_url
+        if not url:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "alert_destination_missing", "message": "No alert destination is configured (ALERT_WEBHOOK_URL). Alerts are still recorded on each pass, but no person is told."},
+            )
+        host = urlsplit(url).hostname or "configured destination"
+        alert = Alert(
+            code="delivery_test",
+            severity=WARNING,
+            summary="test alert: alert delivery is working",
+            detail={"source": "operator console", "note": "Sent on request to verify that alerts reach this destination."},
+        )
+        failures = WebhookSink(url, min_interval_seconds=0, timeout=10.0).send([alert])
+        if failures:
+            reason = str(failures[0].get("error", "unknown error")).replace(url, host)
+            return {"delivered": False, "destination": host, "error": reason}
+        return {"delivered": True, "destination": host}
 
     return app
 

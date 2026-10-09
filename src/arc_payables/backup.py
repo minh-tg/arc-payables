@@ -108,6 +108,12 @@ def _recovery_point(connection: sqlite3.Connection) -> dict[str, Any]:
     return point
 
 
+def data_reaches(recovery_point: dict[str, Any] | None) -> str | None:
+    """The newest recorded timestamp in a recovery point: how far the copy's data goes."""
+    stamps = [value for value in (recovery_point or {}).values() if value]
+    return max(stamps) if stamps else None
+
+
 def _audit_self_consistency(connection: sqlite3.Connection) -> dict[str, Any]:
     """Verify the hash chain, and that each signature was made by the key the row names.
 
@@ -162,6 +168,9 @@ def verify_database(path: Path, *, deep: bool = True) -> dict[str, Any]:
             report["audit"] = _audit_self_consistency(connection)
             report["ok"] = report["ok"] and bool(report["audit"]["ok"])
         return report
+    except sqlite3.DatabaseError as exc:
+        # A file that is not a readable database is a failed backup, not a crash: callers catch one error.
+        raise BackupError(f"{path} is not a readable database: {exc}") from exc
     finally:
         connection.close()
 
@@ -290,6 +299,35 @@ def create_backup(
 
 def _backup_files(directory: Path) -> list[Path]:
     return sorted(directory.glob(f"*{BACKUP_SUFFIX}"), key=lambda path: path.name)
+
+
+def list_backups(directory: Path | str) -> list[dict[str, Any]]:
+    """Backups in a directory, newest first, each with what its manifest recorded.
+
+    A backup file with no readable manifest is listed as incomplete rather than hidden: that is
+    the file an operator most needs to see.
+    """
+    folder = Path(directory)
+    if not folder.is_dir():
+        return []
+    rows = []
+    for path in sorted(_backup_files(folder), key=_recorded_time, reverse=True):
+        manifest_path = folder / f"{path.stem}{MANIFEST_SUFFIX}"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            manifest = None
+        manifest = manifest if isinstance(manifest, dict) else {}
+        database = manifest.get("database") if isinstance(manifest.get("database"), dict) else {}
+        rows.append({
+            "name": path.name,
+            "complete": bool(manifest),
+            "created_at": manifest.get("created_at"),
+            "size_bytes": manifest.get("size_bytes"),
+            "sha256": manifest.get("sha256"),
+            "data_reaches": data_reaches(database.get("recovery_point")),
+        })
+    return rows
 
 
 def _kill_process_group(process: subprocess.Popen) -> None:

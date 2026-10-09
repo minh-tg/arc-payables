@@ -1,7 +1,87 @@
 // The worker's face: recent passes, whether they finished cleanly, and what they asked
 // a human to look at. Read-only. Alerts are recorded on the pass, not recomputed here.
 
-import { api, badge, concept, h, lede, nextStep, panel, plainWords, registerView, sectionHeading, table } from './app.js';
+import { actionButton, api, badge, can, concept, h, lede, nextStep, panel, plainWords, refresh, registerView, sectionHeading, table } from './app.js';
+
+// Backups are local copies of the live database, verified before they are published. A restore drill
+// proves a copy is usable by restoring it into a scratch file. Nothing here ships data off the host.
+// Taking a backup re-renders the view, which would erase its own confirmation, so the message is carried
+// across the re-render once and shown by the panel that draws next.
+let backupFlash = null;
+
+async function backupsPanel() {
+  const listing = await api('/backups');
+  const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
+  if (backupFlash) {
+    feedback.append(h('p', { role: 'status' }, backupFlash));
+    backupFlash = null;
+  }
+  const rows = listing.backups.map((item) =>
+    h(
+      'tr',
+      {},
+      h('td', { class: 'mono' }, item.name),
+      h('td', {}, item.complete ? badge('complete', 'good') : badge('no manifest', 'bad')),
+      h('td', {}, item.created_at || '—'),
+      h('td', {}, item.data_reaches || '—'),
+      h('td', { class: 'num' }, item.size_bytes != null ? `${item.size_bytes} bytes` : '—'),
+      h(
+        'td',
+        {},
+        !item.complete
+          ? h('span', { class: 'muted' }, 'Not restorable')
+          : can('operate')
+            ? actionButton('Restore drill', async () => {
+                const drill = await api('/backups/restore-drill', { method: 'POST', body: { backup: item.name } });
+                feedback.replaceChildren(h(
+                  'p',
+                  { role: 'status' },
+                  `Restore drill passed for ${item.name} in ${drill.restore_seconds} s. The restored copy verifies and its row counts match the manifest.`,
+                ));
+              }, feedback)
+            : h('span', { class: 'muted' }, 'Operator role required'),
+      ),
+    ),
+  );
+  const backUp = can('operate')
+    ? actionButton('Back up now', async () => {
+        const made = await api('/backups', { method: 'POST' });
+        backupFlash = `Backup ${made.name} written and verified. Data reaches ${made.data_reaches || 'the start of the database'}.`;
+        await refresh();
+      }, feedback, { class: 'btn-primary' })
+    : h('p', { class: 'muted' }, 'Operator role required to back up.');
+  return panel(
+    'Backups on this host',
+    lede(
+      'A backup is a consistent copy of the database, checked before it is published. A restore drill restores one into a scratch file and verifies it. The copy stays on this host. An off-host copy is a separate command-line step.',
+    ),
+    h('div', { class: 'credentials' }, backUp),
+    feedback,
+    table(['File', 'Manifest', 'Recorded', 'Data reaches', 'Size', 'Restore'], rows),
+  );
+}
+
+// One test alert through the same sink the worker uses, so delivery is shown rather than assumed.
+function alertTestPanel() {
+  const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
+  const send = can('operate')
+    ? actionButton('Send test alert', async () => {
+        const outcome = await api('/alerts/test', { method: 'POST' });
+        feedback.replaceChildren(outcome.delivered
+          ? h('p', { role: 'status' }, `Delivered to ${outcome.destination}. A worker pass would deliver real alerts the same way.`)
+          : h('p', { class: 'error', role: 'alert' }, `Not delivered to ${outcome.destination}: ${outcome.error}`));
+      }, feedback, { class: 'btn-primary' })
+    : h('p', { class: 'muted' }, 'Operator role required to send a test alert.');
+  return panel(
+    'Alert delivery test',
+    lede(
+      'Alerts are recorded on every pass, whether or not anyone receives them. This sends one labelled test alert, so you find out now if nobody would be told.',
+    ),
+    h('div', { class: 'credentials' }, send),
+    feedback,
+  );
+}
+
 
 function levelTone(level) {
   if (level === 'critical') return 'bad';
@@ -169,6 +249,9 @@ async function renderWorker(root) {
       table(withNext ? ['Outcome', 'Count', 'What to do next'] : ['Outcome', 'Count'], outcomeRows),
     ),
   );
+
+  root.append(alertTestPanel());
+  root.append(await backupsPanel());
 }
 
 registerView('worker', renderWorker);
