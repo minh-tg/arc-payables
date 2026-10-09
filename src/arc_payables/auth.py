@@ -43,6 +43,7 @@ MUTATIONS = {
     # webhook) or writes operational files, so it needs the operations role like the live probes.
     "run_reconciliation": "operate", "create_backup_now": "operate", "run_restore_drill": "operate",
     "sync_receivables": "operate", "collect_receivable": "operate", "send_test_alert": "operate",
+    "pause_guard": "operate", "unpause_guard": "operate",
     # Live probes reach the chain, Circle and the accounting system. They change nothing, but they
     # do make this service call outward, so they need the role that owns operations rather than any
     # reader.

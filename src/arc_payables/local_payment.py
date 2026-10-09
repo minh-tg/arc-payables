@@ -313,6 +313,33 @@ class LocalKeyPaymentProvider:
     def _read_uint(self, signature: str) -> int:
         return decode_uint256(self._eth_call(self.guard_address, "0x" + selector(signature).hex()))
 
+    def set_guard_paused(self, paused: bool) -> str:
+        pauser_key = getattr(self.settings, "payment_guard_pauser_key", None)
+        if not pauser_key:
+            raise RuntimeError("PAYMENT_GUARD_PAUSER_KEY is not configured")
+        from eth_account import Account
+
+        pauser_account = Account.from_key(pauser_key)
+        signature = "pause()" if paused else "unpause()"
+        data = "0x" + selector(signature).hex()
+        nonce = int(self._rpc("eth_getTransactionCount", [pauser_account.address, "pending"]), 16)
+        tx = {
+            "to": self.guard_address,
+            "data": data,
+            "value": 0,
+            "chainId": ARC_TESTNET_CHAIN_ID,
+            "nonce": nonce,
+            "gas": 150_000,
+            **self._fee_fields(),
+        }
+        signed = pauser_account.sign_transaction(tx)
+        raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+        tx_hash = str(self._rpc("eth_sendRawTransaction", ["0x" + raw.hex()]))
+        receipt = self._wait_receipt(tx_hash)
+        if receipt is None or int(receipt.get("status", "0x0"), 16) != 1:
+            raise RuntimeError("Pause transaction reverted or was not observed")
+        return tx_hash
+
     # -- internals -----------------------------------------------------------------------
 
     def _validate_payment(self, payment: dict, permit: PaymentPermit) -> None:

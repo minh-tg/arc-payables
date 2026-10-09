@@ -208,6 +208,7 @@ class Settings(BaseSettings):
     local_payment_timeout_seconds: float = 20.0
     local_payment_receipt_timeout_seconds: float = 90.0
     local_payment_log_lookback_blocks: int = 20_000
+    payment_guard_pauser_key: str | None = Field(default=None, repr=False)
 
     # Frappe API v1. Live writeback is disabled unless every accounting mapping value below
     # is explicitly configured and verified against the sandbox chart of accounts.

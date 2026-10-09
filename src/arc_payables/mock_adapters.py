@@ -335,6 +335,23 @@ class MockPaymentProvider:
         # A real provider often cannot name the network fee while the transfer is still being
         # indexed. Deferred models that: the settlement reports no fee, and a later ask reports it.
         self.deferred_fee = deferred_fee
+        self._guard_paused = False
+
+    def guard_limits(self) -> dict[str, int]:
+        return {
+            "per_payment_cap": 1_000 * USDC_SCALE,
+            "epoch_cap": 10_000 * USDC_SCALE,
+            "recipient_epoch_cap": 2_500 * USDC_SCALE,
+            "epoch_length": 86400,
+            "paused": 1 if self._guard_paused else 0,
+        }
+
+    def guard_epoch_spent(self) -> int:
+        return 0
+
+    def set_guard_paused(self, paused: bool) -> str:
+        self._guard_paused = bool(paused)
+        return "0x" + hashlib.sha256(f"mock-pause:{paused}".encode()).hexdigest()
 
     def get_balance(self) -> TreasurySnapshot:
         return TreasurySnapshot(self._balance_units, utcnow(), "treasury:mock:wallet-balance", "mock_arc_wallet_balance")
@@ -391,6 +408,11 @@ class MockPaymentProvider:
             raise ValueError("Payment permit domain or fields are invalid")
         if permit.expiry <= int(time.time()):
             raise ValueError("Payment permit is expired")
+        if self._guard_paused:
+            result = PaymentSubmission(PaymentStatus.FAILED, failure_code="GUARD_PAUSED")
+            self._payments_by_id[payment_id] = result
+            self._payments_by_key[idempotency_key] = result
+            return result
         if self.failure_mode == "insufficient_balance" or self._balance_units < permit.amount_units:
             result = PaymentSubmission(PaymentStatus.FAILED, failure_code="INSUFFICIENT_BALANCE")
             self._payments_by_id[payment_id] = result

@@ -330,6 +330,16 @@ def create_app(
             "screening_provider": settings.screening_provider,
             "demo_available": simulated and settings.screening_provider == "fixture" and settings.decision_layer != "dual_process",
         }
+        limits = getattr(workflow.payment_provider, "guard_limits", None)
+        try:
+            guard = limits() if limits else None
+        except Exception:
+            guard = None
+        if guard:
+            body["guard"] = {
+                "paused": bool(guard.get("paused", 0)),
+                "can_pause": hasattr(workflow.payment_provider, "set_guard_paused"),
+            }
         return body
 
     @app.post("/demo/start", tags=["console"], dependencies=[Depends(require_api_key)])
@@ -600,6 +610,36 @@ def create_app(
             return reconcile(store, settings).to_dict()
         except ReconciliationUnavailable as exc:
             raise HTTPException(status_code=503, detail={"code": "chain_unreadable", "message": str(exc)}) from exc
+
+    @app.post("/guard/pause", tags=["operations"], dependencies=[Depends(require_api_key)])
+    def pause_guard() -> dict[str, Any]:
+        """Emergency stop: pause the payment guard contract to halt all settlements immediately."""
+        setter = getattr(workflow.payment_provider, "set_guard_paused", None)
+        if setter is None:
+            raise HTTPException(
+                status_code=501,
+                detail={"code": "guard_pause_unsupported", "message": "The active payment provider does not support remote guard pause"},
+            )
+        try:
+            tx = setter(True)
+            return {"ok": True, "paused": True, "transaction": tx if isinstance(tx, str) else None}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail={"code": "guard_pause_failed", "message": str(exc)}) from exc
+
+    @app.post("/guard/unpause", tags=["operations"], dependencies=[Depends(require_api_key)])
+    def unpause_guard() -> dict[str, Any]:
+        """Resume settlements through the payment guard contract."""
+        setter = getattr(workflow.payment_provider, "set_guard_paused", None)
+        if setter is None:
+            raise HTTPException(
+                status_code=501,
+                detail={"code": "guard_pause_unsupported", "message": "The active payment provider does not support remote guard pause"},
+            )
+        try:
+            tx = setter(False)
+            return {"ok": True, "paused": False, "transaction": tx if isinstance(tx, str) else None}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail={"code": "guard_unpause_failed", "message": str(exc)}) from exc
 
     @app.get("/backups", tags=["operations"], dependencies=[Depends(require_api_key)])
     def list_backup_files() -> dict[str, Any]:

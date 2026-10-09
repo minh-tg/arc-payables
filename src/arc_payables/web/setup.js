@@ -2,7 +2,7 @@
 // a setting, because credentials belong in the environment and secret files rather than in a page
 // reachable with one shared API key.
 
-import { api, badge, can, concept, h, lede, panel, plainWords, registerView, sectionHeading, table } from './app.js';
+import { api, badge, can, concept, errorPanel, h, lede, panel, plainWords, refresh, registerView, sectionHeading, table } from './app.js';
 
 function stateBadge(state) {
   if (state === 'set') return badge('set', 'good');
@@ -138,7 +138,47 @@ async function renderSetup(root) {
     ),
   );
 
+  root.append(emergencyControlsPanel(data));
   root.append(provisioningPanel());
+}
+
+function emergencyControlsPanel(data) {
+  const isPaused = Boolean(data?.guard?.paused);
+  const feedback = h('div');
+  const actionBtn = h('button', {
+    class: isPaused ? 'btn' : 'btn danger',
+    type: 'button',
+    onclick: async () => {
+      feedback.replaceChildren();
+      const endpoint = isPaused ? '/guard/unpause' : '/guard/pause';
+      const promptText = isPaused
+        ? 'Resume on-chain payment settlements?'
+        : 'Emergency halt: Pause the payment guard to reject all settlements immediately?';
+      if (!confirm(promptText)) return;
+      try {
+        actionBtn.disabled = true;
+        await api(endpoint, { method: 'POST' });
+        feedback.replaceChildren(h('p', { class: 'good' }, isPaused ? 'Guard resumed successfully.' : 'Guard paused successfully. Payments halted.'));
+        setTimeout(() => refresh(), 1000);
+      } catch (err) {
+        feedback.replaceChildren(errorPanel(err));
+      } finally {
+        actionBtn.disabled = false;
+      }
+    },
+  }, isPaused ? 'Resume payments (unpause guard)' : 'Emergency stop (pause guard)');
+
+  return panel(
+    'Emergency controls',
+    lede(
+      'The payment guard contract carries an emergency pause control. Pausing halts settlements immediately across unattended worker passes and manual payments without altering contract caps.',
+    ),
+    h('p', {}, isPaused ? badge('Guard is currently PAUSED — payments halted', 'bad') : badge('Guard is ACTIVE', 'good')),
+    can('operate')
+      ? h('div', { class: 'credentials' }, actionBtn)
+      : h('p', { class: 'muted' }, 'Pausing or unpausing the guard requires the operator role.'),
+    feedback,
+  );
 }
 
 // Provisioning creates accounts, roles and sandbox documents in ERPNext. The console does not apply it:

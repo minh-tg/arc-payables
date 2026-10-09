@@ -229,6 +229,30 @@ def test_a_failed_test_alert_reports_the_failure_without_the_credential(tmp_path
 
 
 # --------------------------------------------------------------------------------------
+# Emergency guard pause
+# --------------------------------------------------------------------------------------
+
+
+def test_guard_pause_and_unpause_controls(tmp_path):
+    client, _ = _app(tmp_path)
+    res = client.post("/guard/pause", headers=KEY)
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+    assert res.json()["paused"] is True
+
+    setup_data = client.get("/setup", headers=KEY).json()
+    assert setup_data["guard"]["paused"] is True
+
+    res2 = client.post("/guard/unpause", headers=KEY)
+    assert res2.status_code == 200
+    assert res2.json()["ok"] is True
+    assert res2.json()["paused"] is False
+
+    setup_data2 = client.get("/setup", headers=KEY).json()
+    assert setup_data2["guard"]["paused"] is False
+
+
+# --------------------------------------------------------------------------------------
 # Who may press them
 # --------------------------------------------------------------------------------------
 
@@ -242,6 +266,8 @@ def test_a_failed_test_alert_reports_the_failure_without_the_credential(tmp_path
         "sync_receivables",
         "collect_receivable",
         "send_test_alert",
+        "pause_guard",
+        "unpause_guard",
     ],
 )
 def test_each_new_action_requires_the_operations_role(route):
