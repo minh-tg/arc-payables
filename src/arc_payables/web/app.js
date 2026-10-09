@@ -378,8 +378,86 @@ const BADGE_TONES = {
   neutral: 'neutral',
 };
 
+const HUMAN_TERMS = {
+  // Workflow States
+  ERP_RECORDED: 'Recorded in ledger',
+  ERP_PENDING: 'Pending ledger sync',
+  NEEDS_RECONCILIATION: 'Needs reconciliation',
+  RECEIVED: 'New invoice',
+  ESCALATED: 'Review required',
+  ELIGIBLE: 'Ready to pay',
+  AUTHORIZED: 'Authorized',
+  SUBMITTED: 'Submitted',
+  CONFIRMED: 'Settled',
+  FAILED: 'Failed',
+  HELD: 'On hold',
+  WAITING: 'Waiting on due date',
+  EVIDENCE_CHECKING: 'Checking evidence',
+
+  // Actions & Decisions
+  PAY_NOW: 'Ready to pay',
+  WAIT: 'Hold for due date',
+  HOLD: 'Hold',
+  ESCALATE: 'Review required',
+  RECONCILE: 'Needs reconciliation',
+  REJECT: 'Rejected',
+
+  // Events
+  INVOICE_RECEIVED: 'Invoice received',
+  EVIDENCE_CHECKING_STARTED: 'Verification started',
+  DECISION_RECORDED: 'Policy evaluated',
+  PAYMENT_AUTHORIZED: 'Payment authorized',
+  PAYMENT_SUBMITTED: 'Submitted to network',
+  PAYMENT_OPERATION_SUBMITTED: 'Broadcast confirmed',
+  PAYMENT_CONFIRMED: 'Payment confirmed',
+  ERP_WRITEBACK_CLAIMED: 'Syncing to ledger',
+  ERP_WRITEBACK_RECORDED: 'Recorded in ledger',
+  EVALUATED: 'Evaluated',
+
+  // Policy Checks
+  supplier_record: 'Supplier master record',
+  wallet_unverified: 'Verified supplier wallet',
+  payee_mismatch: 'Invoice vs supplier destination',
+  invoice_payable: 'Invoice payable status',
+  duplicate_invoice: 'Duplicate invoice check',
+  invoice_line_total: 'Line item total match',
+  accounting_invoice_match: 'Accounting invoice match',
+  purchase_order_match: 'Purchase order match',
+  missing_purchase_order: 'Purchase order required',
+  receipt_match: 'Goods receipt match',
+  missing_receipt: 'Goods receipt required',
+  settlement_currency: 'Settlement currency match',
+  amount_limit: 'Automatic payment threshold',
+  cash_reserve: 'Treasury reserve protection',
+  treasury_fresh: 'Treasury balance freshness',
+  address_screening: 'Sanctions & watchlist screening',
+  early_discount: 'Early payment discount',
+  payment_timing: 'Payment due window',
+
+  // Attention & Issues
+  invoice_escalated: 'Policy check review required',
+  invoice_held: 'Invoice on hold',
+  invoice_needs_reconciliation: 'Uncertain settlement',
+  invoice_failed: 'Payment failed',
+  audit_chain_broken: 'Audit chain integrity issue',
+  treasury_unreadable: 'Treasury balance unreadable',
+  guard_paused: 'Payment guard paused',
+  screenings_due: 'Counterparty screening due',
+  worker_failing: 'Background worker issue',
+  reserve_breached: 'Treasury reserve breach',
+
+  // Ordering reasons
+  configured_critical_supplier: 'Critical supplier',
+  expiring_discount: 'Expiring discount',
+  lateness: 'Overdue obligation',
+  imminent_due_date: 'Due soon',
+  smaller_obligation: 'Smaller obligation',
+  below_reserve: 'Exceeds reserve floor',
+};
+
 export function badge(text, kind = '') {
-  return h('span', { class: `badge ${BADGE_TONES[kind] || 'neutral'}` }, text);
+  const content = typeof text === 'string' ? humanizeCode(text) : text;
+  return h('span', { class: `badge ${BADGE_TONES[kind] || 'neutral'}` }, content);
 }
 
 // State to a colour tone, so a reviewer can read a workflow state at a glance. The badge always
@@ -564,6 +642,11 @@ export function nextStep(kind, code) {
 
 export function humanizeCode(code) {
   if (!code || typeof code !== 'string') return '';
+  if (HUMAN_TERMS[code]) return HUMAN_TERMS[code];
+  const upper = code.toUpperCase();
+  if (HUMAN_TERMS[upper]) return HUMAN_TERMS[upper];
+  const lower = code.toLowerCase();
+  if (HUMAN_TERMS[lower]) return HUMAN_TERMS[lower];
   return code
     .replace(/[_-]+/g, ' ')
     .trim()

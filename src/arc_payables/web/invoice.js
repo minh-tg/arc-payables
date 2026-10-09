@@ -118,7 +118,6 @@ async function renderInvoice(root, [invoiceId]) {
       table(['Check', 'Result', 'What you can do', 'Evidence'], checks.map((check) => h('tr', {},
         h('td', {},
           h('div', { style: 'font-weight: 500;' }, humanizeCode(check.code)),
-          h('div', { class: 'muted mono', style: 'font-size: 11px; margin-top: 2px;' }, check.code),
         ),
         h('td', {}, badge(check.passed ? 'Passed' : 'Failed', check.passed ? 'good' : 'bad')),
         h('td', {}, check.passed ? 'Nothing needed' : check.overridable && check.requires_human ? 'Human review permitted' : 'Correct evidence · no override'),
@@ -147,8 +146,8 @@ async function renderInvoice(root, [invoiceId]) {
         }, feedback, { 'data-action': 'record-approval' }),
       ));
     }
-    root.append(h('details', { class: 'card' }, h('summary', {}, 'Decision provenance'),
-      h('dl', { class: 'facts' }, h('dt', {}, 'Decision'), h('dd', {}, decision.action, plainWords('decisions', decision.action)), h('dt', {}, 'Reason'), h('dd', {}, decision.reason),
+    root.append(h('details', { class: 'card' }, h('summary', {}, 'Automated decision evaluation'),
+      h('dl', { class: 'facts' }, h('dt', {}, 'Decision'), h('dd', {}, humanizeCode(decision.action), plainWords('decisions', decision.action)), h('dt', {}, 'Reason'), h('dd', {}, decision.reason),
         h('dt', {}, 'Layer'), h('dd', {}, `${decision.advisory?.decided_by || 'policy'} · ${decision.advisory?.rationale || 'Deterministic checks are authoritative.'}`),
         h('dt', {}, 'Evidence hash'), h('dd', { title: decision.evidence_hash || '' }, short(decision.evidence_hash)), h('dt', {}, 'Policy version'), h('dd', {}, decision.policy_version), h('dt', {}, 'Evaluated at'), h('dd', {}, decision.evaluated_at)),
       (decision.advisory?.deliberations || []).map((item) => h('p', { class: 'mono' }, `${item.layer} · ${item.model || 'no model'} · ${item.outcome} · prompt ${short(item.prompt_sha256)} · response ${short(item.response_sha256)}`)),
@@ -156,7 +155,7 @@ async function renderInvoice(root, [invoiceId]) {
   }
 
   if (detail.payment) root.append(panel('Settlement & accounting entries',
-    h('dl', { class: 'facts' }, h('dt', {}, 'Settlement'), h('dd', {}, detail.payment.confirmation_status || '—'),
+    h('dl', { class: 'facts' }, h('dt', {}, 'Settlement'), h('dd', {}, detail.payment.confirmation_status ? badge(detail.payment.confirmation_status, stateTone(detail.payment.confirmation_status)) : '—'),
       h('dt', {}, 'Transaction'), h('dd', {}, detail.payment.transaction_hash || '—'), h('dt', {}, 'Payment Entry'), h('dd', {}, detail.payment.erp_entry_id || 'Not recorded yet'),
       h('dt', {}, 'Fee Entry'), h('dd', {}, detail.payment.erp_fee_entry_id || 'Not recorded yet')),
   ));
@@ -170,7 +169,7 @@ async function renderInvoice(root, [invoiceId]) {
           : h('div', { class: 'card finding critical', style: 'margin-top: 10px; padding: 12px;' },
               h('div', { class: 'finding-head' },
                 badge(`Integrity failure · Entry #${result.first_broken_id}`, 'bad'),
-                result.reason ? h('span', { class: 'finding-code' }, result.reason) : null,
+                result.reason ? h('span', { class: 'finding-code' }, humanizeCode(result.reason)) : null,
               ),
               h('p', { class: 'text-danger', style: 'margin-top: 6px; font-weight: 600; font-size: 13px;' },
                 explain('audit', result.reason) || humanizeCode(result.reason) || 'The audit chain did not verify.',
@@ -179,7 +178,7 @@ async function renderInvoice(root, [invoiceId]) {
             ),
       );
     }, verdict, { 'data-action': 'verify-audit' }), verdict,
-    table(['When', 'Event', 'State', 'Entry hash', 'Signature'], events.map((event) => h('tr', {}, h('td', {}, event.created_at), h('td', {}, event.type), h('td', {}, event.state), h('td', { title: event.event_hash || '' }, short(event.event_hash)), h('td', {}, event.signature ? badge('Signed', 'good') : 'Unsigned')))),
+    table(['When', 'Event', 'State', 'Entry hash', 'Signature'], events.map((event) => h('tr', {}, h('td', {}, event.created_at), h('td', {}, humanizeCode(event.type)), h('td', {}, event.state ? badge(event.state, stateTone(event.state)) : '—'), h('td', { title: event.event_hash || '' }, short(event.event_hash)), h('td', {}, event.signature ? badge('Signed', 'good') : 'Unsigned')))),
   ));
 }
 

@@ -4,7 +4,7 @@
 // no global event endpoint behind the console, so the button is real and the per-payment history is
 // reached through the invoice it belongs to, rather than being invented here.
 
-import { api, badge, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+import { api, badge, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, stateTone, table } from './app.js';
 
 function clock(value) {
   const match = typeof value === 'string' ? value.match(/T(\d{2}:\d{2}:\d{2})/) : null;
@@ -110,7 +110,7 @@ async function renderAudit(root) {
       h('td', {}, h('a', { href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, row.invoice_number)),
       h('td', {}, row.supplier_id),
       h('td', {}, clock(row.settled_at || row.confirmed_at)),
-      h('td', {}, row.confirmation_status),
+      h('td', {}, row.confirmation_status ? badge(row.confirmation_status, stateTone(row.confirmation_status)) : '—'),
       h(
         'td',
         {},
