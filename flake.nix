@@ -14,7 +14,7 @@
         default = pkgs.mkShell {
           packages = with pkgs; [
             uv
-            python3
+            python312
             nodejs_22
             pnpm
             foundry
