@@ -1,7 +1,7 @@
 // The worker's face: recent passes, whether they finished cleanly, and what they asked
 // a human to look at. Read-only. Alerts are recorded on the pass, not recomputed here.
 
-import { actionButton, api, badge, can, concept, h, lede, nextStep, panel, plainWords, refresh, registerView, sectionHeading, table } from './app.js';
+import { actionButton, api, badge, can, concept, formatTimestamp, h, humanizeCode, lede, nextStep, panel, plainWords, refresh, registerView, sectionHeading, table } from './app.js';
 
 // Backups are local copies of the live database, verified before they are published. A restore drill
 // proves a copy is usable by restoring it into a scratch file. Nothing here ships data off the host.
@@ -204,10 +204,10 @@ async function renderWorker(root) {
     return h(
       'tr',
       {},
-      h('td', {}, step.name, plainWords('steps', step.name)),
+      h('td', {}, humanizeCode(step.name), plainWords('steps', step.name)),
       h('td', {}, stepSummary(step)),
       h('td', { class: 'num' }, String(step.skipped)),
-      h('td', {}, step.failed || step.error ? badge('needs attention', 'bad') : badge('fine', 'good')),
+      h('td', {}, step.failed || step.error ? badge('needs attention', 'bad') : badge('Healthy', 'good')),
       h(
         'td',
         { class: 'muted' },
@@ -220,8 +220,8 @@ async function renderWorker(root) {
   if (last) {
     root.append(
       panel(
-        `Latest pass · ${last.started_at}`,
-        h('p', { class: 'muted' }, `Outcome: ${last.outcome}`),
+        `Latest pass · ${formatTimestamp(last.started_at)}`,
+        h('p', { class: 'muted' }, `Outcome: ${humanizeCode(last.outcome)}`),
         plainWords('passes', last.outcome),
         table(['Step', 'Acted / examined', 'Skipped', 'State', 'Why'], stepRows),
       ),

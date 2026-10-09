@@ -60,9 +60,9 @@ async function renderAttention(root) {
     { label: 'Treasury', value: String(data.treasury_usdc ?? '—'), unit: 'USDC', concept: 'treasury' },
     data.critical === 0 && data.warning === 0
       ? { label: 'Needs you', value: '0', unit: 'items', tone: 'good' }
-      : { label: 'Needs you', value: String(data.critical + data.warning), unit: 'items' },
-    { label: 'Critical', value: String(data.critical), unit: 'items', tone: data.critical > 0 ? 'bad' : undefined },
-    { label: 'Warning', value: String(data.warning), unit: 'items', tone: data.warning > 0 ? 'warn' : undefined },
+      : { label: 'Needs you', value: String(data.critical + data.warning), unit: (data.critical + data.warning) === 1 ? 'item' : 'items' },
+    { label: 'Critical', value: String(data.critical), unit: data.critical === 1 ? 'item' : 'items', tone: data.critical > 0 ? 'bad' : undefined },
+    { label: 'Warning', value: String(data.warning), unit: data.warning === 1 ? 'item' : 'items', tone: data.warning > 0 ? 'warn' : undefined },
   ]);
   root.append(kpis);
 

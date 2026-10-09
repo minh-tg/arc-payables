@@ -4,7 +4,7 @@
 // why. A row links to the invoice for the deep evidence, and the lookup accepts whatever an operator
 // is holding, which is usually a transaction hash from a block explorer.
 
-import { actionButton, api, apiKey, badge, can, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+import { actionButton, api, apiKey, badge, can, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, stateTone, table } from './app.js';
 
 // Every recorded payment compared with the guard's own settlement log. Reads the chain and signs or
 // sends nothing. Absence is only proof when the search began at block 0, so the coverage is shown.
@@ -85,7 +85,7 @@ function outcomeTone(item) {
 }
 
 function outcomeBadge(item) {
-  return badge(item.code.replaceAll('_', ' '), outcomeTone(item));
+  return badge(humanizeCode(item.code), outcomeTone(item));
 }
 
 function filters(state, onPick) {
@@ -343,8 +343,8 @@ async function renderPayments(root, [reference] = []) {
         h('td', {}, row.supplier_id),
         h('td', { class: 'num' }, money(row.amount_usdc)),
         h('td', {}, row.recipient || '—'),
-        h('td', {}, row.confirmation_status, plainWords('confirmations', row.confirmation_status)),
-        h('td', {}, row.erp_status || '—'),
+        h('td', {}, row.confirmation_status ? badge(row.confirmation_status, stateTone(row.confirmation_status)) : '—', plainWords('confirmations', row.confirmation_status)),
+        h('td', {}, row.erp_status ? badge(row.erp_status, stateTone(row.erp_status)) : '—'),
         h('td', { class: 'num' }, row.fee_usdc ? money(row.fee_usdc) : '—'),
         h(
           'td',

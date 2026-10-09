@@ -446,6 +446,21 @@ const HUMAN_TERMS = {
   worker_failing: 'Background worker issue',
   reserve_breached: 'Treasury reserve breach',
 
+  // Settlement outcomes
+  settled_and_recorded: 'Settled & recorded',
+  settled_not_recorded: 'Settled (ledger pending)',
+  unconfirmed: 'Unconfirmed',
+  not_attempted: 'Not attempted',
+  in_flight: 'In flight',
+
+  // Worker steps
+  reconcile: 'Reconciliation',
+  writeback: 'Ledger sync',
+  intake: 'Invoice intake',
+  autopay: 'Automated payments',
+  rescreen: 'Counterparty screening',
+  observe: 'Treasury telemetry',
+
   // Ordering reasons
   configured_critical_supplier: 'Critical supplier',
   expiring_discount: 'Expiring discount',
@@ -454,6 +469,17 @@ const HUMAN_TERMS = {
   smaller_obligation: 'Smaller obligation',
   below_reserve: 'Exceeds reserve floor',
 };
+
+export function formatTimestamp(isoString) {
+  if (!isoString || typeof isoString !== 'string') return isoString || '—';
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
+    return d.toISOString().replace('T', ' ').slice(0, 19);
+  } catch {
+    return isoString;
+  }
+}
 
 export function badge(text, kind = '') {
   const content = typeof text === 'string' ? humanizeCode(text) : text;
@@ -507,7 +533,7 @@ export function sectionHeading({ eyebrow, title, count, trailing = null }) {
       : h(
           'div',
           { class: 'section-heading-side' },
-          count === undefined ? null : h('span', { class: 'section-count' }, `${count} rows`),
+          count === undefined ? null : h('span', { class: 'section-count' }, `${count} ${count === 1 ? 'row' : 'rows'}`),
           trailing,
         ),
   );

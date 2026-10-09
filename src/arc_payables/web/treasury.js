@@ -1,7 +1,7 @@
 // Treasury visibility: forward coverage against what is coming, and the counterparty risk that
 // constrains it. Both are read-only except for re-screening.
 
-import { actionButton, api, badge, can, concept, h, lede, panel, plainWords, refresh, registerView, sectionHeading, statGrid, table } from './app.js';
+import { actionButton, api, badge, can, concept, formatTimestamp, h, lede, panel, plainWords, refresh, registerView, sectionHeading, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -117,7 +117,7 @@ async function renderTreasury(root) {
     panel(
       `Forward coverage · next ${forecast.horizon_days} days`,
       forecast.shortfall
-        ? h('p', { class: 'error' }, `Shortfall of ${money(forecast.shortfall_usdc)} from ${forecast.shortfall_date}: ${forecast.uncovered_invoice_ids.length} obligation(s) the balance cannot cover while keeping the reserve.`)
+        ? h('p', { class: 'error' }, `Shortfall of ${money(forecast.shortfall_usdc)} from ${forecast.shortfall_date}: ${forecast.uncovered_invoice_ids.length} ${forecast.uncovered_invoice_ids.length === 1 ? 'obligation' : 'obligations'} the balance cannot cover while keeping the reserve.`)
         : h('p', {}, badge('every obligation in the horizon is covered while keeping the reserve', 'good')),
       h('p', { class: 'muted' }, forecast.rationale),
       forecast.notes.length ? h('ul', { class: 'tight' }, forecast.notes.map((note) => h('li', {}, note))) : null,
@@ -201,7 +201,7 @@ async function renderTreasury(root) {
       h(
         'td',
         {},
-        item.latest_screening ? `${item.latest_screening.status} · ${item.latest_screening.checked_at}` : 'never screened',
+        item.latest_screening ? `${item.latest_screening.status} · ${formatTimestamp(item.latest_screening.checked_at)}` : 'never screened',
         plainWords('screening', item.latest_screening && item.latest_screening.status),
       ),
       h('td', { class: 'num' }, item.automatic_limit_usdc ? money(item.automatic_limit_usdc) : '—'),

@@ -61,12 +61,14 @@ def build_attention(workflow: Any) -> dict[str, Any]:
         waiting = by_state.get(state, [])
         if not waiting:
             continue
+        count = len(waiting)
+        noun = 'invoice' if count == 1 else 'invoices'
         items.append(
             _item(
                 f"invoice_{state.lower()}",
                 severity,
-                f"{len(waiting)} invoice(s): {why}",
-                len(waiting),
+                f"{count} {noun}: {why}",
+                count,
                 invoices=waiting[:MAX_ITEMS],
                 total_usdc=str(sum(int(item["amount_usdc"]) for item in waiting)),
             )
