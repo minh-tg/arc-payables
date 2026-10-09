@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -210,6 +210,12 @@ def create_app(
     web_dir = Path(__file__).resolve().parent / "web"
     if web_dir.is_dir():
         app.mount("/console", StaticFiles(directory=web_dir, html=True), name="console")
+
+        @app.get("/", include_in_schema=False)
+        @app.get("/app", include_in_schema=False)
+        @app.get("/app/", include_in_schema=False)
+        async def redirect_to_console():
+            return RedirectResponse(url="/console/", status_code=307)
 
     from .mock_adapters import MockAccountingConnector, MockPaymentProvider
     demo_allowed = (
