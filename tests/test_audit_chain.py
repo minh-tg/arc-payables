@@ -202,3 +202,54 @@ def test_the_verify_endpoint_reports_the_chain(tmp_path):
     assert response.status_code == 200
     body = response.json()
     assert body["ok"] is True and body["signed"] == body["checked"]
+
+
+def test_a_corrupted_signature_byte_is_detected(tmp_path):
+    store, _, _ = _runtime(tmp_path)
+    rows = _chain_rows(store)
+    target = rows[1]
+    sig = target["signature"]
+    corrupted_char = "0" if sig[-1] != "0" else "1"
+    corrupted_sig = sig[:-1] + corrupted_char
+    with store._connect() as connection:
+        connection.execute("UPDATE audit_events SET signature=? WHERE id=?", (corrupted_sig, target["id"]))
+    result = store.verify_audit_chain()
+    assert result["ok"] is False
+    assert result["first_broken_id"] == target["id"]
+    assert result["reason"] == "signature_is_not_from_the_configured_signer"
+
+
+def test_a_tampered_metadata_field_is_detected(tmp_path):
+    store, _, _ = _runtime(tmp_path)
+    rows = _chain_rows(store)
+    target = rows[0]
+    with store._connect() as connection:
+        connection.execute("UPDATE audit_events SET event_type='FORGED_EVENT' WHERE id=?", (target["id"],))
+    result = store.verify_audit_chain()
+    assert result["ok"] is False
+    assert result["first_broken_id"] == target["id"]
+    assert result["reason"] == "entry_contents_do_not_match_its_hash"
+
+
+def test_the_verify_endpoint_reports_tampered_audit_chain_with_broken_id(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from arc_payables.api import create_app
+
+    store, _, _ = _runtime(tmp_path)
+    rows = _chain_rows(store)
+    target = rows[1]
+    with store._connect() as connection:
+        connection.execute("UPDATE audit_events SET event_type='FORGED_TYPE' WHERE id=?", (target["id"],))
+
+    settings = Settings(_env_file=None, database_path=store.path, api_key="test-key")
+    signer = EIP712PermitSigner(POLICY_KEY)
+    app = create_app(settings=settings, store=store, signer=signer)
+    client = TestClient(app)
+    response = client.get("/audit/verify", headers={"X-API-Key": "test-key"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert body["first_broken_id"] == target["id"]
+    assert body["reason"] == "entry_contents_do_not_match_its_hash"
+
