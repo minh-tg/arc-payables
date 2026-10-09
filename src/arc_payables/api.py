@@ -111,6 +111,38 @@ class InvoiceCreateInput(StrictModel):
         return value
 
 
+class InvoiceUploadInput(StrictModel):
+    document_content: str = Field(min_length=1, max_length=200000, exclude=True)
+    supplier_id: str = Field(min_length=1, max_length=140)
+    invoice_number: str = Field(min_length=1, max_length=140)
+    invoice_date: date
+    due_date: date
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    currency: str = Field(default="USDC", min_length=3, max_length=10)
+    invoice_payee_address: str | None = Field(default=None, max_length=42)
+    lines: list[InvoiceLineInput] = Field(default_factory=list, max_length=100)
+    purchase_invoice_id: str | None = Field(default=None, max_length=140)
+    purchase_order_ids: list[str] = Field(default_factory=list, max_length=20)
+    receipt_ids: list[str] = Field(default_factory=list, max_length=20)
+    payment_terms: str | None = Field(default=None, max_length=500)
+    content_type: str = Field(default="text/plain", max_length=50)
+
+    @field_validator("invoice_payee_address")
+    @classmethod
+    def valid_address(cls, value: str | None) -> str | None:
+        if value is not None and not ADDRESS_RE.fullmatch(value):
+            raise ValueError("must be a 20-byte hex address")
+        return value
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        value = value.upper()
+        if not value.isalpha():
+            raise ValueError("currency must contain letters only")
+        return value
+
+
 class InvoiceImportInput(StrictModel):
     external_invoice_id: str = Field(min_length=1, max_length=140)
 
@@ -459,6 +491,48 @@ def create_app(
         invoice, is_new = workflow.import_invoice(body.external_invoice_id, key)
         response = workflow.get_invoice(invoice.id)
         response["created"] = is_new
+        return response
+
+    @app.post("/invoices/upload", status_code=status.HTTP_201_CREATED, tags=["invoices"], dependencies=[Depends(require_api_key)])
+    def upload_invoice(
+        body: InvoiceUploadInput,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> dict[str, Any]:
+        """Ingest raw invoice document with cryptographic isolation against prompt injection."""
+        key = validate_idempotency_key(idempotency_key)
+        raw_bytes = body.document_content.encode("utf-8")
+        doc_hash = hashlib.sha256(raw_bytes).hexdigest()
+
+        lines = body.lines
+        if not lines:
+            lines = [InvoiceLineInput(item_code="STANDARD-LINE-ITEM", quantity=Decimal("1"), amount=body.amount)]
+
+        create_body = InvoiceCreateInput(
+            supplier_id=body.supplier_id,
+            invoice_number=body.invoice_number,
+            invoice_date=body.invoice_date,
+            due_date=body.due_date,
+            amount=body.amount,
+            currency=body.currency,
+            invoice_payee_address=body.invoice_payee_address,
+            lines=lines,
+            purchase_invoice_id=body.purchase_invoice_id,
+            purchase_order_ids=body.purchase_order_ids,
+            receipt_ids=body.receipt_ids,
+            payment_terms=body.payment_terms,
+            source_document_hash=doc_hash,
+            untrusted_text=body.document_content,
+        )
+        invoice = _domain_invoice(create_body)
+        created, is_new = workflow.create_invoice(invoice, key)
+        response = workflow.get_invoice(created.id)
+        response["created"] = is_new
+        response["document_hash"] = doc_hash
+        response["prompt_defense"] = {
+            "quarantined": True,
+            "source_text_hash": invoice.source_text_hash,
+            "isolation": "Untrusted text hashed and isolated from payment authorization",
+        }
         return response
 
     @app.get("/invoices/{invoice_id}", tags=["invoices"], dependencies=[Depends(require_api_key)])
