@@ -44,8 +44,8 @@ contract PaymentGuardTest {
     uint64 private constant DAY = 86_400;
     // Demo budget used by the shared guard. Deliberately small so the caps are real
     // constraints rather than decoration.
-    uint96 private constant PER_PAYMENT_CAP = 5_000_000;   // 5 USDC
-    uint96 private constant EPOCH_CAP = 20_000_000;        // 20 USDC per day
+    uint96 private constant PER_PAYMENT_CAP = 5_000_000; // 5 USDC
+    uint96 private constant EPOCH_CAP = 20_000_000; // 20 USDC per day
     uint96 private constant RECIPIENT_EPOCH_CAP = 10_000_000; // 10 USDC per recipient per day
 
     MockArcUSDC private token;
@@ -96,7 +96,9 @@ contract PaymentGuardTest {
         permit.amount = 101;
         (bool changedAmount,) = address(guard).call(abi.encodeCall(PaymentGuard.pay, (permit, signature)));
         require(!changedAmount, "altered amount accepted");
-        require(token.balanceOf(recipient) == 0 && token.balanceOf(address(0xCAFE)) == 0, "altered permit transferred funds");
+        require(
+            token.balanceOf(recipient) == 0 && token.balanceOf(address(0xCAFE)) == 0, "altered permit transferred funds"
+        );
     }
 
     function test_wrongTokenPayerAndZeroFieldsRejected() public {
@@ -159,7 +161,9 @@ contract PaymentGuardTest {
     }
 
     function deployOnCurrentChain() external returns (address) {
-        return address(new PaymentGuard(address(token), policySigner, pauser, PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY));
+        return address(
+            new PaymentGuard(address(token), policySigner, pauser, PER_PAYMENT_CAP, EPOCH_CAP, RECIPIENT_EPOCH_CAP, DAY)
+        );
     }
 
     function test_wrongSignerRejected() public {
@@ -176,9 +180,12 @@ contract PaymentGuardTest {
         PaymentGuard bounded = _deployGuard(1_000, 0, 0, 0);
         guard = bounded;
         guard.pay(_permit(100, recipient, 1_000), _sign(guard, _permit(100, recipient, 1_000)));
-        (bool overCap,) = address(guard).call(
-            abi.encodeCall(PaymentGuard.pay, (_permit(101, recipient, 1_001), _sign(guard, _permit(101, recipient, 1_001))))
-        );
+        (bool overCap,) = address(guard)
+            .call(
+                abi.encodeCall(
+                    PaymentGuard.pay, (_permit(101, recipient, 1_001), _sign(guard, _permit(101, recipient, 1_001)))
+                )
+            );
         require(!overCap, "payment above the per-payment cap was accepted");
         require(token.balanceOf(recipient) == 1_000, "cap boundary transferred the wrong amount");
     }
@@ -190,9 +197,12 @@ contract PaymentGuardTest {
         _pay(guard, 201, address(0xF00D), 500);
         require(guard.epochSpent(0) == 1_000, "epoch spend not tracked");
         // A third, never-paid recipient is still refused, so the aggregate cap binds.
-        (bool overEpoch,) = address(guard).call(
-            abi.encodeCall(PaymentGuard.pay, (_permit(202, address(0xCAFE), 1), _sign(guard, _permit(202, address(0xCAFE), 1))))
-        );
+        (bool overEpoch,) = address(guard)
+            .call(
+                abi.encodeCall(
+                    PaymentGuard.pay, (_permit(202, address(0xCAFE), 1), _sign(guard, _permit(202, address(0xCAFE), 1)))
+                )
+            );
         require(!overEpoch, "payment above the epoch cap was accepted");
         require(token.balanceOf(address(0xCAFE)) == 0, "capped payment transferred funds");
     }
@@ -201,9 +211,10 @@ contract PaymentGuardTest {
         PaymentGuard bounded = _deployGuard(10_000, 0, 1_000, 3_600);
         guard = bounded;
         _pay(guard, 210, recipient, 1_000);
-        (bool overRecipient,) = address(guard).call(
-            abi.encodeCall(PaymentGuard.pay, (_permit(211, recipient, 1), _sign(guard, _permit(211, recipient, 1))))
-        );
+        (bool overRecipient,) = address(guard)
+            .call(
+                abi.encodeCall(PaymentGuard.pay, (_permit(211, recipient, 1), _sign(guard, _permit(211, recipient, 1))))
+            );
         require(!overRecipient, "payment above the recipient cap was accepted");
         // A different recipient has its own budget.
         _pay(guard, 212, address(0xF00D), 1_000);
@@ -215,9 +226,10 @@ contract PaymentGuardTest {
         PaymentGuard bounded = _deployGuard(1_000, 1_000, 1_000, 3_600);
         guard = bounded;
         _pay(guard, 220, recipient, 1_000);
-        (bool sameEpoch,) = address(guard).call(
-            abi.encodeCall(PaymentGuard.pay, (_permit(221, recipient, 1), _sign(guard, _permit(221, recipient, 1))))
-        );
+        (bool sameEpoch,) = address(guard)
+            .call(
+                abi.encodeCall(PaymentGuard.pay, (_permit(221, recipient, 1), _sign(guard, _permit(221, recipient, 1))))
+            );
         require(!sameEpoch, "budget exceeded within one epoch");
         vm.warp(3_600);
         _pay(guard, 222, recipient, 1_000);
@@ -268,9 +280,12 @@ contract PaymentGuardTest {
         PaymentGuard bounded = _deployGuard(1_000, 1_000, 1_000, 3_600);
         guard = bounded;
         token.approve(address(bounded), 0);
-        (bool failed,) = address(bounded).call(
-            abi.encodeCall(PaymentGuard.pay, (_permit(250, recipient, 1_000), _sign(bounded, _permit(250, recipient, 1_000))))
-        );
+        (bool failed,) = address(bounded)
+            .call(
+                abi.encodeCall(
+                    PaymentGuard.pay, (_permit(250, recipient, 1_000), _sign(bounded, _permit(250, recipient, 1_000)))
+                )
+            );
         require(!failed, "payment without allowance succeeded");
         require(bounded.epochSpent(0) == 0, "failed payment consumed budget");
         require(bounded.recipientEpochSpent(0, recipient) == 0, "failed payment consumed recipient budget");

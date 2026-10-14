@@ -109,3 +109,5 @@ jobs:
         run: forge test -vv
       - name: Lint
         run: forge lint
+      - name: Prove invariant checks detect broken controls
+        run: python3 script/check-guard-invariant-mutations.py
