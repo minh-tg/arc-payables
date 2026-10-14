@@ -1,8 +1,8 @@
 """Plain words for every code the service can return, kept honest by construction.
 
-The risk with an explanations file is that it drifts from the behaviour it explains. So this test
-does not check wording. It checks that every code the policy can actually return has an entry, and
-that every entry points at the real behaviour rather than inventing its own.
+The risk with an explanations file is that it drifts from the behaviour it explains. Tests check
+that every policy code has an entry and that each entry points at the real behaviour. Safety-relevant
+wording also distinguishes mock simulation from live-provider Arc Testnet activity.
 """
 
 from __future__ import annotations
@@ -182,3 +182,28 @@ def test_a_failing_check_keeps_its_reason_beside_the_plain_words():
     assert explained["explanation"]["plain"].startswith(e.CHECKS["cash_reserve"]["plain"].split(".")[0])
     assert "Post-payment balance" in explained["explanation"]["plain"]
     assert explained["code"] == "cash_reserve"
+
+def test_recorded_settlement_words_do_not_invent_mock_chain_transfers():
+    rows = [
+        e.STATES["ERP_RECORDED"], e.OUTCOMES["settled_and_recorded"],
+        e.STATES["CONFIRMED"], e.CONFIRMATIONS["CONFIRMED"],
+    ]
+    for row in rows:
+        text = row["plain"].lower()
+        assert "paid on chain" not in text
+        assert "chain accepted" not in text
+        assert "mock mode" in text
+        assert "simulat" in text or "no on-chain" in text
+
+
+def test_inflight_words_describe_provider_confirmation_not_assumed_chain_activity():
+    for row in [e.STATES["SUBMITTED"], e.OUTCOMES["in_flight"], e.CONFIRMATIONS["PENDING"]]:
+        text = row["plain"].lower()
+        assert "chain" not in text
+        assert "confirm" in text
+
+
+def test_testnet_words_distinguish_live_testnet_runs_from_offchain_mock_mode():
+    text = e.CONCEPTS["testnet"]["action"].lower()
+    assert "live-provider" in text and "arc testnet" in text
+    assert "mock mode" in text and "no on-chain transfers" in text

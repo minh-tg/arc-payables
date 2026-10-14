@@ -38,10 +38,10 @@ STATES: dict[str, dict[str, Any]] = {
         "Review the failing checks below, acknowledge the ones you accept, then approve.",
     ),
     "AUTHORIZED": _row("The permit is signed and the payment is authorised, but not yet sent."),
-    "SUBMITTED": _row("Sent to the payment provider and waiting for the chain to confirm it."),
-    "CONFIRMED": _row("The chain accepted it. The money has moved."),
+    "SUBMITTED": _row("Sent to the payment provider and waiting for confirmation."),
+    "CONFIRMED": _row("The provider reports a confirmed settlement. In mock mode, no on-chain funds move."),
     "ERP_PENDING": _row("Settled, but the accounting books have not accepted it yet."),
-    "ERP_RECORDED": _row("Done. Paid on chain and booked in the ledger."),
+    "ERP_RECORDED": _row("Done. Settlement and ledger writeback are recorded. In mock mode, both are simulated."),
     "FAILED": _row(
         "The payment failed and the agent stopped. It will not retry on its own.",
         "Read the failure code, fix the cause, and act.",
@@ -178,12 +178,12 @@ ATTENTION: dict[str, dict[str, Any]] = {
 
 #: Every payment outcome the audit report can carry.
 OUTCOMES: dict[str, dict[str, Any]] = {
-    "settled_and_recorded": _row("Paid on chain and booked in the ledger. Done."),
+    "settled_and_recorded": _row("Settlement and ledger writeback are recorded. In mock mode, both are simulated."),
     "settled_not_recorded": _row(
         "The money moved. The ledger has not accepted it yet, so the paperwork is behind.",
         "Read the ledger error below. Writing back is idempotent and cannot move money twice.",
     ),
-    "in_flight": _row("Sent and waiting for the chain. A submitted payment is neither success nor failure."),
+    "in_flight": _row("Sent and waiting for confirmation. A submitted payment is neither success nor failure."),
     "unconfirmed": _row(
         "The result is unknown, so nobody may assume anything about the money.",
         "Reconcile against the chain, never resend it.",
@@ -201,8 +201,8 @@ OUTCOMES: dict[str, dict[str, Any]] = {
 
 #: Every settlement confirmation status the payment row can carry.
 CONFIRMATIONS: dict[str, dict[str, Any]] = {
-    "CONFIRMED": _row("The chain accepted the settlement."),
-    "PENDING": _row("Submitted and waiting for the chain."),
+    "CONFIRMED": _row("The provider reports settlement confirmation. Mock mode simulates this result."),
+    "PENDING": _row("Submitted and waiting for provider confirmation."),
     "UNCERTAIN": _row(
         "Nobody knows the result. Treated as if the money moved, until proven otherwise.",
         "Reconcile, never resend.",
@@ -327,7 +327,7 @@ CONCEPTS: dict[str, dict[str, Any]] = {
     ),
     "testnet": _row(
         "A practice copy of a blockchain. The tokens on it are for testing and are worth nothing.",
-        "Everything this console shows runs on Arc Testnet. No real money is at stake on these screens.",
+        "Live-provider runs here are restricted to Arc Testnet. Mock mode makes no on-chain transfers.",
     ),
     "treasury": _row(
         "The pool of USDC this business pays from. It is one balance, not a budget per invoice.",
