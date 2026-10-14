@@ -397,8 +397,8 @@
       a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid var(--border-strong); }
       a:hover { color: var(--accent); border-bottom-color: var(--accent); }
       nav a.nav-item { border-bottom: 1px solid transparent; }
-      a.btn { text-decoration: none; border-bottom: 1px solid transparent; }
-      a.btn:hover { border-bottom-color: transparent; }
+      /* Button links keep the shared four-sided outline, including on hover. */
+      a.btn { text-decoration: none; }
 
       button, .btn {
         display: inline-flex; align-items: center; justify-content: center; gap: 6px;

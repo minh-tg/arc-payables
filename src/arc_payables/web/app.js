@@ -762,12 +762,19 @@ export function actionButton(label, run, feedback, attrs = {}) {
     type: 'button', ...attrs,
     onclick: async (event) => {
       const button = event.currentTarget;
+      const hadFocus = document.activeElement === button;
       button.disabled = true;
       button.textContent = 'Working…';
       feedback.replaceChildren();
       try { await run(); }
       catch (error) { feedback.replaceChildren(errorPanel(error)); }
-      finally { button.disabled = false; button.textContent = label; }
+      finally {
+        button.disabled = false;
+        button.textContent = label;
+        // Disabling a focused action clears focus before a modal can remember its opener.
+        // Restore only if the action survived and navigation/another control did not take focus.
+        if (hadFocus && button.isConnected && document.activeElement === document.body) button.focus();
+      }
     },
   }, label);
 }

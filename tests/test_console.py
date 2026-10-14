@@ -71,6 +71,17 @@ WEB_DIR = Path(__file__).resolve().parents[1] / "src" / "arc_payables" / "web"
 NODE = shutil.which("node")
 
 
+def test_link_buttons_do_not_hide_their_bottom_outline():
+    html = (WEB_DIR / "index.html").read_text()
+    css = re.search(r"<style>([\s\S]*?)</style>", html).group(1)
+    button_rules = [(selector, body) for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+                    if ".btn" in selector]
+    assert button_rules
+    # Button links use the shared four-sided border, not the underline override of text links.
+    for selector, body in button_rules:
+        assert not re.search(r"border-bottom(?:-(?:color|style|width))?\s*:", body), selector
+
+
 def _parses_as_module(tmp_path: Path, source: str) -> None:
     """Ask Node to parse the source as an ES module; nothing is executed."""
     target = tmp_path / "module.mjs"
