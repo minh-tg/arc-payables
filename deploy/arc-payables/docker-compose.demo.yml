@@ -1,0 +1,39 @@
+# Disposable mock demo only. No .secret/.env file, worker, live adapter, host data or persistent volume.
+name: arc-payables-mock
+services:
+  api:
+    image: localhost/arc-payables:mock-demo
+    build:
+      context: ../..
+      dockerfile: deploy/arc-payables/Dockerfile
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      ENVIRONMENT: local
+      AUTH_MODE: demo
+      PAYMENT_PROVIDER: mock
+      ACCOUNTING_PROVIDER: mock
+      SCREENING_PROVIDER: fixture
+      DECISION_LAYER: heuristics
+      SIGNER_BACKEND: env
+      API_KEY: ""
+      APPROVAL_TOKEN: ""
+      WORKER_AUTOPAY: "false"
+      DATABASE_PATH: /app/data/demo.sqlite3
+      BACKUP_DIRECTORY: /app/data/backups
+      MIN_RESERVE_USDC: "2000"
+      MAX_INVOICE_USDC: "1000"
+      CRITICAL_SUPPLIER_IDS: "[]"
+    tmpfs:
+      # Podman does not accept tmpfs uid/gid options; sticky mode permits the non-root API.
+      - /app/data:rw,size=64m,mode=1777
+      - /tmp:rw,size=16m,mode=1777
+    ports:
+      - "127.0.0.1:8099:8000"
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

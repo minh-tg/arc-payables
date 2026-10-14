@@ -42,7 +42,10 @@ packages = ["src/arc_payables"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "migrations" = "arc_payables/migrations"
-"src/arc_payables/web" = "arc_payables/web"
+# Web assets are already included under packages; forcing them again duplicates wheel paths.
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/migrations", "/pyproject.toml", "/uv.lock", "/README.md", "/LICENSE"]
 
 [tool.uv]
 package = true

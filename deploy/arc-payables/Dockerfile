@@ -8,7 +8,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ ./src/
 COPY migrations/ ./migrations/
 COPY deploy/arc-payables/worker_healthcheck.py ./deploy/arc-payables/worker_healthcheck.py

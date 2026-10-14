@@ -35,6 +35,8 @@ jobs:
         run: forge build
       - name: Run tests
         run: uv run pytest -q
+      - name: Verify release archives and extracted wheel
+        run: uv run --frozen python script/check-package.py
 
   pkcs11:
     name: PKCS#11 signing suite

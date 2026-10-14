@@ -1,5 +1,24 @@
 # Supervised Arc Payables service
 
+## Optional disposable mock demo
+
+For a credential-free demo, use the separate profile—**not** the live-provider runner below:
+
+```sh
+podman-compose -f deploy/arc-payables/docker-compose.demo.yml up --build
+# http://127.0.0.1:8099/console/
+# Stop with Ctrl-C, then:
+podman-compose -f deploy/arc-payables/docker-compose.demo.yml down
+```
+
+Only the API starts. Providers and identity are explicitly mock/demo; no .secret/.env, worker,
+host data or persistent volume is loaded. The non-root/read-only container stores synthetic data
+in tmpfs; stopping/removing it loses that data. Save observations first. The build-context
+allowlist excludes private notes and credentials. Port 8000's existing deployment is untouched.
+Container build and isolated mock runtime checks passed; public hosting/TLS/resource approval
+and owner manual acceptance are separate gates. Do not expose the live-provider profile as a demo.
+
+
 This Compose stack runs one API and one worker on one host. Both use the same SQLite database volume. The API starts first. The worker waits until `/ready` succeeds. Both services use the `unless-stopped` restart policy. The container engine must be active for that policy to take effect.
 
 This is a single-host deployment. SQLite is not shared across hosts. Do not scale the worker service to multiple replicas. Payment writes are idempotent, but the worker loop is not a distributed queue.
