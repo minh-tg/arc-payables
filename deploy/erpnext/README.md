@@ -281,9 +281,12 @@ rather than book an unknown cost. That is the correct fail-closed behaviour, and
 adapter now fixes. Circle's user operations are relayed: the wallet is debited the payment amount and
 Circle sponsors the gas on testnet.
 
-The measured fee was one micro-USDC, booked as 0.01 because a USD ledger cannot represent less; the
-entry's remark records both figures. Document names appear here because this sandbox is disposable
-and was created for this purpose.
+For the Circle settlement `0x0076…1db0`, the verified provider fee is 0.010246706331995826,
+rounded upward to 0.010247 USDC and booked as $0.02 under the demo 1:1 USD mapping. The
+[submission evidence packet](../../docs/submission-evidence.md) also records public approval
+metering: the inferred approval-plus-settlement pair rounds to $0.03, not the existing $0.02
+journal. That journal is not aggregate-fee or business-paid-expense proof. Document names appear
+here because this sandbox is disposable and was created for this purpose.
 
 Three requirements surfaced only by running it, each of which fails a mocked test:
 

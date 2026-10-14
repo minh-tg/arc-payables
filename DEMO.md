@@ -1,7 +1,12 @@
 # Demo runbook
 
-This is how to run the whole flow end to end, and the shot list for recording it. Every command is
-the real one; nothing here is simulated except the steps explicitly marked as testnet.
+This is the shot list and optional Arc Testnet integration runbook. Start with the
+[manual readiness checks](docs/manual-readiness.md) before recording or recruiting a pilot.
+That walkthrough is mock-only. The live commands below require separate operator authorization;
+testnet execution moves test funds and is not the same as simulation.
+
+For an existing Circle-backed settlement, use the [saved evidence packet](docs/submission-evidence.md).
+The local-key example below is an alternative executor, not proof of Circle usage.
 
 The point of the demo is one sentence: an agent proposes a payment, and something the agent cannot
 reach decides whether it happens.
@@ -171,7 +176,7 @@ console at `/console` shows the same per invoice, with a verification button.
 
 ## Shot list
 
-Three minutes. Screen recording with your voice over it, no webcam needed.
+**Under three minutes**, not three minutes exactly. Prefer the [safe 2:40 recording plan](docs/demo-recording.md): mock walkthrough plus saved integration evidence, no new live actions. The alternative live shot list below requires separate operator authorization; trim it below 3:00 including closing cards.
 
 | Time | On screen | Say |
 | --- | --- | --- |
@@ -211,7 +216,12 @@ cast send $GUARD "unpause()" --private-key $PAUSER_KEY --rpc-url $RPC
 
 ## What not to claim
 
-No Arc payment has been executed in this repository's own tests, so the recording is the first real
-one. The ERP writeback has run against a local sandbox, not against a production instance. Address
-screening has no vendor configured and returns `UNAVAILABLE`, which requires human review. Mainnet is
-not supported and the guard refuses to deploy off Arc Testnet.
+Repository tests are hermetic and do not submit payments to the public testnet. Existing live
+Arc Testnet runs are documented; a recording is not necessarily the first payment. The
+[evidence packet](docs/submission-evidence.md) links one 0.01 test-USDC Circle settlement to
+ERPNext sandbox documents, while the original application audit/approval record, aggregate fee
+attribution and economic sponsorship treatment remain unverified. Sandbox writeback is not
+production accounting assurance. Fixture screening is simulated; unavailable screening requires
+human review. No live vendor screening is evidenced here. Mainnet is unsupported and the guard
+refuses deployment off Arc Testnet. Do not claim production readiness or customer adoption from
+synthetic invoices and controlled wallets.

@@ -48,6 +48,11 @@ the documented API.
 has not, is in [Security and integration limitations](#security-and-integration-limitations).
 [HISTORY.md](HISTORY.md) records where the project started.
 
+For a judge-facing evidence trail, see [Submission evidence](docs/submission-evidence.md): one
+independently checked public Arc Testnet settlement, observed guard caps, saved RPC responses,
+authenticated Circle SCA provenance, linked ERPNext sandbox records and balanced GL entries,
+with remaining production and adoption evidence gaps explicitly marked.
+
 ## What is implemented
 
 - FastAPI endpoints with generated OpenAPI at `/docs` and `/openapi.json`.
@@ -152,6 +157,11 @@ Each is configuration, not code. What the live runs produced is recorded under
 [Security and integration limitations](#security-and-integration-limitations).
 
 ## Local setup and demo
+
+Before pilot onboarding or recording, complete the [manual readiness checklist](docs/manual-readiness.md).
+`bash script/manual-readiness-demo.sh` opens an isolated, mock-only console on port 8097 with a fresh
+disposable database and no inherited credentials. It does not touch your existing app or move funds.
+
 
 Requirements: Python 3.11+, `uv`, Foundry (`forge`).
 
@@ -609,9 +619,12 @@ The authorization is bound to the evidence hash of the evaluated snapshot, which
 
 ## Security and integration limitations
 
-**Verified against live systems:** the whole path, on Arc Testnet and against a live ERPNext.
+**Live-evidence scope:** Arc Testnet test USDC and a disposable ERPNext sandbox. The
+[submission evidence packet](docs/submission-evidence.md) distinguishes directly observed chain,
+Circle and ledger records from reported historical workflow behavior. The original application's
+state/approval audit and production assurance remain unverified by that packet.
 
-*Arc Testnet, real funds.* `PaymentGuard` at
+*Arc Testnet, test USDC.* `PaymentGuard` at
 `0xbe0477081f90e68b6699a585d5d31ad93d96f318` (deploy tx `0xb0e3b5fbc6a41db4dd6243b7454fe9dde31d305674f9e641f8f43d0d005139fe`, block 64882475) carries immutable budgets of 0.05 USDC per payment, 0.20 USDC per epoch and 0.05 USDC per recipient per epoch. An earlier guard at `0x79f4735b5cfb604bb7e3039b48e0e3f41892866b` held 2/5/2 USDC caps and settled three payments (2 USDC, 1 USDC, 0.01 USDC). Each recipient's ERC-20 balance rose by exactly the authorized amount, `arc-payables-verify-arc` read the deployed caps back off the chain and confirmed the chain id, the USDC bytecode, `decimals() == 6`, `symbol() == USDC`, the guard's policy signer and its payment token, and a 250 USDC invoice was refused by the preflight before anything was signed because the old contract's per-payment cap was 2 USDC.
 
 *ERPNext.* Both payments were written back as a Payment Entry for exactly the supplier's amount plus
@@ -622,10 +635,12 @@ entries and an idempotent re-run were verified in the same sandbox.
 the same guard: tx `0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0` (Circle operation
 `f419795e-6677-5131-85e9-f7db1f429807`), and the recipient's balance rose by exactly the authorized
 amount. The ledger took it as `ACC-PAY-2026-00012` with zero deductions plus fee entry
-`ACC-JV-2026-00006`, and the invoice reached `ERP_RECORDED`. `arc-payables-verify-arc` reads the
-wallet back from Circle and confirms it is the configured `ARC-TESTNET` SCA account before anything
-is signed. On testnet Circle sponsors gas for the user operation, so the wallet is debited the
-payment amount and nothing else.
+`ACC-JV-2026-00006`; invoice `ACC-PINV-2026-00015` is Paid. Those submitted documents and
+balanced GL entries were independently inspected. The original application's reported
+`ERP_RECORDED` state remains unverified. `arc-payables-verify-arc` implements a configured
+`ARC-TESTNET` SCA check before signing. Public operation logs identify a nonzero paymaster;
+its ownership, ultimate funding/billing and economic fee-expense treatment remain unverified.
+The journal's $0.02 matches settlement-only rounding, not a verified aggregate operation cost.
 
 The live runs also found four defects that no mock had: the native-gas to ERC-20 fee conversion was
 off by a factor of 10\*\*6 (the first payment reported 1 micro-USDC where the chain says 3489, and the

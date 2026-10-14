@@ -12,16 +12,17 @@ Two subjects live here, and they have opposite shapes:
 
 Settling one authorization can take up to three on-chain operations:
 
-| Stage | When it happens | Who pays |
+| Stage | When it happens | Cost attribution |
 | --- | --- | --- |
-| `approve_reset` | only when a stale, non-zero allowance is left over | we do |
-| `approve` | whenever the allowance is not already exactly right | we do |
-| `guard` | always: the guarded call that moves the money | we do |
+| `approve_reset` | only when a stale, non-zero allowance is left over | Measure the operation; establish who bears the cost |
+| `approve` | whenever the allowance is not already exactly right | Measure the operation; establish who bears the cost |
+| `guard` | always: the guarded call that moves the money | Measure the operation; establish who bears the cost |
 
-Earlier versions booked the **`guard` operation's fee only**. That understated our own cost, and it
-did so in the direction that flatters the numbers: the supplier always received the authorized
-amount, so nothing looked wrong. On Arc Testnet the missed amount is trivial; the accounting error
-is not, and it would have been inherited by any real deployment.
+Earlier versions booked the **`guard` operation's fee only**. That understated the aggregate
+metered cost of executing the workflow, even though the supplier received the authorized amount.
+A metered fee is not automatically a business expense: sponsored Circle operations can name a
+paymaster without establishing the ultimate funding, billing or reimbursement arrangement.
+Finance must approve that interpretation before production posting.
 
 Now each stage is measured as it confirms and the recorded `fee_units` is their **sum**, with
 `fee_breakdown` recording where the money went:
@@ -55,10 +56,19 @@ Console's Payments view shows the booked fee per payment.
 
 | Claim | Evidence | Limit |
 | --- | --- | --- |
-| The booked fee is the whole cost of settling | End-to-end test summing both operations' receipts from a real EVM running the real guard bytecode | Arc Testnet gas prices, not production ones |
+| Current executor records aggregate measured fees | End-to-end test summing operation receipts on a local EVM running the real guard bytecode | Local-chain test, not public Arc gas-price validation, historical fee attribution or proof the business pays sponsored gas |
 | A fee the provider reports later is merged, not replaced | Hermetic test on the deferred-fee path | Uses the mock provider's deferral model |
 | The ledger can represent the fee | Rounding-up tests and the fee-expense computation | A currency with coarser units rounds more |
 | Writeback books the payment and the fee as two documents | Sandbox ERPNext runs recorded in HISTORY.md | Disposable sandbox, not a production chart of accounts |
+
+### Historical submission run: unresolved attribution
+
+The [submission evidence packet](submission-evidence.md) records a $0.02 fee journal for the
+0.01 test-USDC settlement. A later-approval/settlement pair inferred from public meters totals
+0.021677754992677056 USDC, rounding up to $0.03 at the demo mapping. The original application's
+operation linkage and complete fee breakdown are unavailable, and ultimate sponsorship/billing
+is unverified. Passing the current aggregate-fee tests does not retroactively close this gap.
+Do not alter the historical journal based only on the inferred pair.
 
 ## Gates that need an accountant or a live provider
 
@@ -72,8 +82,10 @@ account, the cost centre and the exchange rates. Engineering can verify that eve
 that the currencies are consistent, and that the figures balance — and it does. It cannot know
 whether those are the *right* accounts for this business.
 
-A reference enterprise mapping conforming to US GAAP and IFRS dual-reporting standards is defined
-in [`src/arc_payables/fixtures/standard_coa.json`](../src/arc_payables/fixtures/standard_coa.json).
+An illustrative mapping is defined in
+[`src/arc_payables/fixtures/standard_coa.json`](../src/arc_payables/fixtures/standard_coa.json).
+It is not an accountant-approved GAAP/IFRS compliance statement. The example fee leg assumes the
+business bears the fee; sponsored gas requires a separately reviewed economic interpretation.
 
 #### Debit/Credit Proof Tables
 
