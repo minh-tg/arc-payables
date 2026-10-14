@@ -542,6 +542,11 @@ A planner also has to be configured before it can be reached: `DECISION_LAYER=du
 alone, or on a clean invoice, no model is called at all, and the Overview screen states which of the
 two is running rather than leaving it to be assumed.
 
+One recorded run against a live model (DeepSeek V4.1 Flash, mock providers, no funds moved) is in
+[Decision layer: one live-model run](docs/decision-layer-evidence.md). The model deliberated on a limit
+trade-off, named and ignored an injected instruction, and chose a different queue order than the
+rules, while the deterministic policy and the contract caps stayed in force.
+
 **`PLANNER_BASE_URL` is a trust boundary you choose.** The prompt carries invoice and supplier
 details, so point it only at an endpoint you would send those documents to, and prefer HTTPS: this
 service does not require a secure scheme, so an `http://` value sends them in cleartext. The

@@ -12,6 +12,7 @@
 - [Redacted ERPNext invoice, payment, journal and GL snapshot](evidence/erpnext-sandbox-settlement.json)
 - [Public allowance history and per-operation gas metering](evidence/arc-testnet-allowance-history.json)
 - [Scoped local application-record availability check](evidence/application-record-availability.json)
+- [Live-model decision-layer run (mock providers, no funds)](decision-layer-evidence.md)
 - [Reported ERPNext run](../deploy/erpnext/README.md#writeback-verification-on-this-sandbox)
 - [Security and integration limitations](../README.md#security-and-integration-limitations)
 
