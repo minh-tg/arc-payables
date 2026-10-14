@@ -227,6 +227,14 @@ def case_queue_ordering(tmp, planner_env):
     }
 
 
+#: Cases that exist to show the model answering. A fallback to the deterministic layer is the
+#: correct runtime behavior, but it is not evidence about the model, so it must not read as a pass.
+MODEL_MUST_ANSWER = {
+    "trade_off_is_deliberated",
+    "prompt_injection_cannot_move_the_payment",
+    "model_orders_the_queue_within_the_balance",
+}
+
 CASES = [
     ("decisive_case_skips_the_model", case_decisive),
     ("missing_evidence_never_reaches_the_model", case_missing_fact),
@@ -254,15 +262,24 @@ def main() -> int:
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "endpoint_host": base_url.split("//", 1)[-1].split("/", 1)[0],
+        "planner_timeout_seconds": Settings(_env_file=None).planner_timeout_seconds,
+        "planner_max_tokens": Settings(_env_file=None).planner_max_tokens,
         "funds_moved": False,
         "cases": {},
     }
     failed = False
+    inconclusive = False
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
         for name, run in CASES:
             try:
-                report["cases"][name] = {"result": "pass", **run(tmp, planner_env)}
+                outcome = {"result": "pass", **run(tmp, planner_env)}
+                traces = outcome.get("deliberations") or [{}]
+                if name in MODEL_MUST_ANSWER and traces[0].get("outcome") != "used":
+                    outcome["result"] = "INCONCLUSIVE"
+                    outcome["why"] = f"the model gave no usable answer ({traces[0].get('outcome')}: {traces[0].get('error', '')})"
+                    inconclusive = True
+                report["cases"][name] = outcome
             except AssertionError as exc:
                 failed = True
                 report["cases"][name] = {"result": "FAIL", "assertion": str(exc)}
@@ -278,12 +295,16 @@ def main() -> int:
             print(f"      model order:         {' > '.join(case['model_order'])} (spend {case['planned_spend_usdc']} USDC of {case['spendable_usdc']} spendable)")
             for number, reason in case["model_reasons"].items():
                 print(f"        {number}: {reason}")
+        if case.get("why"):
+            print(f"      {case['why']}")
         if case.get("rationale"):
             print(f"      rationale: {case['rationale']}")
     if args.out:
         args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         print(f"report written to {args.out}")
-    return 1 if failed else 0
+    if failed:
+        return 1
+    return 3 if inconclusive else 0
 
 
 if __name__ == "__main__":
