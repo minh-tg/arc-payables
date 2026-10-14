@@ -10,25 +10,19 @@
 # a page has to have a definition behind it, because a term with no definition renders an empty
 # popover and throws nothing at all.
 #
-# Needs chromium on PATH. Not part of CI, because that suite is hermetic and browser-free by design.
+# Needs chromium and agent-browser on PATH. Uses bounded DOM readiness, not --dump-dom,
+# which can hang while the console\'s server-sent event stream remains open.
 #
 #   ./script/console-smoke.sh
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+source "$(dirname "$0")/smoke-common.sh"
 
 PORT="${PORT:-8096}"
 VIEWS=(overview attention queue payments audit worker treasury setup)
-WORKDIR="$(mktemp -d)"
 DB="$WORKDIR/demo.sqlite3"
 LOG="$WORKDIR/api.log"
-SERVER_PID=""
-
-cleanup() {
-  if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2>/dev/null || true; fi
-  rm -rf "$WORKDIR"
-}
-trap cleanup EXIT
+smoke_require_free_port "$PORT"
 
 if ! command -v chromium >/dev/null; then
   echo "chromium is not on PATH; nothing to render with" >&2
@@ -37,19 +31,17 @@ fi
 
 # The fixture is pinned to the demo adapters. A developer with live credentials exported would
 # otherwise have this script, which only exists to look at screens, move real testnet money.
-MOCK="ENVIRONMENT=local AUTH_MODE=demo PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock SCREENING_PROVIDER=fixture DECISION_LAYER=heuristics API_KEY= APPROVAL_TOKEN= MIN_RESERVE_USDC=2000 MAX_INVOICE_USDC=1000 CRITICAL_SUPPLIER_IDS=[]"
-
-env $MOCK DATABASE_PATH="$DB" uv run arc-payables-seed >/dev/null
+mock_command arc-payables-seed >/dev/null
 # Drive one pass before rendering. An empty table cannot show a wrong destructure, which is the
 # failure this script exists to catch, and most of the console is empty straight after seeding: no
 # decisions, no payments, no worker steps. One pass fills the settlement log, the invoice's policy
 # checks and the worker's six steps, so the checks below have rows to look at.
-if ! env $MOCK DATABASE_PATH="$DB" uv run arc-payables-worker --once --autopay --intake >/dev/null; then
+if ! mock_command arc-payables-worker --once --autopay --intake >/dev/null; then
   echo "the demo worker pass failed, so the views would render empty" >&2
   exit 3
 fi
 
-env $MOCK DATABASE_PATH="$DB" uv run uvicorn arc_payables.api:app --port "$PORT" >"$LOG" 2>&1 &
+mock_server uvicorn arc_payables.api:app --port "$PORT" >"$LOG" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 40); do
@@ -83,8 +75,11 @@ curl -fsS "http://127.0.0.1:$PORT/explanations.json" \
 failures=0
 printf '%-14s %-7s %-6s %s\n' view cards terms verdict
 for view in "${VIEWS[@]}" "invoice/$INVOICE_ID"; do
-  dom="$(chromium --headless --disable-gpu --no-sandbox --virtual-time-budget=6000 \
-    --dump-dom "http://127.0.0.1:$PORT/console/#/$view" 2>/dev/null || true)"
+  browser open "http://127.0.0.1:$PORT/console/#/$view" >/dev/null
+  ready >/dev/null
+  dom="$(browser eval 'document.documentElement.outerHTML')"
+  # agent-browser eval returns a JSON string; decode it before inspecting rendered markup.
+  dom="$(printf '%s' "$dom" | python3 -c 'import json,sys; print(json.load(sys.stdin))')"
   # `grep -o` with `wc -l` counts occurrences rather than lines, since the dumped DOM is one line.
   # `|| true` is load-bearing: with `pipefail` a zero-match grep would abort the very run this
   # script exists to report.

@@ -1,43 +1,27 @@
 #!/usr/bin/env bash
 # Real browser + cryptographic local IdP fixture. MFA is simulated; all funds are mock.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+source "$(dirname "$0")/smoke-common.sh"
 PORT="${PORT:-8100}"
 IDP_PORT="${IDP_PORT:-8101}"
-WORKDIR="$(mktemp -d)"
-SESSION="tameion-oidc-$$"
-SERVER_PID=""
-IDP_PID=""
-BROWSER=(agent-browser --session "$SESSION" --executable-path "$(command -v chromium)")
-cleanup() {
-  local status="$?"
-  if [ "$status" -ne 0 ]; then "${BROWSER[@]}" snapshot >"$WORKDIR/browser.txt" 2>/dev/null || true; fi
-  "${BROWSER[@]}" close >/dev/null 2>&1 || true
-  [ -z "$SERVER_PID" ] || kill "$SERVER_PID" >/dev/null 2>&1 || true
-  [ -z "$IDP_PID" ] || kill "$IDP_PID" >/dev/null 2>&1 || true
-  [ -z "$SERVER_PID" ] || wait "$SERVER_PID" >/dev/null 2>&1 || true
-  [ -z "$IDP_PID" ] || wait "$IDP_PID" >/dev/null 2>&1 || true
-  if [ "$status" -eq 0 ]; then rm -rf "$WORKDIR"; else echo "OIDC fixture diagnostics retained at $WORKDIR" >&2; fi
-}
-trap cleanup EXIT
-env OIDC_TEST_FIXTURE=1 OIDC_FIXTURE_ISSUER="http://127.0.0.1:$IDP_PORT" OIDC_FIXTURE_REDIRECT="http://127.0.0.1:$PORT/auth/callback" \
-  uv run --frozen uvicorn oidc_fixture:fixture_app --factory --app-dir tests --port "$IDP_PORT" >"$WORKDIR/idp.log" 2>&1 &
+smoke_require_free_port "$PORT"
+smoke_require_free_port "$IDP_PORT"
+if [ "$PORT" = "$IDP_PORT" ]; then echo 'PORT and IDP_PORT must differ' >&2; exit 2; fi
+env -i PATH="$PATH" HOME="$HOME" LANG="${LANG:-C.UTF-8}" OIDC_TEST_FIXTURE=1 OIDC_FIXTURE_ISSUER="http://127.0.0.1:$IDP_PORT" OIDC_FIXTURE_REDIRECT="http://127.0.0.1:$PORT/auth/callback" \
+  uv run --project "$ROOT" --frozen uvicorn oidc_fixture:fixture_app --factory --app-dir "$ROOT/tests" --port "$IDP_PORT" >"$WORKDIR/idp.log" 2>&1 &
 IDP_PID=$!
-env ENVIRONMENT=local AUTH_MODE=oidc OIDC_MFA_CLAIM=amr OIDC_MFA_VALUES='["mfa"]' OIDC_ISSUER="http://127.0.0.1:$IDP_PORT" OIDC_CLIENT_ID=tameion-test OIDC_CLIENT_SECRET= \
+env -i PATH="$PATH" HOME="$HOME" LANG="${LANG:-C.UTF-8}" SIGNER_BACKEND=env WORKER_AUTOPAY=false BACKUP_DIRECTORY="$WORKDIR/backups" ENVIRONMENT=local AUTH_MODE=oidc OIDC_MFA_CLAIM=amr OIDC_MFA_VALUES='["mfa"]' OIDC_ISSUER="http://127.0.0.1:$IDP_PORT" OIDC_CLIENT_ID=tameion-test OIDC_CLIENT_SECRET= \
   OIDC_REDIRECT_URI="http://127.0.0.1:$PORT/auth/callback" OIDC_ALLOW_INSECURE_LOCALHOST=true \
   OIDC_SUBJECT_ROLES='{"reader":["reader"],"operator":["operator"],"approver":["approver"],"payer":["payer"],"admin":["admin"]}' \
   PAYMENT_PROVIDER=mock ACCOUNTING_PROVIDER=mock SCREENING_PROVIDER=fixture DECISION_LAYER=heuristics \
   API_KEY= APPROVAL_TOKEN= MAX_INVOICE_USDC=100 MIN_RESERVE_USDC=2000 CRITICAL_SUPPLIER_IDS='[]' DATABASE_PATH="$WORKDIR/identity.sqlite3" \
-  uv run --frozen uvicorn arc_payables.api:app --port "$PORT" >"$WORKDIR/api.log" 2>&1 &
+  uv run --project "$ROOT" --frozen uvicorn arc_payables.api:app --port "$PORT" >"$WORKDIR/api.log" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 60); do
   if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && curl -fsS "http://127.0.0.1:$IDP_PORT/jwks" >/dev/null 2>&1; then break; fi
   sleep 0.25
 done
 curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null
-browser() { "${BROWSER[@]}" "$@"; }
-check() { browser eval "(async()=>{$1;return null;})()"; }
-ready() { browser wait --fn "document.querySelector('#view .card') && !document.querySelector('#view .loading')"; }
 login() {
   browser open "http://127.0.0.1:$PORT/console/"
   browser wait '#identity-login'
@@ -54,7 +38,7 @@ check "const app=await import('/console/app.js'); try {await app.api('/demo/star
 logout
 login operator
 browser click 'button[data-action=start-demo]'
-browser wait --text 'Examples loaded'
+browser wait --fn "document.querySelector('.journey-step')?.classList.contains('done')"
 browser open "http://127.0.0.1:$PORT/console/#/invoice/demo-invoice-suspicious"
 ready
 browser click 'button[data-action=evaluate]'
@@ -83,7 +67,8 @@ check "if(document.querySelector('[data-action=evaluate]')||document.querySelect
 browser click '[data-action=review-payment]'
 browser wait 'dialog[open]'
 browser click '[data-action=confirm-payment]'
-browser wait --text 'ERP_RECORDED'
+browser wait --text 'Recorded in ledger'
+check "const detail=await(await fetch('/invoices/demo-invoice-legitimate')).json(); const payments=await(await fetch('/payments')).json(); if(detail.state!=='ERP_RECORDED'||payments.count!==1) throw Error('Expected exactly one recorded mock payment');"
 browser click '[data-action=verify-audit]'
 browser wait --text 'Intact ·'
 for width in 1440 390 320; do

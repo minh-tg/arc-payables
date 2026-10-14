@@ -3,7 +3,7 @@
 # Nothing here touches a live chain, an HSM, or real funds. SoftHSM2 is a
 # software-backed behavior double: it exercises the PKCS#11 path, not hardware isolation.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKDIR="$(mktemp -d)"
 cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT
@@ -25,5 +25,11 @@ export TAMEION_SOFTHSM_CONF="$WORKDIR/softhsm2.conf"
 export TAMEION_SOFTHSM_UTIL="$SOFTHSM_BIN"
 export TAMEION_PKCS11_LIB="$PKCS11_LIB"
 export TAMEION_PKCS11_TOOL="$OPENSC_BIN/pkcs11-tool"
-PATH="$OPENSC_BIN:$PATH" uv run --frozen pytest -q -rs tests/test_pkcs11_config.py tests/test_pkcs11_signer.py tests/test_signer_rotation.py
+cd "$WORKDIR"
+env -i PATH="$OPENSC_BIN:$PATH" HOME="$HOME" LANG="${LANG:-C.UTF-8}" \
+  SOFTHSM2_CONF="$SOFTHSM2_CONF" TAMEION_TEST_PKCS11=1 TAMEION_REQUIRE_PKCS11=1 \
+  TAMEION_SOFTHSM_CONF="$TAMEION_SOFTHSM_CONF" TAMEION_SOFTHSM_UTIL="$SOFTHSM_BIN" \
+  TAMEION_PKCS11_LIB="$PKCS11_LIB" TAMEION_PKCS11_TOOL="$OPENSC_BIN/pkcs11-tool" \
+  uv run --project "$ROOT" --frozen pytest -q -rs \
+  "$ROOT/tests/test_pkcs11_config.py" "$ROOT/tests/test_pkcs11_signer.py" "$ROOT/tests/test_signer_rotation.py"
 echo "PKCS#11 SoftHSM2 integration tests passed (behavioral double only; not hardware assurance)."
