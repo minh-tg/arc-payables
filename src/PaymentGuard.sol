@@ -30,17 +30,15 @@ contract PaymentGuard {
         uint64 expiry;
     }
 
-    bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(
-        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-    );
+    bytes32 private constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant NAME_HASH = keccak256("ArcPayables");
     bytes32 private constant VERSION_HASH = keccak256("1");
     bytes32 private constant PERMIT_TYPEHASH = keccak256(
         "Permit(address payer,address token,address recipient,uint256 amount,bytes32 evidenceHash,bytes32 paymentId,uint64 expiry)"
     );
     uint256 private constant ARC_TESTNET_CHAIN_ID = 5_042_002;
-    uint256 private constant SECP256K1N_HALF =
-        0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
+    uint256 private constant SECP256K1N_HALF = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
     /// @dev An epoch shorter than this would reset a budget faster than it can be reviewed.
     uint64 private constant MIN_EPOCH_LENGTH = 60;
 
@@ -96,10 +94,7 @@ contract PaymentGuard {
     event GuardUnpaused(address indexed pauser);
     /// @notice Budget consumption for a settled payment, so the limit is observable off-chain.
     event BudgetConsumed(
-        bytes32 indexed paymentId,
-        uint64 indexed epoch,
-        uint256 epochSpent,
-        uint256 recipientEpochSpent
+        bytes32 indexed paymentId, uint64 indexed epoch, uint256 epochSpent, uint256 recipientEpochSpent
     );
 
     constructor(
@@ -129,15 +124,7 @@ contract PaymentGuard {
     }
 
     function domainSeparator() public view returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                EIP712_DOMAIN_TYPEHASH,
-                NAME_HASH,
-                VERSION_HASH,
-                block.chainid,
-                address(this)
-            )
-        );
+        return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this)));
     }
 
     function hashPermit(Permit calldata permit) public view returns (bytes32) {
@@ -237,12 +224,7 @@ contract PaymentGuard {
         used[permit.paymentId] = true;
         _transferExact(permit.recipient, permit.amount);
         emit PaymentExecuted(
-            permit.paymentId,
-            permit.evidenceHash,
-            permit.payer,
-            permit.recipient,
-            permit.token,
-            permit.amount
+            permit.paymentId, permit.evidenceHash, permit.payer, permit.recipient, permit.token, permit.amount
         );
         if (epochLength != 0) {
             emit BudgetConsumed(permit.paymentId, epoch, epochTotal, recipientTotal);
