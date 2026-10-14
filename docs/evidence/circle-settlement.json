@@ -1,0 +1,61 @@
+{
+  "checked_at_utc": "2026-10-12T02:19:19.587159+00:00",
+  "provider": "Circle Developer-Controlled Wallets API",
+  "api_base": "https://api.circle.com/v1/w3s",
+  "retrieval_method": "GET only; credential passed to curl over stdin, not command arguments or persisted files",
+  "redaction": "Allowlisted transaction and wallet identifiers, chain/state/address and fee metadata only; authorization headers and unrelated fields omitted.",
+  "transaction": {
+    "id": "f419795e-6677-5131-85e9-f7db1f429807",
+    "state": "COMPLETE",
+    "blockchain": "ARC-TESTNET",
+    "walletId": "40500e36-66ab-58e2-bf0f-bd818ca42029",
+    "txHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+    "operation": "CONTRACT_EXECUTION",
+    "transactionType": "OUTBOUND",
+    "networkFee": "0.010246706331995826",
+    "feeLevel": "MEDIUM",
+    "createDate": "2026-10-01T07:20:44Z",
+    "updateDate": "2026-10-01T07:20:46Z"
+  },
+  "transaction_status": {
+    "http_status": 200
+  },
+  "checks": {
+    "transaction_id_matches": true,
+    "transaction_hash_matches": true,
+    "state_complete": true,
+    "chain_arc_testnet": true,
+    "wallet_id_matches": true,
+    "wallet_address_matches_payer": true,
+    "wallet_arc_testnet": true,
+    "wallet_is_sca": true
+  },
+  "wallet_status": {
+    "http_status": 200
+  },
+  "wallet": {
+    "id": "40500e36-66ab-58e2-bf0f-bd818ca42029",
+    "state": "LIVE",
+    "blockchain": "ARC-TESTNET",
+    "address": "0x784fcf77d0f718210dbadbce1a464bcb67e58aed",
+    "accountType": "SCA",
+    "scaCore": "circle_6900_singleowner_v4",
+    "createDate": "2026-10-01T07:13:50Z",
+    "updateDate": "2026-10-01T07:13:50Z"
+  },
+  "derived_fee": {
+    "operation_network_fee_rounded_up_to_six_decimal_units": 10247,
+    "currency_interpretation": "USDC on Arc Testnet, using the repository's native networkFee interpretation",
+    "scope": "Only this contract-execution operation. Complete approval/reset/guard cost and actual payer expense were not verified."
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/transactions/f419795e-6677-5131-85e9-f7db1f429807"
+    },
+    {
+      "method": "GET",
+      "path": "/wallets/40500e36-66ab-58e2-bf0f-bd818ca42029"
+    }
+  ]
+}

@@ -1,0 +1,233 @@
+{
+  "checked_at_utc": "2026-10-12T02:37:56.183892+00:00",
+  "provenance": {
+    "kind": "operator-side read-only database snapshot from existing local disposable ERPNext sandbox",
+    "site": "tameion.localhost",
+    "container_name": "tameion-erpnext-sandbox_backend_1",
+    "container_image": "docker.io/frappe/erpnext:v15.121.5",
+    "frappe_version": "15.121.1",
+    "erpnext_version": "15.121.5",
+    "database_transaction_read_only": true,
+    "credential_handling": "Site credentials used internally by Frappe; never exported. No API key was created or user permissions changed."
+  },
+  "redaction": "Only allowlisted fields for the three documented records and their accounting links. Supplier/party names replaced with within-artifact pseudonyms; raw remarks, credentials, contact data and unrelated records omitted.",
+  "company": {
+    "name": "Arc Demo Inc",
+    "abbr": "ADI",
+    "default_currency": "USD"
+  },
+  "invoice": {
+    "name": "ACC-PINV-2026-00015",
+    "docstatus": 1,
+    "company": "Arc Demo Inc",
+    "currency": "USD",
+    "conversion_rate": 1,
+    "grand_total": 0.01,
+    "outstanding_amount": 0,
+    "status": "Paid",
+    "supplier_ref": "supplier-1"
+  },
+  "payment_entry": {
+    "name": "ACC-PAY-2026-00012",
+    "docstatus": 1,
+    "company": "Arc Demo Inc",
+    "payment_type": "Pay",
+    "party_type": "Supplier",
+    "posting_date": "2026-10-01",
+    "paid_from": "USDC Wallet - ADI",
+    "paid_to": "Creditors - ADI",
+    "paid_from_account_currency": "USDC",
+    "paid_to_account_currency": "USD",
+    "source_exchange_rate": 1,
+    "target_exchange_rate": 1,
+    "paid_amount": 0.01,
+    "received_amount": 0.01,
+    "total_allocated_amount": 0.01,
+    "reference_no": "ARC-TESTNET:0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+    "reference_date": "2026-10-01",
+    "mode_of_payment": "Arc Testnet Demo - ADI",
+    "party_ref": "supplier-1"
+  },
+  "payment_references": [
+    {
+      "reference_doctype": "Purchase Invoice",
+      "reference_name": "ACC-PINV-2026-00015",
+      "allocated_amount": 0.01,
+      "total_amount": 0.01,
+      "outstanding_amount": 0
+    }
+  ],
+  "payment_deductions": [],
+  "fee_journal_entry": {
+    "name": "ACC-JV-2026-00006",
+    "docstatus": 1,
+    "company": "Arc Demo Inc",
+    "posting_date": "2026-10-01",
+    "multi_currency": 1,
+    "total_debit": 0.02,
+    "total_credit": 0.02,
+    "cheque_no": "ARC-TESTNET-FEE:0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+    "cheque_date": "2026-10-01",
+    "remark_evidence": {
+      "contains_settlement_hash": true,
+      "contains_measured_fee_0_010247": true,
+      "contains_measured_fee_units_10247": false
+    }
+  },
+  "fee_journal_accounts": [
+    {
+      "account": "Network Fees - ADI",
+      "account_currency": "USD",
+      "exchange_rate": 1,
+      "debit": 0.02,
+      "credit": 0,
+      "debit_in_account_currency": 0.02,
+      "credit_in_account_currency": 0,
+      "party_type": null,
+      "reference_type": null,
+      "reference_name": null
+    },
+    {
+      "account": "USDC Wallet - ADI",
+      "account_currency": "USDC",
+      "exchange_rate": 1,
+      "debit": 0,
+      "credit": 0.02,
+      "debit_in_account_currency": 0,
+      "credit_in_account_currency": 0.02,
+      "party_type": null,
+      "reference_type": null,
+      "reference_name": null
+    }
+  ],
+  "gl_entries": [
+    {
+      "name": "ACC-GLE-2026-00107",
+      "voucher_type": "Journal Entry",
+      "voucher_no": "ACC-JV-2026-00006",
+      "company": "Arc Demo Inc",
+      "posting_date": "2026-10-01",
+      "account": "Network Fees - ADI",
+      "account_currency": "USD",
+      "debit": 0.02,
+      "credit": 0,
+      "debit_in_account_currency": 0.02,
+      "credit_in_account_currency": 0,
+      "party_type": null,
+      "against_voucher_type": null,
+      "against_voucher": null,
+      "is_cancelled": 0
+    },
+    {
+      "name": "ACC-GLE-2026-00108",
+      "voucher_type": "Journal Entry",
+      "voucher_no": "ACC-JV-2026-00006",
+      "company": "Arc Demo Inc",
+      "posting_date": "2026-10-01",
+      "account": "USDC Wallet - ADI",
+      "account_currency": "USDC",
+      "debit": 0,
+      "credit": 0.02,
+      "debit_in_account_currency": 0,
+      "credit_in_account_currency": 0.02,
+      "party_type": null,
+      "against_voucher_type": null,
+      "against_voucher": null,
+      "is_cancelled": 0
+    },
+    {
+      "name": "ACC-GLE-2026-00105",
+      "voucher_type": "Payment Entry",
+      "voucher_no": "ACC-PAY-2026-00012",
+      "company": "Arc Demo Inc",
+      "posting_date": "2026-10-01",
+      "account": "Creditors - ADI",
+      "account_currency": "USD",
+      "debit": 0.01,
+      "credit": 0,
+      "debit_in_account_currency": 0.01,
+      "credit_in_account_currency": 0,
+      "party_type": "Supplier",
+      "against_voucher_type": "Purchase Invoice",
+      "against_voucher": "ACC-PINV-2026-00015",
+      "is_cancelled": 0,
+      "party_ref": "supplier-1"
+    },
+    {
+      "name": "ACC-GLE-2026-00106",
+      "voucher_type": "Payment Entry",
+      "voucher_no": "ACC-PAY-2026-00012",
+      "company": "Arc Demo Inc",
+      "posting_date": "2026-10-01",
+      "account": "USDC Wallet - ADI",
+      "account_currency": "USDC",
+      "debit": 0,
+      "credit": 0.01,
+      "debit_in_account_currency": 0,
+      "credit_in_account_currency": 0.01,
+      "party_type": null,
+      "against_voucher_type": null,
+      "against_voucher": null,
+      "is_cancelled": 0
+    }
+  ],
+  "account_metadata": [
+    {
+      "name": "Creditors - ADI",
+      "account_currency": "USD",
+      "account_type": "Payable",
+      "root_type": "Liability",
+      "disabled": 0
+    },
+    {
+      "name": "Network Fees - ADI",
+      "account_currency": "USD",
+      "account_type": "Expense Account",
+      "root_type": "Expense",
+      "disabled": 0
+    },
+    {
+      "name": "USDC Wallet - ADI",
+      "account_currency": "USDC",
+      "account_type": "Bank",
+      "root_type": "Asset",
+      "disabled": 0
+    }
+  ],
+  "supplier_wallet": {
+    "custom_usdc_wallet_address": "0x51015D1A39c0D23741AD860337cFca171696d875",
+    "custom_usdc_wallet_verified": 1
+  },
+  "limitations": [
+    "Current sandbox state, not immutable historical provider evidence or customer adoption.",
+    "Operator database access does not verify least-privilege API/runtime-user permissions.",
+    "Observed journal posting does not validate who economically bears sponsored gas or total approval/reset/guard fees."
+  ],
+  "container_exec_exit_code": 0,
+  "container_exec_finished": true,
+  "checks": {
+    "read_only_transaction": true,
+    "export_completed": true,
+    "demo_company": true,
+    "invoice_submitted_paid": true,
+    "payment_submitted_exact": true,
+    "payment_reference_matches": true,
+    "invoice_allocation_matches": true,
+    "no_payment_deductions": true,
+    "party_linkage_matches": true,
+    "demo_fx_mapping": true,
+    "journal_submitted_balanced": true,
+    "journal_reference_matches": true,
+    "journal_preserves_measured_fee": true,
+    "supplier_wallet_currently_matches": true,
+    "payment_gl_balanced": true,
+    "fee_gl_balanced": true
+  },
+  "links": {
+    "circle_operation_id": "f419795e-6677-5131-85e9-f7db1f429807",
+    "transaction_hash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+    "guard_payment_id": "0x42a0237393088b5d5fcb05b25ed6d4c1fa14a075a2a607b74254c14f161e18bc",
+    "guard_evidence_hash": "0xbe12dbb2b07eed379aa9e5be8d55284d3f065495c57c869d42588ea3d919cf85",
+    "linkage_scope": "ERP transaction references and current supplier wallet match provider/chain evidence; application audit record and historical approval provenance remain unverified."
+  }
+}

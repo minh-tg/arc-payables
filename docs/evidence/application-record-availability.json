@@ -1,0 +1,36 @@
+{
+  "checked_at_utc": "2026-10-12T03:04:54.399621+00:00",
+  "target_transaction_hash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+  "database": "data/arc_payables.sqlite3",
+  "scope_limit": "Existing local demo database and GET payment report only; no conclusion about databases or deployments outside this scope.",
+  "database_query_only": true,
+  "database_checks": {
+    "payments": {
+      "target_or_binding_identifier_matches": 0,
+      "matching_columns": [
+        "payment_id",
+        "record_json"
+      ]
+    },
+    "audit_events": {
+      "target_or_binding_identifier_matches": 0,
+      "matching_columns": [
+        "payload_json"
+      ]
+    }
+  },
+  "payment_report_http_status": 404,
+  "payment_report_error_code": "payment_not_found",
+  "discovery": {
+    "scope": "Project data/backups, exact arc-payables-data engine volumes and project-named temporary SQLite artifacts, bounded depth <=2 and <=24 candidates.",
+    "database_candidates_found": 1,
+    "matching_app_containers": 0,
+    "matching_app_data_volumes": 0,
+    "no_secret_files_opened": true
+  },
+  "limitations": [
+    "This is availability evidence, not the original payment/audit export.",
+    "No conclusion about other files, hosts or deployments; a negative local lookup cannot disprove the documented historical run.",
+    "Existing records were queried through SQLite mode=ro with query_only enabled and HTTP GET; nothing was rebuilt, replayed or changed."
+  ]
+}
