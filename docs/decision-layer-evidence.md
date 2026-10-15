@@ -47,7 +47,10 @@ past its discount deadline. A valid order whose selected set equals the rule ord
 `INCONCLUSIVE  valid order, selection unchanged; demo did not show a selection change` and exits
 3, because an unchanged selection is neither a pass nor a failed order. The result above was
 recorded before that change, so it does not demonstrate the new assertion and a fresh owner run
-is pending. The fake-model version of the case lives in `tests/test_prioritisation.py`.
+is pending. The fake-model version of the case lives in `tests/test_prioritisation.py`. The R3
+supplier-history signals run in that case too: the equal-amount, same-supplier invoice pair
+produces an advisory note only, and both candidates stay eligible
+(`tests/test_risk_signals.py`).
 
 For what runs after a model answer and the fake-model numbers for the labelled case set, see
 [policy-after-the-model.md](policy-after-the-model.md).
