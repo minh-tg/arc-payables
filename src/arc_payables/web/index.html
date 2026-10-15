@@ -268,7 +268,8 @@
       .card > .table-wrapper { margin-top: 12px; }
       .card > .table-wrapper + p { margin-top: 12px; }
       .card > details { margin-top: 12px; }
-      td { overflow-wrap: anywhere; }
+      td { overflow-wrap: break-word; }
+      td.num, td.mono { white-space: nowrap; }
       .action-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
       .health-summary { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
       .demo-guide { margin-bottom: 20px; }

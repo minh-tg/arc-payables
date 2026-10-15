@@ -62,7 +62,7 @@ async function renderSetup(root) {
       h(
         'tr',
         {},
-        h('td', {}, item.env),
+        h('td', { class: 'mono' }, item.env),
         h('td', {}, stateBadge(item.state), plainWords('setup', item.state)),
         h('td', {}, item.value === null || item.value === undefined ? '—' : String(item.value)),
         h('td', { class: 'muted' }, item.breaks),

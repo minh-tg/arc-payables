@@ -72,7 +72,7 @@ async function renderQueue(root) {
       ),
       h('td', {}, invoice.supplier_id || '—'),
       h('td', { class: 'num' }, money(invoice.amount)),
-      h('td', {}, invoice.due_date || '—'),
+      h('td', { class: 'mono' }, invoice.due_date || '—'),
       h('td', {}, badge(state, stateTone(state))),
       h(
         'td',

@@ -35,7 +35,7 @@ async function receivablesPanel() {
       h('td', {}, item.customer || '—'),
       h('td', {}, item.reference || '—'),
       h('td', { class: 'num' }, money(item.amount_usdc)),
-      h('td', {}, item.expected_date),
+      h('td', { class: 'mono' }, item.expected_date),
       h('td', {}, can('operate')
         ? actionButton('Mark collected', async () => {
             await api(`/receivables/${encodeURIComponent(item.external_id)}/collect`, { method: 'POST' });
@@ -131,7 +131,7 @@ async function renderTreasury(root) {
       h('td', {}, h('a', { href: `#/invoice/${item.invoice_id}` }, item.invoice_number)),
       h('td', {}, item.supplier_id),
       h('td', { class: 'num' }, money(item.amount_usdc)),
-      h('td', {}, item.due_date),
+      h('td', { class: 'mono' }, item.due_date),
       h('td', {}, String(item.days_until_due)),
       h('td', {}, item.coverable ? badge('covered', 'good') : badge('uncovered', 'bad')),
       h('td', {}, item.payable_by_agent ? badge('payable', 'good') : badge('not payable', 'warn')),
@@ -155,7 +155,7 @@ async function renderTreasury(root) {
       h('td', {}, item.customer || '—'),
       h('td', {}, item.reference || '—'),
       h('td', { class: 'num' }, money(item.amount_usdc)),
-      h('td', {}, item.expected_date),
+      h('td', { class: 'mono' }, item.expected_date),
       h('td', { class: 'num' }, String(item.days_until_expected)),
     ),
   );
