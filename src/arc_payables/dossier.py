@@ -448,11 +448,14 @@ def verify_document(document: Any, reference: str, *, full_hashes: bool = False)
     entries = document["audit"]["entries"]
 
     evidence_ok, recomputed, permit_hash = _check_evidence(evidence, permit)
+    identity_errors = _check_bundle_identity(document)
     signature_ok = _check_signature(payment)
     links_ok, links_detail = _check_chain(entries)
     failures = []
     if not evidence_ok:
         failures.append("evidence hash differs")
+    elif identity_errors:
+        failures.append("dossier identity differs from evidence")
     if not signature_ok:
         failures.append("permit signature does not verify")
     if not links_ok:
@@ -474,7 +477,11 @@ def verify_document(document: Any, reference: str, *, full_hashes: bool = False)
         headline = f"{passed} of {TOTAL_CHECKS} offline checks passed, {len(notices)} facts not checked"
     else:
         headline = f"{failures[0]}, {passed} of {TOTAL_CHECKS} offline checks passed"
-    number = document["invoice"].get("number") or document["invoice"].get("id")
+    try:
+        evidence_invoice, _, _, _ = _evidence_objects(evidence)
+        number = evidence_invoice.invoice_number or evidence_invoice.id
+    except (KeyError, TypeError, ValueError):
+        number = "unavailable"
     lines = [
         f"{verdict}  {headline}",
         _line("Dossier", f"{number}, schema {document['schema']}, {len(entries)} audit entries"),
@@ -492,6 +499,8 @@ def verify_document(document: Any, reference: str, *, full_hashes: bool = False)
             f"the permit signs {short_hash(permit_hash or '', full_hashes=full_hashes)}"
         )
     lines.append(_line("Evidence hash", evidence_line))
+    if identity_errors:
+        lines.append(_line("Bundle identity", "mismatch in " + ", ".join(identity_errors)))
     if not evidence_ok and recomputed is not None and recomputed != evidence["hash"]:
         lines.append(f"  {recomputed}")
         lines.append(f"{'':<20}file claims")
@@ -511,6 +520,43 @@ def verify_document(document: Any, reference: str, *, full_hashes: bool = False)
         lines.extend(_wrapped_not_checked(notices))
     lines.append(_line("Source", "this file only; no network, key or database was used"))
     return VerifyOutcome(verdict, 1 if failures else 0, lines)
+
+
+def _check_bundle_identity(document: dict) -> list[str]:
+    """Bind display fields and repeated references to the signed evidence and permit."""
+    try:
+        invoice, _, _, _ = _evidence_objects(document["evidence"])
+    except (KeyError, TypeError, ValueError):
+        return ["evidence.invoice"]
+
+    displayed = document["invoice"]
+    expected = {
+        "id": invoice.id,
+        "number": invoice.invoice_number,
+        "supplier_id": invoice.supplier_id,
+        "amount_usdc": _usdc(invoice.amount_units),
+        "currency": invoice.currency.upper(),
+    }
+    mismatches = [f"invoice.{name}" for name, value in expected.items() if displayed.get(name) != value]
+    if document.get("kind") != KIND:
+        mismatches.append("kind")
+
+    audit_states = [
+        (entry["id"], entry.get("state"))
+        for entry in document["audit"]["entries"]
+        if entry.get("invoice_id") == invoice.id and isinstance(entry.get("id"), int)
+    ]
+    if not audit_states or displayed.get("state") != max(audit_states, key=lambda item: item[0])[1]:
+        mismatches.append("invoice.state")
+
+    payment = document["payment"]
+    permit = payment.get("permit") or {}
+    if payment.get("payment_id") != permit.get("payment_id"):
+        mismatches.append("payment.payment_id")
+    erp = payment.get("erp") or {}
+    if erp.get("purchase_invoice_id") != invoice.purchase_invoice_id:
+        mismatches.append("payment.erp.purchase_invoice_id")
+    return mismatches
 
 
 def _check_evidence(evidence: dict, permit: dict) -> tuple[bool, str | None, str | None]:

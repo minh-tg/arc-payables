@@ -280,6 +280,31 @@ def test_a_repaired_evidence_block_still_fails_the_permit_binding(tmp_path):
     assert "the permit signs" in "\n".join(outcome.lines)
 
 
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda d: d["invoice"].__setitem__("id", "ATTACKER-ID"),
+        lambda d: d["invoice"].__setitem__("number", "ATTACKER-INVOICE-99"),
+        lambda d: d["invoice"].__setitem__("supplier_id", "ATTACKER-SUPPLIER"),
+        lambda d: d["invoice"].__setitem__("amount_usdc", "1.00"),
+        lambda d: d["invoice"].__setitem__("currency", "EUR"),
+        lambda d: d.__setitem__("kind", "other-dossier"),
+        lambda d: d["payment"].__setitem__("payment_id", "ATTACKER-PAYMENT"),
+        lambda d: d["payment"]["erp"].__setitem__("purchase_invoice_id", "ATTACKER-ERP-ID"),
+        lambda d: d["invoice"].__setitem__("state", "CONFIRMED"),
+    ],
+)
+def test_verify_rejects_changed_top_level_identity(tmp_path, tamper):
+    _lines, document = _exported(tmp_path)
+    tamper(document)
+
+    outcome = _rewrite(tmp_path, document)
+
+    assert outcome.verdict == "FAIL"
+    assert outcome.exit_code == 1
+    assert "ATTACKER-INVOICE-99" not in "\n".join(outcome.lines)
+
+
 def test_verify_prints_full_hashes_with_the_flag(tmp_path):
     _lines, document = _exported(tmp_path)
     short = dossier.verify(tmp_path / "dossier.json")
