@@ -139,10 +139,10 @@ def build_attention(workflow: Any) -> dict[str, Any]:
         )
     if not snapshot["treasury_available"]:
         items.append(
-            _item("treasury_unreadable", WARNING, "the treasury balance could not be read, so coverage is unknown.", 1)
+            _item("treasury_unreadable", WARNING, "The treasury balance could not be read, so coverage is unknown.", 1)
         )
     if snapshot["guard_paused"]:
-        items.append(_item("guard_paused", WARNING, "the guard is paused, so no payment can settle.", 1))
+        items.append(_item("guard_paused", WARNING, "The guard is paused, so no payment can settle.", 1))
         count = snapshot["screenings_due"]
         items.append(
             _item(
@@ -157,13 +157,13 @@ def build_attention(workflow: Any) -> dict[str, Any]:
             _item(
                 "worker_failing",
                 WARNING if snapshot["worker_consecutive_failures"] < 3 else CRITICAL,
-                f"the worker has not finished {snapshot['worker_consecutive_failures']} pass(es) in a row.",
+                f"The worker has not finished {snapshot['worker_consecutive_failures']} pass(es) in a row.",
                 snapshot["worker_consecutive_failures"],
                 last_outcome=snapshot["worker_last_outcome"],
             )
         )
     if snapshot["worker_last_run_timestamp"] is None:
-        items.append(_item("worker_never_ran", INFO, "no worker pass has been recorded, so nothing is being finished automatically.", 1))
+        items.append(_item("worker_never_ran", INFO, "No worker pass has been recorded, so nothing is being finished automatically.", 1))
 
     worker = store.worker_summary()
     alerts = ((worker.get("last") or {}).get("detail") or {}).get("alerts", [])

@@ -173,7 +173,7 @@ function emergencyControlsPanel(data) {
     lede(
       'The payment guard contract carries an emergency pause control. Pausing halts settlements immediately across unattended worker passes and manual payments without altering contract caps.',
     ),
-    h('p', {}, isPaused ? badge('Guard is currently PAUSED — payments halted', 'bad') : badge('Guard is ACTIVE', 'good')),
+    h('p', {}, isPaused ? badge('Guard is currently paused; payments halted', 'bad') : badge('Guard is active', 'good')),
     can('operate')
       ? h('div', { class: 'credentials' }, actionBtn)
       : h('p', { class: 'muted' }, 'Pausing or unpausing the guard requires the operator role.'),

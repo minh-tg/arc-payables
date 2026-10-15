@@ -30,6 +30,8 @@ def test_empty_demo_can_be_started_without_credentials_and_never_pays(tmp_path):
     assert len(store.list_invoices()) == 2
     assert all(row["state"] == "RECEIVED" for row in client.get("/invoices").json())
     assert client.get("/payments").json()["payments"] == []
+    attention = client.get("/attention").json()
+    assert next(item for item in attention["items"] if item["code"] == "worker_never_ran")["summary"].startswith("No ")
 
 
 def test_the_demo_walks_evidence_payment_ledger_and_real_verification(tmp_path):
