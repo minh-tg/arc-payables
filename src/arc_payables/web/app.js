@@ -414,6 +414,14 @@ const HUMAN_TERMS = {
   ERP_WRITEBACK_RECORDED: 'Recorded in ledger',
   EVALUATED: 'Evaluated',
 
+  // Case history
+  case_opened: 'Case opened',
+  alert_sent: 'Alert sent',
+  alert_failed: 'Alert not delivered',
+  source_changed: 'Accounting record changed',
+  recheck_still_failing: 'Rechecked, still failing',
+  recheck_cleared: 'Rechecked, checks now pass',
+
   // Policy Checks
   supplier_record: 'Supplier master record',
   wallet_unverified: 'Verified supplier wallet',

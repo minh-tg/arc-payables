@@ -1,5 +1,5 @@
 // One decision workspace. UI affordances never replace the server's policy or authorization.
-import { actionButton, api, approvalToken, can, usesOIDC, badge, concept, confirmPayment, deploymentContext, deploymentLabel, explain, formatTimestamp, h, humanizeCode, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
+import { actionButton, api, approvalToken, can, usesOIDC, badge, concept, confirmPayment, deploymentContext, deploymentLabel, errorPanel, explain, formatTimestamp, h, humanizeCode, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
 
 export function invoiceActions(detail) {
   const checks = detail.decision?.policy_checks || [];
@@ -22,10 +22,79 @@ function field(label, id, placeholder) {
   return { input, node: h('label', { class: 'field', for: id }, h('span', {}, label), input) };
 }
 
+// What to correct for one failing check. A record that a person can edit is named, a decision only a
+// reviewer can take says so, and a missing record says there is nothing to open yet.
+function caseRecord(item) {
+  if (item.fix === 'human_review') return 'A reviewer decides on this page';
+  if (!item.source_id) {
+    return item.source_type === 'Treasury balance' ? item.source_type : 'No record found. Create or link one.';
+  }
+  return h('span', {}, item.source_type, ' ', h('span', { class: 'mono' }, item.source_id));
+}
+
+// The case file: what failed, which record to correct and who usually handles it. Nothing here is a
+// control. A cleared case is deliberately neutral, because passing checks are not an approval.
+function caseCard(caseFile) {
+  const open = caseFile.status === 'open';
+  const status = open ? 'Open' : caseFile.status === 'cleared' ? 'Checks now pass' : humanizeCode(caseFile.status);
+  const lead = open
+    ? caseFile.last_checked_at
+      ? 'Still held after the last check. Correct the records below. The worker rechecks on its next pass.'
+      : 'This invoice is held. Correct the records below in the accounting system. The worker rechecks on its next pass.'
+    : 'The last check found nothing failing. This is not an approval. The invoice continues through the normal payment path and its own checks.';
+  const events = caseFile.events || [];
+  const card = panel(
+    'Exception case',
+    h(
+      'div',
+      { class: 'finding-head' },
+      badge(status, open ? 'warn' : 'neutral'),
+      h('span', { class: 'finding-code' }, caseFile.last_checked_at ? `Checked ${formatTimestamp(caseFile.last_checked_at)}` : 'Not checked yet'),
+    ),
+    h('p', {}, lead),
+    table(
+      ['Failed check', 'Record to correct', 'Usually handled by'],
+      (caseFile.items || []).map((item) =>
+        h(
+          'tr',
+          {},
+          h('td', {}, h('div', { style: 'font-weight: 500;' }, humanizeCode(item.check_code)), h('p', { class: 'muted' }, item.detail)),
+          h('td', {}, caseRecord(item)),
+          h('td', {}, item.owner_role),
+        ),
+      ),
+    ),
+    h('p', { class: 'muted' }, 'A change in the accounting system never approves or waives a check. Each check is evaluated again from scratch.'),
+    h(
+      'details',
+      {},
+      h('summary', {}, `Case history (${events.length})`),
+      table(
+        ['When', 'Event', 'Detail'],
+        events.map((event) =>
+          h('tr', {}, h('td', {}, formatTimestamp(event.at)), h('td', {}, humanizeCode(event.type)), h('td', {}, event.detail || '—')),
+        ),
+      ),
+    ),
+  );
+  card.classList.add('finding');
+  if (open) card.classList.add('warning');
+  return card;
+}
+
+// A missing case is nothing to show. Any other failure is reported inside the card's own panel, so
+// the rest of the invoice page still renders whatever the case route did.
+function casePanel(result) {
+  if (result && result.status === 404) return null;
+  if (result instanceof Error) return panel('Exception case', errorPanel(result));
+  return caseCard(result);
+}
+
 async function renderInvoice(root, [invoiceId]) {
   if (!invoiceId) { root.append(h('p', { class: 'muted' }, 'Pick an invoice from the payment queue.')); return; }
-  const [detail, events, suppliers, setup] = await Promise.all([
+  const [detail, events, suppliers, setup, caseResult] = await Promise.all([
     api(`/invoices/${encodeURIComponent(invoiceId)}`), api(`/invoices/${encodeURIComponent(invoiceId)}/events`), api('/suppliers'), api('/setup').catch(() => null),
+    api(`/invoices/${encodeURIComponent(invoiceId)}/case`).catch((error) => error),
   ]);
   const invoice = detail.invoice, decision = detail.decision;
   const supplier = suppliers.find((item) => item.supplier_id === invoice.supplier_id);
@@ -42,6 +111,8 @@ async function renderInvoice(root, [invoiceId]) {
   root.append(h('ol', { class: 'payment-stages', 'aria-label': 'Payment lifecycle' },
     [['Evidence', Boolean(decision)], ['Authorized', Boolean(detail.payment)], ['Settled', detail.payment?.confirmation_status === 'CONFIRMED'], ['Ledger recorded', detail.state === 'ERP_RECORDED']].map(([label, complete]) => h('li', { class: complete ? 'done' : '' }, `${complete ? '✓ ' : ''}${label}`)),
   ));
+  const caseNode = casePanel(caseResult);
+  if (caseNode) root.append(caseNode);
   const addressesMatch = supplier?.wallet && invoice.invoice_payee_address && supplier.wallet.toLowerCase() === invoice.invoice_payee_address.toLowerCase();
   const addressBadge = !invoice.invoice_payee_address
     ? badge('Not provided on document', 'neutral')

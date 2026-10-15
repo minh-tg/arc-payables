@@ -13,12 +13,29 @@ function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
 }
 
+// What this invoice needs corrected, from its case. A record to correct and a review to acknowledge
+// are different work, so they are counted apart, and only a cleared case carries its status word.
+function caseCell(row) {
+  const summary = row.case;
+  if (!summary) return '—';
+  const parts = [];
+  if (summary.source_fixes) parts.push(`${summary.source_fixes} record${summary.source_fixes === 1 ? '' : 's'}`);
+  if (summary.reviews) parts.push(`${summary.reviews} review${summary.reviews === 1 ? '' : 's'}`);
+  return h(
+    'span',
+    {},
+    parts.length ? parts.join(', ') : '—',
+    summary.status === 'cleared' ? ' ' : null,
+    summary.status === 'cleared' ? badge('Checks now pass', 'neutral') : null,
+  );
+}
+
 // The shape of an item's detail depends on the code, so only the shapes that exist are rendered.
 function detailTable(item) {
   const detail = item.detail || {};
   if (detail.invoices) {
     return table(
-      ['Invoice', 'Supplier', 'Amount', 'Due', 'Action'],
+      ['Invoice', 'Supplier', 'Amount', 'Due', 'To fix', 'Action'],
       detail.invoices.map((row) =>
         h(
           'tr',
@@ -27,6 +44,7 @@ function detailTable(item) {
           h('td', {}, row.supplier_id),
           h('td', { class: 'num' }, money(row.amount_usdc)),
           h('td', {}, row.due_date),
+          h('td', {}, caseCell(row)),
           h('td', {}, h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, 'Review evidence')),
         ),
       ),
