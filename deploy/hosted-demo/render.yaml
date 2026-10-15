@@ -1,0 +1,18 @@
+# Free public host for the labelled mock console. The instance filesystem is ephemeral, which
+# matches the disposable database the entrypoint creates under /tmp.
+#
+# Render reads render.yaml from the repository root. Copy this file there, or point a Blueprint at
+# this path, before creating the service. Do not add any secret: HOSTED_DEMO=1 refuses to start
+# when a live provider or credential is present.
+services:
+  - type: web
+    name: arc-payables-hosted-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/hosted-demo/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: HOSTED_DEMO
+        value: "1"
