@@ -155,7 +155,10 @@ async function renderInvoice(root, [invoiceId]) {
   }
 
   if (detail.payment) root.append(panel('Settlement & accounting entries',
-    h('dl', { class: 'facts' }, h('dt', {}, 'Settlement'), h('dd', {}, detail.payment.confirmation_status ? badge(detail.payment.confirmation_status, stateTone(detail.payment.confirmation_status)) : '—'),
+    h('dl', { class: 'facts' }, h('dt', {}, 'Settlement'), h('dd', {},
+      detail.payment.confirmation_status ? badge(detail.payment.confirmation_status, stateTone(detail.payment.confirmation_status)) : '—',
+      setup?.deployment?.payment_provider === 'mock' ? badge('Simulated', 'warn') : null,
+    ),
       h('dt', {}, 'Transaction'), h('dd', {}, detail.payment.transaction_hash || '—'), h('dt', {}, 'Payment Entry'), h('dd', {}, detail.payment.erp_entry_id || 'Not recorded yet'),
       h('dt', {}, 'Fee Entry'), h('dd', {}, detail.payment.erp_fee_entry_id || 'Not recorded yet')),
   ));

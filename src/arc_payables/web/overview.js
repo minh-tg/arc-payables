@@ -4,6 +4,17 @@ import { demoJourney } from './journey.js';
 
 const optional = (path) => api(path).catch(() => null);
 
+// Overview only: the header label covers every other page. Shown only when the deployment says it
+// is the hosted demo, because the text makes a claim about how the process was started.
+export function hostedBanner(deployment) {
+  if (!deployment?.hosted) return null;
+  return h('section', { class: 'card finding warning', 'aria-labelledby': 'hosted-demo-title' },
+    h('h2', { id: 'hosted-demo-title' }, 'Hosted demo with simulated payments'),
+    h('p', {}, 'Payments and ledger entries here are simulated and no funds move. This deployment refuses to start with live provider settings or secrets.'),
+    h('p', { class: 'muted' }, 'The data is disposable and may reset when the host restarts. ', h('a', { href: '#/setup' }, 'See the provider settings')),
+  );
+}
+
 function activityLines(status) {
   if (!status) return [{ level: 'warn', message: 'Worker status could not be read. Open Worker to retry.' }];
   if (!status.last) return [{ level: 'warn', message: 'No background pass recorded. Manual review still works.' }];
@@ -23,6 +34,8 @@ async function renderOverview(root) {
     api('/forecast?days=30'), api('/attention'), optional('/worker/status'), optional('/setup'), optional('/plan'), optional('/invoices'),
   ]);
   const waiting = (attention.critical || 0) + (attention.warning || 0);
+  const banner = hostedBanner(setup?.deployment);
+  if (banner) root.append(banner);
   root.append(sectionHeading({ eyebrow: 'Payment operations', title: 'Know what can move. See what needs you.', trailing: h('a', { class: 'btn btn-primary', href: '#/queue' }, 'Open payment queue') }));
   root.append(lede('Verified supplier invoices, bounded payments, and a ', concept('ledger', 'ledger'), ' that stays in sync. The policy decides what is safe; you decide how to resolve exceptions.'));
   root.append(statGrid([
