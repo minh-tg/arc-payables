@@ -10,6 +10,7 @@ from pathlib import Path
 import httpx
 import pytest
 from eth_abi import encode
+from eth_utils import keccak
 
 from arc_payables import anchor
 from arc_payables.currency import USDCOnlyConverter
@@ -49,10 +50,19 @@ def _store(tmp_path: Path, *, signed: bool = True) -> SQLiteEvidenceStore:
     return store
 
 
-def _anchor_log(head: str, entries: int, *, version: int = 1, chain_id: int = 5042002, block: int = 65_000_000, index: int = 0):
+def _anchor_log(
+    head: str,
+    entries: int,
+    *,
+    version: int = 1,
+    chain_id: int = 5042002,
+    block: int = 65_000_000,
+    index: int = 0,
+    application_id: str = anchor.ANCHOR_APPLICATION_ID,
+):
     return {
         "address": ANCHOR_ADDRESS,
-        "topics": [anchor.ANCHORED_EVENT_TOPIC, head, "0x" + "00" * 12 + PUBLISHER[2:]],
+        "topics": [anchor.ANCHORED_EVENT_TOPIC, application_id, head, "0x" + "00" * 12 + PUBLISHER[2:]],
         "data": "0x" + encode(["uint64", "uint32", "uint256"], [entries, version, chain_id]).hex(),
         "blockNumber": hex(block),
         "logIndex": hex(index),
@@ -245,6 +255,19 @@ def test_verify_is_inconclusive_when_the_anchor_names_another_chain(tmp_path):
 
     assert outcome.verdict == "INCONCLUSIVE" and outcome.exit_code == 3
     assert "anchor names chain 1" in _text(outcome)
+
+
+def test_verify_is_inconclusive_when_the_anchor_is_for_another_application(tmp_path):
+    store = _store(tmp_path)
+    checked = store.verify_audit_chain()["checked"]
+    head = anchor.head_at_entry(store, checked)
+    foreign = "0x" + keccak(text="other-app/audit-anchor/v1").hex()
+
+    outcome = anchor.verify(_rpc([_anchor_log(head, checked, application_id=foreign)]), store, ANCHOR_ADDRESS)
+
+    assert outcome.verdict == "INCONCLUSIVE" and outcome.exit_code == 3
+    assert "the published anchor is for something else" in _text(outcome)
+    assert "MATCH" not in _text(outcome)
 
 
 # --------------------------------------------------------------------------------------

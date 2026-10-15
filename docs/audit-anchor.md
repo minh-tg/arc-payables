@@ -8,17 +8,22 @@ count.
 
 ## What an anchor proves, and what it does not
 
-An anchor proves that a supplied chain recomputes to the head published at that entry count, as of
-the block the transaction was mined in. It does not prove the invoices are true, it does not cover
-entries written after the anchor, and it says nothing about entries written before the first anchor.
-It does not survive a chain reorganization, and a later anchor supersedes an earlier one.
+An anchor proves that a supplied chain recomputes to the head published at that entry count, for
+the `arc-payables/audit-anchor/v1` application identifier, as of the block the transaction was
+mined in. It does not prove the invoices are true, it does not cover entries written after the
+anchor, and it says nothing about entries written before the first anchor. It does not survive a
+chain reorganization, and a later anchor supersedes an earlier one.
 
 ## Contract
 
 `src/AuditAnchor.sol` stores the latest head with its entry count, anchor version and chain id, and
-emits every anchor, so earlier anchors stay readable from the logs. Only the owner can publish, and
-each publish must advance the entry count. The contract holds no funds and makes no external call.
-`PaymentGuard` is unchanged and is not involved.
+emits every anchor, so earlier anchors stay readable from the logs. A public constant,
+`APPLICATION_ID = keccak256("arc-payables/audit-anchor/v1")`, is written into every `Anchored`
+event, so an anchor published for another application cannot be read as this chain's head. The
+verifier requires the event's identifier to equal that constant; any other identifier is reported
+as `INCONCLUSIVE` with the anchor treated as belonging to something else. Only the owner can
+publish, and each publish must advance the entry count. The contract holds no funds and makes no
+external call. `PaymentGuard` is unchanged and is not involved.
 
 ## Read: verify the local chain against the anchor
 
@@ -33,7 +38,8 @@ uv run arc-payables-anchor verify
 `AUDIT_ANCHOR_SIGNER` is optional. Without it the chain is still hash-verified, but its signatures
 are reported as unanchored. `AUDIT_ANCHOR_RPC_URL` defaults to `https://rpc.testnet.arc.io`, and
 `DATABASE_PATH` selects the store. `--full-hashes` prints hashes whole. Exit codes: 0 MATCH, 1
-MISMATCH or a broken local chain, 3 the published head could not be read.
+MISMATCH or a broken local chain, 3 the published head could not be read or is anchored for another
+application.
 
 A MATCH against a longer local chain prints how many newer entries the anchor does not cover. A
 MISMATCH prints both heads whole.

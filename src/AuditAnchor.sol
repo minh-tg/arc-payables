@@ -7,6 +7,10 @@ pragma solidity ^0.8.28;
 ///      publish, and each publish must advance the entry count. The latest anchor is in storage;
 ///      every earlier anchor stays readable from the Anchored event, which is the history.
 contract AuditAnchor {
+    /// @notice Identifies this contract as the Arc Payables audit anchor, format version 1. A head
+    ///         anchored for another application cannot be read as this one's.
+    bytes32 public constant APPLICATION_ID = keccak256("arc-payables/audit-anchor/v1");
+
     /// @notice Address allowed to publish. Fixed at deployment and never reassigned.
     address public immutable owner;
 
@@ -19,9 +23,17 @@ contract AuditAnchor {
     error NotOwner();
     error InvalidAnchor();
 
-    /// @notice One published head. `chainId` and `version` bind it to a chain and an anchor
-    ///         format, so a head from another deployment cannot be read as this chain's head.
-    event Anchored(bytes32 indexed head, uint64 entries, uint32 version, uint256 chainId, address indexed publisher);
+    /// @notice One published head. `applicationId`, `chainId` and `version` bind it to this
+    ///         application, a chain and an anchor format, so a head from elsewhere cannot be read
+    ///         as this chain's head.
+    event Anchored(
+        bytes32 indexed applicationId,
+        bytes32 indexed head,
+        uint64 entries,
+        uint32 version,
+        uint256 chainId,
+        address indexed publisher
+    );
 
     constructor(address owner_) {
         if (owner_ == address(0)) revert InvalidAnchor();
@@ -38,6 +50,6 @@ contract AuditAnchor {
         latestEntries = entries;
         latestVersion = version;
         latestChainId = block.chainid;
-        emit Anchored(head, entries, version, block.chainid, msg.sender);
+        emit Anchored(APPLICATION_ID, head, entries, version, block.chainid, msg.sender);
     }
 }

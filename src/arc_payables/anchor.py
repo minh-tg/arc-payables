@@ -36,8 +36,11 @@ from .evm import selector
 from .store import GENESIS_HASH, SQLiteEvidenceStore
 from .verify_arc import RpcClient, short_hash
 
-ANCHORED_EVENT_SIGNATURE = "Anchored(bytes32,uint64,uint32,uint256,address)"
+ANCHORED_EVENT_SIGNATURE = "Anchored(bytes32,bytes32,uint64,uint32,uint256,address)"
 ANCHORED_EVENT_TOPIC = "0x" + keccak(text=ANCHORED_EVENT_SIGNATURE).hex()
+#: The versioned application identifier the contract writes into every Anchored event. Kept here so
+#: the verifier rejects a head anchored for another application instead of comparing it.
+ANCHOR_APPLICATION_ID = "0x" + keccak(text="arc-payables/audit-anchor/v1").hex()
 PUBLISH_SELECTOR = "0x" + selector("publish(bytes32,uint64,uint32)").hex()
 DEFAULT_ANCHOR_RPC_URL = "https://rpc.testnet.arc.io"
 DEFAULT_ANCHOR_VERSION = 1
@@ -67,6 +70,7 @@ class AnchorConfig:
 class AnchorEvent:
     """One Anchored event as read from the contract's logs."""
 
+    application_id: str
     head: str
     entries: int
     version: int
@@ -174,7 +178,7 @@ def _reason_phrase(reason: str | None) -> str:
 def _decode_anchor_log(log: dict[str, Any]) -> AnchorEvent | None:
     topics = log.get("topics")
     data = log.get("data")
-    if not isinstance(topics, list) or len(topics) < 3:
+    if not isinstance(topics, list) or len(topics) < 4:
         return None
     if str(topics[0]).lower() != ANCHORED_EVENT_TOPIC:
         return None
@@ -184,9 +188,18 @@ def _decode_anchor_log(log: dict[str, Any]) -> AnchorEvent | None:
         )
     except Exception:
         return None
-    head = "0x" + str(topics[1])[-64:]
-    publisher = "0x" + str(topics[2])[-40:]
-    return AnchorEvent(head, int(entries), int(version), int(chain_id), publisher, _int_hex(log.get("blockNumber")))
+    application_id = "0x" + str(topics[1])[-64:]
+    head = "0x" + str(topics[2])[-64:]
+    publisher = "0x" + str(topics[3])[-40:]
+    return AnchorEvent(
+        application_id,
+        head,
+        int(entries),
+        int(version),
+        int(chain_id),
+        publisher,
+        _int_hex(log.get("blockNumber")),
+    )
 
 
 def read_latest_anchor(rpc: RpcClient, address: str) -> AnchorEvent | None:
@@ -271,6 +284,17 @@ def verify(
         return _unreadable(network, _local_summary(report), "unavailable (no anchor published)")
     if event.chain_id != chain_id:
         return _unreadable(network, _local_summary(report), f"unavailable (anchor names chain {event.chain_id})")
+    if event.application_id.lower() != ANCHOR_APPLICATION_ID.lower():
+        return AnchorOutcome(
+            "INCONCLUSIVE",
+            3,
+            [
+                "INCONCLUSIVE  the published anchor is for something else, nothing is compared",
+                _line("Network", network),
+                _line("Local chain", _local_summary(report)),
+                _line("Published anchor", f"application id {short_hash(event.application_id)}"),
+            ],
+        )
 
     checked = int(report.get("checked") or 0)
     anchored = event.entries

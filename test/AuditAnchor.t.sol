@@ -23,7 +23,8 @@ contract AuditAnchorTest {
     address private stranger = address(0xB0B);
     bytes32 private constant HEAD_ONE = keccak256("audit head one");
     bytes32 private constant HEAD_TWO = keccak256("audit head two");
-    bytes32 private constant ANCHORED_TOPIC = keccak256("Anchored(bytes32,uint64,uint32,uint256,address)");
+    bytes32 private constant FOREIGN_APPLICATION_ID = keccak256("arc-payables/audit-anchor/v2");
+    bytes32 private constant ANCHORED_TOPIC = keccak256("Anchored(bytes32,bytes32,uint64,uint32,uint256,address)");
 
     AuditAnchor private anchor;
 
@@ -44,10 +45,23 @@ contract AuditAnchorTest {
     }
 
     function test_publish_emits_head_entries_version_chain_and_publisher() public {
-        vm.expectEmit(true, true, false, true, address(anchor));
-        emit AuditAnchor.Anchored(HEAD_ONE, 10, 1, block.chainid, owner);
+        vm.expectEmit(true, true, true, true, address(anchor));
+        emit AuditAnchor.Anchored(anchor.APPLICATION_ID(), HEAD_ONE, 10, 1, block.chainid, owner);
         vm.prank(owner);
         anchor.publish(HEAD_ONE, 10, 1);
+    }
+
+    function test_the_event_binds_this_application_identifier_and_not_a_foreign_one() public {
+        vm.recordLogs();
+        vm.prank(owner);
+        anchor.publish(HEAD_ONE, 10, 1);
+
+        VmAuditAnchorTest.Log[] memory logs = vm.getRecordedLogs();
+        require(logs.length == 1, "expected one anchor event");
+        require(logs[0].topics.length == 4, "application id, head and publisher are indexed");
+        require(anchor.APPLICATION_ID() == keccak256("arc-payables/audit-anchor/v1"), "fixed application id");
+        require(logs[0].topics[1] == anchor.APPLICATION_ID(), "the event carries the application id");
+        require(logs[0].topics[1] != FOREIGN_APPLICATION_ID, "a foreign identifier must not match");
     }
 
     function test_a_zero_head_is_refused() public {
@@ -100,8 +114,9 @@ contract AuditAnchorTest {
         VmAuditAnchorTest.Log[] memory logs = vm.getRecordedLogs();
         require(logs.length == 2, "expected two anchor events");
         require(logs[0].topics[0] == ANCHORED_TOPIC, "wrong event signature");
-        require(logs[0].topics[1] == HEAD_ONE, "first event head");
-        require(logs[1].topics[1] == HEAD_TWO, "second event head");
+        require(logs[0].topics[1] == anchor.APPLICATION_ID(), "first event application id");
+        require(logs[0].topics[2] == HEAD_ONE, "first event head");
+        require(logs[1].topics[2] == HEAD_TWO, "second event head");
         require(logs[1].emitter == address(anchor), "wrong emitter");
     }
 }
