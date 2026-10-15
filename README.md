@@ -357,6 +357,8 @@ for the journey, rather than rewriting historical signatures or suppressing veri
 | **Treasury & risk** | Forward coverage with the shortfall date, obligations in due-date order, expected inflows, and each counterparty's tier, latest screening, resulting automatic limit and open exposure, with a re-screen action |
 | **Setup** | What this deployment still needs: every setting that matters, whether it is set, and what stops working without it, plus two read-only probes of the ledger and the chain |
 
+The chain above lives in the database, so a rewrite that recomputes every hash verifies. The head can be published on Arc and re-checked against the local log; [docs/audit-anchor.md](docs/audit-anchor.md) is the owner runbook.
+
 Two things the console is deliberate about. It shows the **trusted destination** from the supplier
 record beside the invoice's own payee field, marked untrusted, so the distinction the system rests
 on is visible rather than implied. And it states the exact amount and destination in the payment
