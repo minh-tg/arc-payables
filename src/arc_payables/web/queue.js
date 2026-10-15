@@ -68,7 +68,7 @@ async function renderQueue(root) {
         'td',
         {},
         h('a', { href: `#/invoice/${encodeURIComponent(invoice.id)}`, style: 'font-weight: 500;' }, invoice.invoice_number || invoice.id),
-        invoice.invoice_number ? h('span', { class: 'muted mono', style: 'display: block; font-size: 11px; margin-top: 2px;' }, invoice.id) : null,
+        invoice.invoice_number ? h('span', { class: 'muted mono', style: 'display: block; font-size: var(--text-xs); margin-top: 2px;' }, invoice.id) : null,
       ),
       h('td', {}, invoice.supplier_id || '—'),
       h('td', { class: 'num' }, money(invoice.amount)),

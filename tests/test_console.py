@@ -327,3 +327,23 @@ def test_fields_use_the_control_border_in_both_themes():
     assert html.count("--control-border:") == 2
     assert re.search(r"\n      input \{[^}]*border: 1px solid var\(--control-border\)", html)
     assert re.search(r"\.nav-end input \{[^}]*border: 1px solid var\(--control-border\)", html)
+
+
+def test_font_sizes_come_from_the_type_scale():
+    html = (WEB_DIR / "index.html").read_text()
+    rules = html.split("* { box-sizing", 1)[1]
+    assert not re.findall(r"font-size: \d", rules)
+    tokens = re.findall(r"--text-[\w]+: (\d+)px;", html)
+    assert len(tokens) == 8
+    for script in WEB_DIR.glob("*.js"):
+        assert not re.search(r"font-size: \d", script.read_text()), script.name
+
+
+def test_theme_colours_and_radii_are_tokens():
+    html = (WEB_DIR / "index.html").read_text()
+    rules = html.split("* { box-sizing", 1)[1]
+    assert "oklch(100% 0 0)" not in rules
+    assert "#0a0f1e" not in rules
+    assert not re.search(r"\.log-level-\w+ \{ color: oklch", rules)
+    assert "border-radius: 12px" not in rules
+    assert "rgba(10, 15, 30" not in rules
