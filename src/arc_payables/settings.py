@@ -31,6 +31,34 @@ HOSTED_FORBIDDEN_FIELDS = (
     "pkcs11_user_pin",
 )
 
+# A field is a credential when Pydantic is told not to repr it, or when its name carries one of
+# these pieces. The check runs against the Settings model, so a new secret field is refused without
+# anyone editing a list; HOSTED_ALLOWED_SECRETS is the only place a credential can be admitted.
+_SECRET_NAME_PARTS = frozenset({"token", "secret", "password", "credential", "pin"})
+_SECRET_NAME_SUFFIXES = ("api_key", "private_key")
+
+# Credential-shaped fields the hosted profile still accepts, each with the reason. Empty by design:
+# the mock console runs as the demo identity, so it holds no application or provider secret.
+HOSTED_ALLOWED_SECRETS: dict[str, str] = {}
+
+
+def looks_like_a_secret_field(name: str, field) -> bool:
+    """True when a settings field holds a credential, judged from the model, not a hand list."""
+    return (
+        not field.repr
+        or name.endswith(_SECRET_NAME_SUFFIXES)
+        or bool(_SECRET_NAME_PARTS & set(name.split("_")))
+    )
+
+
+def hosted_forbidden_fields() -> tuple[str, ...]:
+    """Every variable the hosted profile refuses: live endpoints plus every credential field.
+
+    Derived from the model so a future secret field is refused on the same day it is added.
+    """
+    credentials = {name for name, field in Settings.model_fields.items() if looks_like_a_secret_field(name, field)}
+    return tuple(sorted((set(HOSTED_FORBIDDEN_FIELDS) | credentials) - set(HOSTED_ALLOWED_SECRETS)))
+
 
 def _env_flag(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -46,7 +74,7 @@ def _hosted_violation(values: dict[str, object]) -> str | None:
         return "Hosted demo requires ACCOUNTING_PROVIDER=mock."
     if values.get("screening_provider") != "fixture":
         return "Hosted demo requires SCREENING_PROVIDER=fixture."
-    for name in HOSTED_FORBIDDEN_FIELDS:
+    for name in hosted_forbidden_fields():
         if values.get(name):
             return f"Hosted demo must not set {name.upper()}."
     return None
@@ -185,7 +213,7 @@ class Settings(BaseSettings):
                 "payment_provider": self.payment_provider,
                 "accounting_provider": self.accounting_provider,
                 "screening_provider": self.screening_provider,
-                **{name: getattr(self, name) for name in HOSTED_FORBIDDEN_FIELDS},
+                **{name: getattr(self, name) for name in hosted_forbidden_fields()},
             }
         )
         if violation:
@@ -393,7 +421,7 @@ def get_settings() -> Settings:
             "payment_provider": os.environ.get("PAYMENT_PROVIDER") or "mock",
             "accounting_provider": os.environ.get("ACCOUNTING_PROVIDER") or "mock",
             "screening_provider": os.environ.get("SCREENING_PROVIDER") or "fixture",
-            **{name: os.environ.get(name.upper()) for name in HOSTED_FORBIDDEN_FIELDS},
+            **{name: os.environ.get(name.upper()) for name in hosted_forbidden_fields()},
         }
     )
     if violation:
