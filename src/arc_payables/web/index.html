@@ -93,7 +93,7 @@
         --timeline-line: rgba(148, 163, 184, 0.28);
         --log-bg: #060a14;
         --log-fg: #cbd5e1;
-        --log-muted: #64748b;
+        --log-muted: #75839a;
         --shadow: 0 12px 28px -20px rgba(0, 0, 0, 0.95);
       }
 
@@ -138,6 +138,7 @@
         display: flex; align-items: center; justify-content: center;
         font-weight: 700; font-size: 13px;
       }
+      :root[data-theme='dark'] .brand-mark { color: var(--bg); }
       .brand-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
       .brand-sub { font-size: 11px; color: var(--muted); }
 
@@ -372,8 +373,8 @@
       .log-level-warn { color: oklch(80% 0.15 80); }
       .log-level-error { color: oklch(70% 0.15 25); }
       .log-msg { word-break: break-word; }
-      .log-prompt { color: var(--accent); }
-      .log-cursor { color: var(--accent); animation: pulse-opacity 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+      .log-prompt { color: var(--log-fg); }
+      .log-cursor { color: var(--log-fg); animation: pulse-opacity 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 
       /* Guided view. A term carries a dotted underline because that is the oldest signal for "there
          is a definition here", and the popover is one shared element on the document, so it is never
@@ -416,6 +417,7 @@
       button:hover:not(:disabled), .btn:hover { border-color: var(--border-strong); background: var(--bg); color: var(--fg); }
       button:active:not(:disabled), .btn:active:not(:disabled) { transform: scale(0.97); }
       button:disabled { opacity: 0.45; cursor: default; transform: none; }
+      .credentials button[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent-soft-border); color: var(--accent-ink); }
       .btn-primary, button.btn-primary, a.btn-primary { background: var(--accent); border-color: var(--accent); color: oklch(100% 0 0); }
       button.btn-primary:hover:not(:disabled), .btn.btn-primary:hover, a.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: oklch(100% 0 0); }
       .btn-secondary { background: var(--surface); border-color: var(--border); color: var(--fg); }

@@ -102,7 +102,7 @@ function filters(state, onPick) {
     options.map(([key, label]) =>
       h(
         'button',
-        { onclick: () => onPick(key), disabled: state === key },
+        { onclick: () => onPick(key), 'aria-pressed': state === key },
         label,
       ),
     ),
