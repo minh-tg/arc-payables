@@ -38,6 +38,15 @@ overdue invoice first: `PLAN-OVERDUE`, `PLAN-TODAY`, `PLAN-DISCOUNT`, with a rea
 changed the sequence, not which invoices were paid. The script asserts that the model adds no
 invoice and that spend never exceeds the spendable balance.
 
+**Ordering case changed after this run.** `script/live-planner-demo.py::case_queue_ordering` now
+asserts that the model order selects a different set of invoices from the rule order, not only a
+different sequence. The result above was recorded before that change, so it does not demonstrate
+the new assertion and a fresh owner run is pending. The fake-model version of the case lives in
+`tests/test_prioritisation.py`.
+
+For what runs after a model answer and the fake-model numbers for the labelled case set, see
+[policy-after-the-model.md](policy-after-the-model.md).
+
 ## What this does not show
 
 - It does not show the model is accurate. On the two limit cases it agreed with the rule layer.
