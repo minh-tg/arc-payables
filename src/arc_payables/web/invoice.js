@@ -41,7 +41,9 @@ function caseCard(caseFile) {
     ? caseFile.last_checked_at
       ? 'Still held after the last check. Correct the records below. The worker rechecks on its next pass.'
       : 'This invoice is held. Correct the records below in the accounting system. The worker rechecks on its next pass.'
-    : 'The last check found nothing failing. This is not an approval. The invoice continues through the normal payment path and its own checks.';
+    : caseFile.status === 'cleared'
+      ? 'The last check found nothing failing. This is not an approval. The invoice continues through the normal payment path and its own checks.'
+      : null;
   const events = caseFile.events || [];
   const card = panel(
     'Exception case',
@@ -51,7 +53,7 @@ function caseCard(caseFile) {
       badge(status, open ? 'warn' : 'neutral'),
       h('span', { class: 'finding-code' }, caseFile.last_checked_at ? `Checked ${formatTimestamp(caseFile.last_checked_at)}` : 'Not checked yet'),
     ),
-    h('p', {}, lead),
+    lead ? h('p', {}, lead) : null,
     table(
       ['Failed check', 'Record to correct', 'Usually handled by'],
       (caseFile.items || []).map((item) =>

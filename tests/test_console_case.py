@@ -104,6 +104,7 @@ const card = caseCard({invoice_id: 'inv-1', status: 'reopened', last_checked_at:
 const { texts } = collect(card);
 assert.ok(texts.includes('reopened'));
 assert.equal(card.attrs.class, 'card finding');
+assert.ok(!texts.some((text) => String(text).includes('not an approval')), 'an unknown status adds no claim');
 """))
 
 
