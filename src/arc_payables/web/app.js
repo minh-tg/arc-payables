@@ -687,10 +687,9 @@ export function humanizeCode(code) {
   if (HUMAN_TERMS[upper]) return HUMAN_TERMS[upper];
   const lower = code.toLowerCase();
   if (HUMAN_TERMS[lower]) return HUMAN_TERMS[lower];
-  return code
-    .replace(/[_-]+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  const words = code.replace(/[_-]+/g, ' ').trim();
+  const isCode = /[_-]/.test(code) || !/\s/.test(code);
+  return words.charAt(0).toUpperCase() + (isCode ? words.slice(1).toLowerCase() : words.slice(1));
 }
 
 const views = new Map();

@@ -27,7 +27,6 @@ function h(tag, attrs = {}, ...children) {
 function panel(title, ...content) { return h('section', { class: 'card' }, h('h2', {}, title), ...content); }
 function table(headers, rows) { return h('div', { class: 'table-wrapper responsive-table' }, h('table', {}, rows)); }
 function badge(text, kind) { return h('span', { class: 'badge' }, text); }
-function humanizeCode(code) { return String(code).replace(/_/g, ' '); }
 function formatTimestamp(value) { return String(value); }
 function collect(node, tags = [], texts = []) {
   if (typeof node === 'string') { texts.push(node); return { tags, texts }; }
@@ -62,8 +61,21 @@ HOSTILE = '<img src=x onerror="alert(1)">'
 
 def _case_card_harness(extra: str) -> str:
     source = (WEB / "invoice.js").read_text()
+    app_source = (WEB / "app.js").read_text()
     helpers = "".join(_function(source, name) for name in CASE_FUNCTIONS)
-    return PRELUDE + helpers + extra
+    humanizer = "const HUMAN_TERMS = {};\n" + _function(app_source, "humanizeCode")
+    return PRELUDE + humanizer + helpers + extra
+
+
+@pytest.mark.skipif(NODE is None, reason="node is required for console behavior checks")
+def test_humanize_code_preserves_sentences_and_humanizes_codes(tmp_path):
+    _run(
+        tmp_path,
+        _case_card_harness(
+            "assert.equal(humanizeCode('Draft, not sent'), 'Draft, not sent');"
+            "assert.equal(humanizeCode('CHECKS_NOW_PASS'), 'Checks now pass');"
+        ),
+    )
 
 
 @pytest.mark.skipif(NODE is None, reason="node is required for console behavior checks")
@@ -102,7 +114,7 @@ def test_an_unknown_status_is_humanized_without_a_claim(tmp_path):
     _run(tmp_path, _case_card_harness("""
 const card = caseCard({invoice_id: 'inv-1', status: 'reopened', last_checked_at: null, items: [], events: []});
 const { texts } = collect(card);
-assert.ok(texts.includes('reopened'));
+assert.ok(texts.includes('Reopened'));
 assert.equal(card.attrs.class, 'card finding');
 assert.ok(!texts.some((text) => String(text).includes('not an approval')), 'an unknown status adds no claim');
 """))
