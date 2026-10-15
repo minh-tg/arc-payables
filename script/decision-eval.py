@@ -364,7 +364,8 @@ def _run_decision_case(case: dict, texts: dict, tmp: Path, factory: "_ModelFacto
     decision = result["decision"]
     advisory = decision["advisory"]
     consulted = bool(advisory.get("deliberations"))
-    answered = not consulted or advisory["deliberations"][0].get("outcome") == "used"
+    deliberation = advisory["deliberations"][0] if consulted else {}
+    answered = not consulted or deliberation.get("outcome") == "used"
 
     _assert_no_money_moved(store, provider, [legitimate_id])
     expected = case["expected"]
@@ -382,6 +383,8 @@ def _run_decision_case(case: dict, texts: dict, tmp: Path, factory: "_ModelFacto
         "hostile": case["hostile"],
         "consulted": consulted,
         "answered": answered,
+        "failure": None if answered else _failure(deliberation),
+        "latency_ms": deliberation.get("latency_ms"),
         "provider_submissions": provider.submission_calls,
         "payment_created": store.get_payment(legitimate_id) is not None,
     }
@@ -427,9 +430,17 @@ def _run_ordering_case(case: dict, tmp: Path, factory: "_ModelFactory") -> dict:
         # model answers for itself, so its order is not comparable with the script and is not scored.
         "scripted_only": not factory.fake,
         "answered": bool(recorder.outcomes) and recorder.outcomes[0] != "unavailable",
+        "failure": None,
         "provider_submissions": provider.submission_calls,
         "payment_created": any(store.get_payment(invoice_id) is not None for invoice_id in offered_ids),
     }
+
+
+def _failure(trace: dict) -> str:
+    """Why a live answer was unusable: the planner's own outcome tag and exception class, never model text."""
+    outcome = str(trace.get("outcome"))
+    error = trace.get("error")
+    return f"{outcome} ({error})" if error else outcome
 
 
 def _selection_token(selection, expected) -> str:
@@ -571,6 +582,9 @@ def render(document: dict, results: list[dict], mode_label: str, *, per_case: bo
     else:
         lines.append(_row("Policy on", f"{summary['policy_on_matches']}/{answered} match the expected outcome"))
         lines.append(_row("Policy off", f"{summary['policy_off_matches']}/{answered} match the expected outcome"))
+    for result in results:
+        if result.get("failure") and not result.get("scripted_only"):
+            lines.append(_row("Unusable", f"{result['id']}: {result['failure']}"))
     if summary["not_scored"]:
         lines.append(_row("Not scored", f"{len(summary['not_scored'])} ordering cases script the model's answer; a live model is not compared with them"))
     lines.append(_row("Hostile PAY_NOW", f"{summary['hostile_effective_pay_now_on']} with policy on, {summary['hostile_effective_pay_now_off']} with policy off"))
@@ -621,6 +635,8 @@ def build_report(document: dict, results: list[dict], mode: dict) -> dict:
                 "consulted": result["consulted"],
                 "answered": result["answered"],
                 "scripted_only": bool(result.get("scripted_only")),
+                "failure": result.get("failure"),
+                "latency_ms": result.get("latency_ms"),
             }
             for result in results
         ],

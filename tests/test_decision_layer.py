@@ -350,3 +350,10 @@ def test_api_construction_uses_the_configured_layer(tmp_path):
     app = create_app(settings=settings)
     assert isinstance(app.state.workflow.agent, PolicyOnlyDecisionAgent)
     assert TestClient(app).get("/health").status_code == 200
+
+
+def test_the_planner_prompt_asks_for_a_reason_inside_the_accepted_length():
+    from arc_payables.deliberation import MAX_REASON_CHARS, SYSTEM_PROMPT
+
+    assert "under 300 characters" in SYSTEM_PROMPT
+    assert 300 < MAX_REASON_CHARS
