@@ -12,6 +12,9 @@
 !deploy/arc-payables/
 !deploy/arc-payables/Dockerfile
 !deploy/arc-payables/worker_healthcheck.py
+!deploy/hosted-demo/
+!deploy/hosted-demo/Dockerfile
+!deploy/hosted-demo/entrypoint.sh
 # Keep secrets and generated files excluded even beneath an allowlisted source directory.
 **/.env*
 **/*.secret

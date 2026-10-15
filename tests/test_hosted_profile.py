@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from arc_payables.api import create_app
@@ -103,3 +104,21 @@ def test_the_startup_failure_exits_nonzero_without_echoing_the_credential():
     assert result.returncode != 0
     assert "CIRCLE_API_KEY" in result.stderr
     assert SECRET not in result.stderr and SECRET not in result.stdout
+
+
+def test_the_hosted_deploy_files_state_the_mock_profile():
+    deploy = ROOT / "deploy" / "hosted-demo"
+    dockerfile = (deploy / "Dockerfile").read_text()
+    entrypoint = (deploy / "entrypoint.sh").read_text()
+    recipe = yaml.safe_load((deploy / "render.yaml").read_text())
+
+    for setting in ("HOSTED_DEMO=1", "PAYMENT_PROVIDER=mock", "ACCOUNTING_PROVIDER=mock", "SCREENING_PROVIDER=fixture"):
+        assert setting in dockerfile
+    assert "DATABASE_PATH=/tmp" in dockerfile and "BACKUP_DIRECTORY=/tmp" in dockerfile
+    assert "arc-payables-seed" in entrypoint and "exec uvicorn" in entrypoint
+
+    service = recipe["services"][0]
+    assert service["plan"] == "free" and service["healthCheckPath"] == "/health"
+    assert service["runtime"] == "docker"
+    # The only configured variable is the flag: a secret in this file would defeat the profile.
+    assert service["envVars"] == [{"key": "HOSTED_DEMO", "value": "1"}]
