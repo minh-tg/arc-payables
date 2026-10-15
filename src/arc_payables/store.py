@@ -897,13 +897,19 @@ class SQLiteEvidenceStore:
         return [dict(row) for row in rows]
 
     def cases_awaiting_alert(self) -> list[dict]:
-        """Open cases whose alert has not been attempted, so a repeated pass sends nothing."""
+        """Open cases whose latest opening has no alert attempt, so a repeat sends nothing.
+
+        The comparison is against the newest `case_opened` rather than any alert event at all: a
+        case that clears and then fails again is a new opening, and the operator is told about it
+        again. A case whose events were never written from the service still counts as unalerted.
+        """
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT c.invoice_id,c.status,c.fingerprint,c.opened_at,c.last_checked_at,c.updated_at "
-                "FROM exception_cases c WHERE c.status='open' AND NOT EXISTS ("
-                "SELECT 1 FROM exception_case_events e WHERE e.invoice_id=c.invoice_id "
-                "AND e.event_type IN ('alert_sent','alert_failed')) ORDER BY c.opened_at, c.invoice_id",
+                "FROM exception_cases c WHERE c.status='open' AND COALESCE((SELECT MAX(id) FROM "
+                "exception_case_events e WHERE e.invoice_id=c.invoice_id AND e.event_type='case_opened'),0) "
+                ">= COALESCE((SELECT MAX(id) FROM exception_case_events e WHERE e.invoice_id=c.invoice_id "
+                "AND e.event_type IN ('alert_sent','alert_failed')),0) ORDER BY c.opened_at, c.invoice_id",
             ).fetchall()
         return [dict(row) for row in rows]
 

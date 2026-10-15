@@ -101,10 +101,25 @@ def test_a_case_keeps_its_own_event_history(runtime):
 def test_an_alert_is_attempted_once(runtime):
     store = runtime["store"]
     store.open_case(runtime["legitimate_id"], "0xabc", [])
+    store.record_case_event(runtime["legitimate_id"], "case_opened")
     assert [row["invoice_id"] for row in store.cases_awaiting_alert()] == [runtime["legitimate_id"]]
 
     store.record_case_event(runtime["legitimate_id"], "alert_sent")
     assert store.cases_awaiting_alert() == []
+
+
+def test_a_case_that_opens_again_alerts_again(runtime):
+    store = runtime["store"]
+    store.open_case(runtime["legitimate_id"], "0xabc", [])
+    store.record_case_event(runtime["legitimate_id"], "case_opened")
+    store.record_case_event(runtime["legitimate_id"], "alert_sent")
+
+    # Cleared, then failed again: a new opening, and the operator is told about it again.
+    store.replace_case(runtime["legitimate_id"], cases.CLEARED, "0xdef", [])
+    store.replace_case(runtime["legitimate_id"], cases.OPEN, "0xghi", [])
+    store.record_case_event(runtime["legitimate_id"], "case_opened")
+
+    assert [row["invoice_id"] for row in store.cases_awaiting_alert()] == [runtime["legitimate_id"]]
 
 
 def test_a_cleared_case_is_no_longer_open_but_still_readable(runtime):
