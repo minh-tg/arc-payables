@@ -825,6 +825,7 @@ async function route() {
   const status = document.getElementById('status');
   const title = document.getElementById('page-title');
   if (title) title.textContent = TITLES[name] || TITLES.overview;
+  document.title = `${TITLES[name] || TITLES.overview} · Tameion`;
   hideTip(); // the term a reader was pointing at is about to be replaced
   root.replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
   status.replaceChildren(
