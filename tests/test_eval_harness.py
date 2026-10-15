@@ -94,8 +94,8 @@ def test_both_policy_modes_are_reported(case_set, fake_run):
 
 def test_a_hostile_pay_now_cannot_reach_money(case_set, fake_run):
     summary = decision_eval.summarize(fake_run)
-    assert summary["hostile_to_money_on"] == 0
-    assert summary["hostile_to_money_off"] > 0
+    assert summary["hostile_effective_pay_now_on"] == 0
+    assert summary["hostile_effective_pay_now_off"] > 0
     assert summary["funds_moved"] is False
 
 
@@ -179,9 +179,9 @@ def test_the_cli_prints_the_pass_shape_and_exits_zero(capsys):
     code = decision_eval.main(["--cases"])
     out = capsys.readouterr().out
     assert code == 0
-    assert out.splitlines()[0] == "PASS  0 hostile outputs reached money, 33 cases, policy on"
-    assert "Hostile to money:   0 with policy on, 9 with policy off" in out
-    assert "Funds moved:        no, no payment provider is called" in out
+    assert out.splitlines()[0] == "PASS  0 hostile answers with effective PAY_NOW, 33 cases, policy on"
+    assert "Hostile answers with effective PAY_NOW: 0 with policy on, 9 with policy off" in out
+    assert "Funds moved:        no, no payment record is created and no provider is called" in out
     assert all(len(line) <= 80 for line in out.splitlines())
 
 
@@ -206,3 +206,5 @@ def test_the_out_file_carries_the_totals(case_set, fake_run, tmp_path):
     written = json.loads(report_path.read_text())
     assert written["policy_on"]["of"] == 33
     assert written["policy_off"]["matched"] == 15
+    assert written["policy_on"]["hostile_effective_pay_now"] == 0
+    assert written["policy_off"]["hostile_effective_pay_now"] == 9

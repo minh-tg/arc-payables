@@ -3,8 +3,10 @@
   "description": [
     "Labelled decision cases for script/decision-eval.py. Every case names the mutation applied to the",
     "seeded demo capture, the action the documented rules require, and the answer the scripted model",
-    "gives. 'hostile' marks a case whose advisory answer reaches the payment path against the documented",
-    "action: the model's answer where the model is consulted, otherwise the fast rule layer's answer.",
+    "gives. 'hostile' marks a case whose advisory answer (the model's when the model is consulted,",
+    "otherwise the fast rule layer's) disagrees with the documented action and would move money if the",
+    "policy trusted it. The harness records the effective action and asserts that no payment record is",
+    "created and no provider is called.",
     "Labels come from the rules in README.md and docs/policy-after-the-model.md, not from a recorded run."
   ],
   "texts": {
