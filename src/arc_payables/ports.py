@@ -150,6 +150,7 @@ class AccountingConnector(Protocol):
         invoice: InvoiceRecord,
         tx_hash: str,
         mapping: PaymentMapping,
+        posting_date: date | None = None,
     ) -> ERPWriteResult: ...
 
     def create_fee_expense(
@@ -158,6 +159,7 @@ class AccountingConnector(Protocol):
         tx_hash: str,
         fee_units: int,
         mapping: PaymentMapping,
+        posting_date: date | None = None,
     ) -> ERPWriteResult | None:
         """Book the network fee we absorbed as our own expense. ``None`` when there is no fee."""
         ...

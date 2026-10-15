@@ -312,6 +312,7 @@ class FrappeAccountingConnector:
         invoice: InvoiceRecord,
         tx_hash: str,
         mapping: PaymentMapping,
+        posting_date: date | None = None,
     ) -> ERPWriteResult:
         reference = PAYMENT_REFERENCE.format(tx_hash=tx_hash)
         existing = self.find_payment_entry(reference)
@@ -329,6 +330,7 @@ class FrappeAccountingConnector:
         self._verify_account_mapping(invoice, mapping)
         self._require_full_balance(invoice)
 
+        booked_on = self._booking_date(posting_date)
         amount_usdc = Decimal(invoice.amount_units) / Decimal(USDC_SCALE)
         try:
             amounts = compute_payment_entry_amounts(
@@ -350,14 +352,14 @@ class FrappeAccountingConnector:
             "party_type": "Supplier",
             "party": invoice.supplier_id,
             "company": mapping.company,
-            "posting_date": date.today().isoformat(),
+            "posting_date": booked_on,
             "mode_of_payment": mapping.mode_of_payment,
             "paid_from": mapping.paid_from,
             "paid_to": mapping.paid_to,
             "source_exchange_rate": mapping.source_exchange_rate,
             "target_exchange_rate": mapping.target_exchange_rate,
             "reference_no": reference,
-            "reference_date": date.today().isoformat(),
+            "reference_date": booked_on,
             **payload_fields(amounts, invoice.purchase_invoice_id or ""),
         }
         try:
@@ -378,6 +380,7 @@ class FrappeAccountingConnector:
         tx_hash: str,
         fee_units: int,
         mapping: PaymentMapping,
+        posting_date: date | None = None,
     ) -> ERPWriteResult | None:
         """Book the Arc network fee as our own expense, keyed to the transaction.
 
@@ -400,6 +403,7 @@ class FrappeAccountingConnector:
             raise FrappeAdapterError(None, "account/currency/exchange-rate/fee mapping is incomplete")
         self._verify_account_mapping(invoice, mapping)
 
+        booked_on = self._booking_date(posting_date)
         try:
             amounts = compute_fee_expense(
                 fee_units,
@@ -418,7 +422,7 @@ class FrappeAccountingConnector:
             settlement_account=mapping.paid_from,
             cost_center=mapping.cost_center,
             reference=reference,
-            posting_date=date.today().isoformat(),
+            posting_date=booked_on,
             settlement_exchange_rate=mapping.source_exchange_rate,
             multi_currency=self._account_currency(mapping.paid_from).upper() != mapping.company_currency.upper(),
         )
@@ -428,6 +432,15 @@ class FrappeAccountingConnector:
             raise FrappeAdapterError(None, "Journal Entry create response missing record name", uncertain=True)
         self._submit_document(created, "Journal Entry")
         return ERPWriteResult(name, 1)
+
+    @staticmethod
+    def _booking_date(settled_on: date | None) -> str:
+        """The day the money moved, so a late retry does not move the entry into a later period.
+
+        Never later than today: a clock-skewed or malformed settlement time cannot post to the future.
+        """
+        today = date.today()
+        return min(settled_on, today).isoformat() if settled_on else today.isoformat()
 
     def find_fee_expense(self, reference: str) -> dict | None:
         rows = self.list_documents(

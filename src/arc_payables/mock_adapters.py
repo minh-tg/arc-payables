@@ -227,6 +227,7 @@ class MockAccountingConnector:
         invoice: InvoiceRecord,
         tx_hash: str,
         mapping: PaymentMapping,
+        posting_date: date | None = None,
     ) -> ERPWriteResult:
         if self.fail_next_write:
             self.fail_next_write = False
@@ -255,6 +256,7 @@ class MockAccountingConnector:
         tx_hash: str,
         fee_units: int,
         mapping: PaymentMapping,
+        posting_date: date | None = None,
     ) -> ERPWriteResult | None:
         """Book the network fee as its own expense entry, exactly as the live connector does."""
         if fee_units <= 0:

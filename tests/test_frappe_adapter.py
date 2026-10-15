@@ -17,6 +17,7 @@ from arc_payables.accounting import (
 from arc_payables.domain import InvoiceRecord, PAYABLE_INVOICE_STATUSES, USDC_SCALE
 from arc_payables.frappe_adapter import FrappeAccountingConnector, FrappeAdapterError
 from arc_payables.ports import PaymentMapping
+from arc_payables.service import APWorkflow
 from arc_payables.settings import Settings
 
 COMPANY = "Arc Demo Inc"
@@ -638,6 +639,31 @@ def test_status_follows_the_open_balance_not_only_the_label():
     assert FrappeAccountingConnector._invoice_status(raw("Unpaid", "not-a-number")) == "UNKNOWN"
     for status in ("PARTLY PAID", "PAID"):
         assert status not in PAYABLE_INVOICE_STATUSES
+
+
+def test_entries_are_booked_on_the_day_the_money_moved_not_the_day_of_the_retry():
+    entries: dict[str, dict] = {}
+    fee_entries: dict[str, dict] = {}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
+    handler = _payment_handler(entries, counters, fee_entries=fee_entries)
+    connector = FrappeAccountingConnector(_settings(), httpx.Client(transport=httpx.MockTransport(handler)))
+    settled = date(2026, 10, 1)
+    connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, _mapping(), settled)
+    connector.create_fee_expense(_invoice(), "0x" + "ab" * 32, 10_247, _mapping(), settled)
+    assert entries["PE-1"]["posting_date"] == "2026-10-01"
+    assert entries["PE-1"]["reference_date"] == "2026-10-01"
+    assert fee_entries["JV-1"]["posting_date"] == "2026-10-01"
+
+
+def test_the_workflow_reads_the_settlement_day_from_the_payment_record():
+    assert APWorkflow._settlement_date({"settled_at": "2026-10-01T23:30:00+00:00"}) == date(2026, 10, 1)
+    assert APWorkflow._settlement_date({}) is None
+    assert APWorkflow._settlement_date({"settled_at": "not a time"}) is None
+
+
+def test_a_settlement_date_in_the_future_is_never_posted():
+    assert FrappeAccountingConnector._booking_date(date(2999, 1, 1)) == date.today().isoformat()
+    assert FrappeAccountingConnector._booking_date(None) == date.today().isoformat()
 
 
 def test_payment_entry_is_refused_when_the_invoice_balance_is_below_the_payment():

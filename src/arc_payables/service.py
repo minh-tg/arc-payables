@@ -5,7 +5,7 @@ import secrets
 import time
 import uuid
 from dataclasses import asdict, replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -582,12 +582,13 @@ class APWorkflow:
         if not self.store.claim_erp_writeback(invoice.id, lease_seconds=self.settings.writeback_lease_seconds):
             return "IN_PROGRESS"
         mapping = self._payment_mapping()
+        settled_on = self._settlement_date(payment)
 
         payment_entry_id = payment.get("erp_entry_id")
         already_existed = False
         if not payment_entry_id:
             try:
-                result = self.accounting.create_payment_entry(invoice, payment["transaction_hash"], mapping)
+                result = self.accounting.create_payment_entry(invoice, payment["transaction_hash"], mapping, settled_on)
             except Exception as exc:
                 return self._record_erp_failure(invoice, payment, exc, "erp_status")
             payment_entry_id = result.payment_entry_id
@@ -596,7 +597,7 @@ class APWorkflow:
         fee_entry_id = payment.get("erp_fee_entry_id")
         if fee_outstanding:
             try:
-                fee_result = self.accounting.create_fee_expense(invoice, payment["transaction_hash"], fee_units, mapping)
+                fee_result = self.accounting.create_fee_expense(invoice, payment["transaction_hash"], fee_units, mapping, settled_on)
             except Exception as exc:
                 # The payment is in the ledger; only the fee expense is missing. Record the payment
                 # entry so the retry cannot book it twice, and leave the invoice short of ERP_RECORDED.
@@ -688,6 +689,14 @@ class APWorkflow:
             },
         )
         return "UNCERTAIN" if uncertain else "FAILED"
+
+    @staticmethod
+    def _settlement_date(payment: dict) -> date | None:
+        """The calendar day the payment was confirmed, if the record carries one."""
+        try:
+            return datetime.fromisoformat(str(payment["settled_at"])).date()
+        except (KeyError, ValueError):
+            return None
 
     def _next_writeback_attempt(self, attempts: int) -> str:
         delay = retry_backoff_seconds(
