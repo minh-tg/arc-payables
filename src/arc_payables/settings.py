@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -7,6 +8,48 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Live endpoints and credentials the hosted demo profile refuses. The failure names the variable
+# and never reads its value into the message, because a startup log must not carry a secret.
+HOSTED_FORBIDDEN_FIELDS = (
+    "circle_api_key",
+    "circle_entity_secret",
+    "circle_wallet_id",
+    "circle_wallet_address",
+    "circle_guard_address",
+    "frappe_url",
+    "frappe_api_key",
+    "frappe_api_secret",
+    "planner_base_url",
+    "planner_model",
+    "planner_api_key",
+    "opensanctions_api_key",
+    "alert_webhook_url",
+    "permit_signing_private_key",
+    "local_payment_private_key",
+    "payment_guard_pauser_key",
+    "pkcs11_user_pin",
+)
+
+
+def _env_flag(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _hosted_violation(values: dict[str, object]) -> str | None:
+    """The first reason the hosted profile cannot start, or None. Never names a value."""
+    if not values.get("hosted_demo"):
+        return None
+    if values.get("payment_provider") != "mock":
+        return "Hosted demo requires PAYMENT_PROVIDER=mock."
+    if values.get("accounting_provider") != "mock":
+        return "Hosted demo requires ACCOUNTING_PROVIDER=mock."
+    if values.get("screening_provider") != "fixture":
+        return "Hosted demo requires SCREENING_PROVIDER=fixture."
+    for name in HOSTED_FORBIDDEN_FIELDS:
+        if values.get(name):
+            return f"Hosted demo must not set {name.upper()}."
+    return None
 
 
 class Settings(BaseSettings):
@@ -20,6 +63,10 @@ class Settings(BaseSettings):
 
     app_name: str = "Arc Payables AP Agent"
     environment: str = "local"
+    # Hosted demo profile. HOSTED_DEMO=1 must refuse to start with a live provider or a live
+    # credential; see validate_hosted_profile. The flag only labels the console, never enables a
+    # live path.
+    hosted_demo: bool = False
     database_path: Path = Path("data/arc_payables.sqlite3")
     payment_provider: Literal["mock", "circle", "local"] = "mock"
     accounting_provider: Literal["mock", "frappe"] = "mock"
@@ -122,6 +169,27 @@ class Settings(BaseSettings):
                 raise ValueError("Each OIDC subject needs at least one role.")
             if "approver" in roles and ({"operator", "payer", "admin"} & set(roles)):
                 raise ValueError("Approver credentials must be separate from operator, payer and admin credentials.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_hosted_profile(self):
+        """HOSTED_DEMO=1 is mock-only: it refuses every live provider and credential.
+
+        A public host can inherit environment variables it did not set, so the profile fails at
+        import time instead of serving a console that could reach a live provider. The error names
+        the variable and never its value.
+        """
+        violation = _hosted_violation(
+            {
+                "hosted_demo": self.hosted_demo,
+                "payment_provider": self.payment_provider,
+                "accounting_provider": self.accounting_provider,
+                "screening_provider": self.screening_provider,
+                **{name: getattr(self, name) for name in HOSTED_FORBIDDEN_FIELDS},
+            }
+        )
+        if violation:
+            raise ValueError(violation)
         return self
 
     # Policy signer. `env` holds the key in the environment (testnet/MVP); `pkcs11`
@@ -316,4 +384,18 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    # Checked against the process environment before Settings parses it. Pydantic's
+    # ValidationError prints the input mapping, which would echo the credential in the message it
+    # was meant to withhold, so the hosted profile fails with a plain RuntimeError instead.
+    violation = _hosted_violation(
+        {
+            "hosted_demo": _env_flag(os.environ.get("HOSTED_DEMO")),
+            "payment_provider": os.environ.get("PAYMENT_PROVIDER") or "mock",
+            "accounting_provider": os.environ.get("ACCOUNTING_PROVIDER") or "mock",
+            "screening_provider": os.environ.get("SCREENING_PROVIDER") or "fixture",
+            **{name: os.environ.get(name.upper()) for name in HOSTED_FORBIDDEN_FIELDS},
+        }
+    )
+    if violation:
+        raise RuntimeError(violation)
     return Settings()

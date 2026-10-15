@@ -23,7 +23,7 @@ def test_empty_demo_can_be_started_without_credentials_and_never_pays(tmp_path):
     client, store = client_for(tmp_path)
     context = client.get("/setup").json()["deployment"]
     assert context == {
-        "mode": "demo", "payment_provider": "mock", "accounting_provider": "mock",
+        "hosted": False, "mode": "demo", "payment_provider": "mock", "accounting_provider": "mock",
         "screening_provider": "fixture", "demo_available": True,
     }
     assert client.post("/demo/start").json()["seeded"] is True

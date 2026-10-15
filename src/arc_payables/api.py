@@ -395,6 +395,7 @@ def create_app(
         body = inventory(settings)
         simulated = settings.payment_provider == "mock" and settings.accounting_provider == "mock"
         body["deployment"] = {
+            "hosted": settings.hosted_demo,
             "mode": "demo" if simulated else "mixed" if "mock" in {settings.payment_provider, settings.accounting_provider} else "testnet",
             "payment_provider": settings.payment_provider,
             "accounting_provider": settings.accounting_provider,
