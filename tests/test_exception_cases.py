@@ -465,3 +465,40 @@ def test_a_failed_alert_records_the_error_type_without_the_destination(runtime):
     assert "secret-token" not in json.dumps(events)
     assert "http" not in json.dumps(events).lower()
     assert _step(report, "cases").failed == 0
+
+
+def test_the_case_route_returns_the_case_file(runtime):
+    invoice = _new_invoice(runtime, receipt_ids=())
+    runtime["workflow"].evaluate(invoice.id)
+
+    response = runtime["client"].get(f"/invoices/{invoice.id}/case")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"invoice_id", "status", "opened_at", "last_checked_at", "items", "events"}
+    assert body["invoice_id"] == invoice.id
+    assert body["status"] == cases.OPEN
+    assert body["last_checked_at"] is None
+    assert [item["check_code"] for item in body["items"]] == ["missing_receipt"]
+    assert [event["type"] for event in body["events"]] == ["case_opened"]
+
+
+def test_the_case_route_says_no_case_rather_than_returning_an_empty_case(runtime):
+    runtime["workflow"].evaluate(runtime["legitimate_id"])
+
+    response = runtime["client"].get(f"/invoices/{runtime['legitimate_id']}/case")
+
+    assert response.status_code == 404
+    assert response.json() == {"code": "no_case"}
+
+
+def test_attention_rows_carry_the_case_counts(runtime):
+    _open_payee_case(runtime)
+
+    body = runtime["client"].get("/attention").json()
+
+    rows = [row for item in body["items"] if item["code"] == "invoice_escalated"
+            for row in item["detail"]["invoices"]]
+    row = next(row for row in rows if row["invoice_id"] == runtime["legitimate_id"])
+    assert row["case"] == {"status": cases.OPEN, "source_fixes": 0, "reviews": 1}
+    assert all(row["case"] is None for row in rows if row["invoice_id"] != runtime["legitimate_id"])

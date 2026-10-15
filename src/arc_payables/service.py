@@ -206,6 +206,15 @@ class APWorkflow:
         self.store.set_case_checked(invoice_id)
         return {"changed": True, "status": OPEN if failing else CLEARED, "action": decision.get("action")}
 
+    def get_case(self, invoice_id: str) -> dict[str, Any] | None:
+        """The invoice's exception case, or None when it has none. Read-only."""
+        from .cases import case_payload
+
+        row = self.store.case_row(invoice_id)
+        if row is None:
+            return None
+        return case_payload(row, self.store.case_items(invoice_id), self.store.case_events(invoice_id))
+
     def _active_approval(self, invoice_id: str, approvals: list | None = None) -> list | None:
         approvals = self.store.get_approval(invoice_id) if approvals is None else approvals
         if not approvals or self.settings.auth_mode != "oidc":

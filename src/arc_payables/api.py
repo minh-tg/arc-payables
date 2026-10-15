@@ -382,7 +382,9 @@ def create_app(
         scraper cannot disagree about what is wrong. Nothing here resolves anything: acting on an
         item still goes through the same approval or reconciliation path as by hand.
         """
-        return build_attention(workflow)
+        from .cases import add_case_summaries
+
+        return add_case_summaries(workflow.store, build_attention(workflow))
 
     @app.get("/setup", tags=["health"], dependencies=[Depends(require_api_key)])
     def setup() -> dict[str, Any]:
@@ -580,6 +582,18 @@ def create_app(
     @app.post("/invoices/{invoice_id}/payment/erp-writeback", tags=["accounting"], dependencies=[Depends(require_api_key)])
     def retry_erp_writeback(invoice_id: str) -> dict[str, Any]:
         return workflow.retry_erp_writeback(invoice_id)
+
+    @app.get("/invoices/{invoice_id}/case", tags=["invoices"], dependencies=[Depends(require_api_key)])
+    def invoice_case(invoice_id: str):
+        """The case file for a held invoice, or 404 when it has none.
+
+        Read-only. A cleared case means the latest evaluation failed no check, which is not an
+        approval: the invoice still needs its own decision and its own authorization to be paid.
+        """
+        case = workflow.get_case(invoice_id)
+        if case is None:
+            return JSONResponse(status_code=404, content={"code": "no_case"})
+        return case
 
     @app.get("/invoices/{invoice_id}/events", tags=["audit"], dependencies=[Depends(require_api_key)])
     def events(invoice_id: str) -> list[dict[str, Any]]:
