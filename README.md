@@ -527,6 +527,8 @@ The fee is **not** a Payment Entry deduction. ERPNext subtracts a deduction from
 
 A sandbox administrator/accountant must confirm the actual chart-of-accounts mapping before enabling this connector. The **read/import path, the operator bootstrap and the full writeback have all been verified against a live ERPNext v15 sandbox**; `deploy/erpnext/README.md` records the documents and ledger lines that run produced.
 
+The end-to-end path, the scripted checks and what is still open are in [Use case: paying ERPNext supplier invoices on Arc](docs/erpnext-use-case.md). `bash script/erpnext-use-case.sh verify <tx-hash>` re-reads the documents in ERPNext for a settled transaction and reports whether they agree.
+
 ## Decision layers
 
 The advisory layer is optional and selectable; the deterministic policy is always the authority.
