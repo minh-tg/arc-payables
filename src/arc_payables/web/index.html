@@ -510,12 +510,12 @@
         .responsive-table td {
           border: none; border-bottom: 1px solid var(--border); position: relative;
           padding: 10px 16px 10px 42%; text-align: right; min-height: 40px;
-          display: flex; justify-content: flex-end; align-items: center;
+          display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-end;
         }
         .responsive-table td::before {
           content: attr(data-label); position: absolute; left: 16px; top: 12px; width: 35%; text-align: left;
           font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500;
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          white-space: normal; overflow: visible; text-overflow: clip;
         }
         .responsive-table td:last-child { border-bottom: 0; }
         .responsive-table .truncate { max-width: 100%; }
