@@ -39,10 +39,15 @@ changed the sequence, not which invoices were paid. The script asserts that the 
 invoice and that spend never exceeds the spendable balance.
 
 **Ordering case changed after this run.** `script/live-planner-demo.py::case_queue_ordering` now
-asserts that the model order selects a different set of invoices from the rule order, not only a
-different sequence. The result above was recorded before that change, so it does not demonstrate
-the new assertion and a fresh owner run is pending. The fake-model version of the case lives in
-`tests/test_prioritisation.py`.
+runs at 300 USDC spendable with no reserve and asserts that the model order selects a different
+set of invoices, not only a different sequence. At that balance the rule order pays
+`PLAN-DISCOUNT` (150, discount ending within a day) and `PLAN-OVERDUE` (150); the recorded model
+preference pays `PLAN-OVERDUE` (150) and `PLAN-TODAY` (100), which leaves `PLAN-DISCOUNT` unpaid
+past its discount deadline. A valid order whose selected set equals the rule order is reported as
+`INCONCLUSIVE  valid order, selection unchanged; demo did not show a selection change` and exits
+3, because an unchanged selection is neither a pass nor a failed order. The result above was
+recorded before that change, so it does not demonstrate the new assertion and a fresh owner run
+is pending. The fake-model version of the case lives in `tests/test_prioritisation.py`.
 
 For what runs after a model answer and the fake-model numbers for the labelled case set, see
 [policy-after-the-model.md](policy-after-the-model.md).

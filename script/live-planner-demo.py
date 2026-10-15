@@ -182,7 +182,7 @@ def _row(label: str, value: str) -> str:
 
 
 def case_queue_ordering(tmp, planner_env):
-    """Four payable invoices, a 400 USDC treasury and no reserve: the model chooses the order."""
+    """Four payable invoices, a 300 USDC treasury and no reserve: the model chooses the order."""
     settings = Settings(
         _env_file=None,
         database_path=tmp / "ordering.sqlite3",
@@ -195,7 +195,7 @@ def case_queue_ordering(tmp, planner_env):
     store = SQLiteEvidenceStore(settings.database_path)
     store.initialize()
     seed_demo(store)
-    provider = MockPaymentProvider(store, balance_units=400 * USDC_SCALE)
+    provider = MockPaymentProvider(store, balance_units=300 * USDC_SCALE)
     workflow = APWorkflow(
         store,
         MockAccountingConnector(store),
@@ -229,6 +229,7 @@ def case_queue_ordering(tmp, planner_env):
         if entry.invoice_id in offered_ids
     }
     due_dates = {invoice.invoice_number: invoice.due_date for invoice in offered}
+    discount_deadlines = {invoice.invoice_number: invoice.discount_deadline for invoice in offered}
     today = date.today()
     rule_unpaid = [entry.invoice_number for entry in baseline.excluded if entry.invoice_id in offered_ids]
     # The table leads with what the model order pays, then the rest in the rule order, so the two
@@ -242,7 +243,8 @@ def case_queue_ordering(tmp, planner_env):
         "rule_based_spend_usdc": baseline.planned_spend_usdc,
         "model_selected": model_paid,
         "model_spend_usdc": live.planned_spend_usdc,
-        "selection_changed": rule_paid != model_paid,
+        "selection_changed": _selection_changed(rule_paid, model_paid),
+        "sequence_changed": rule_paid != model_paid,
         "model_order_valid": live.ordered_by == "planner",
         "rows": [
             {
@@ -257,6 +259,11 @@ def case_queue_ordering(tmp, planner_env):
             {
                 "invoice": entry.invoice_number,
                 "overdue_days": (today - due_dates[entry.invoice_number]).days if due_dates[entry.invoice_number] < today else None,
+                "discount_deadline": (
+                    discount_deadlines[entry.invoice_number].isoformat()
+                    if discount_deadlines[entry.invoice_number]
+                    else None
+                ),
             }
             for entry in model_unpaid
         ],
@@ -266,6 +273,11 @@ def case_queue_ordering(tmp, planner_env):
         "rationale": live.rationale,
         "deliberations": list(live.deliberations),
     }
+
+
+def _selection_changed(rule_paid: list[str], model_paid: list[str]) -> bool:
+    """A changed selection is a different set of paid invoices, not a different sequence."""
+    return set(rule_paid) != set(model_paid)
 
 
 #: How a rejected ordering answer is put into words. The code decision, not the model, is the reason.
@@ -294,7 +306,11 @@ def _ordering_verdict(case: dict) -> dict:
             "why": ORDER_REJECTION_REASONS.get(str(outcome), str(outcome or "the answer was not a usable ordering")),
         }
     if not case.get("selection_changed"):
-        return {"result": "FAIL", "ordering_status": "same", "why": "the model order did not change which invoices are paid"}
+        return {
+            "result": "INCONCLUSIVE",
+            "ordering_status": "same",
+            "why": "valid order, selection unchanged; demo did not show a selection change",
+        }
     return {"result": "PASS", "ordering_status": "changed"}
 
 
@@ -306,6 +322,7 @@ def _ordering_lines(case: dict) -> list[str]:
         for row in case["rows"]:
             lines.append(f"{row['invoice']:<21}{_usdc(row['amount_usdc']):<8}{row['rule']:<19}{row['model']}")
         lines.append(f"{'Spend, computed:':<29}{_usdc(case['rule_based_spend_usdc']):<19}{_usdc(case['model_spend_usdc'])}")
+        lines.append(_row("Sequence changed", "yes, same invoices in a different order" if case.get("sequence_changed") else "no, the same order"))
         lines.append(_row("Model left unpaid", _unpaid_words(case)))
         lines.append(_row("Funds moved", "no, plan only; spend and reserve are computed in code"))
         return lines
@@ -329,15 +346,20 @@ def _ordering_headline(case: dict, spendable: str) -> str:
     if case.get("ordering_status") == "unavailable":
         return "INCONCLUSIVE  no usable model answer, the rule-based order is kept"
     if case.get("ordering_status") == "same":
-        return "FAIL  model order paid the same invoices as the rule order"
+        return "INCONCLUSIVE  valid order, selection unchanged; demo did not show a selection change"
     return "FAIL  model order was not a valid ordering of the offered invoices"
 
 
 def _unpaid_words(case: dict) -> str:
     words = []
     for entry in case["model_left_unpaid"]:
-        overdue = f" (overdue {entry['overdue_days']} days)" if entry.get("overdue_days") else ""
-        words.append(f"{entry['invoice']}{overdue}")
+        context = []
+        if entry.get("overdue_days"):
+            context.append(f"overdue {entry['overdue_days']} days")
+        if entry.get("discount_deadline"):
+            context.append(f"discount ends {entry['discount_deadline']}")
+        suffix = f" ({', '.join(context)})" if context else ""
+        words.append(f"{entry['invoice']}{suffix}")
     return ", ".join(words) or "none"
 
 

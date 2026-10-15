@@ -31,6 +31,14 @@ from arc_payables.store import SQLiteEvidenceStore
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _demo_module():
+    """Load script/live-planner-demo.py as a module so its verdict logic can be tested."""
+    spec = importlib.util.spec_from_file_location("live_planner_demo", ROOT / "script/live-planner-demo.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _workspace(tmp_path: Path, *, balance_units: int = 2_500 * USDC_SCALE, reserve: Decimal = Decimal("2000"), **overrides):
     settings = Settings(_env_file=None, database_path=tmp_path / "plan.sqlite3", min_reserve_usdc=reserve, **overrides)
     store = SQLiteEvidenceStore(settings.database_path)
@@ -229,8 +237,8 @@ def _fixed_order_planner(settings, order: list[str]):
 
 
 def _queue_scenario(tmp_path):
-    """400 USDC spendable and four competing payables, the shape of the tight-treasury case."""
-    settings, store, workflow, _ = _workspace(tmp_path, balance_units=400 * USDC_SCALE, reserve=Decimal("0"))
+    """300 USDC spendable and four competing payables, the shape of the tight-treasury case."""
+    settings, store, workflow, _ = _workspace(tmp_path, balance_units=300 * USDC_SCALE, reserve=Decimal("0"))
     discount = _add_invoice(workflow, store, amount=150 * USDC_SCALE, due_in_days=20, number="PLAN-DISCOUNT", discount_percent="2.00", discount_in_days=1)
     overdue = _add_invoice(workflow, store, amount=150 * USDC_SCALE, due_in_days=-5, number="PLAN-OVERDUE")
     today = _add_invoice(workflow, store, amount=100 * USDC_SCALE, due_in_days=0, number="PLAN-TODAY")
@@ -242,20 +250,52 @@ def test_a_planner_reordering_changes_which_invoices_are_selected(tmp_path):
     """The model's order decides which invoices fit, not only their sequence."""
     settings, _, workflow, legitimate, discount, overdue, today = _queue_scenario(tmp_path)
     offered_ids = {item["invoice"].id for item in PaymentPrioritiser(workflow).candidates() if item["eligible"]}
-    assert len(offered_ids) == 4, "precondition: four individually payable invoices compete for 400 USDC"
+    assert len(offered_ids) == 4, "precondition: four individually payable invoices compete for 300 USDC"
 
     baseline = PaymentPrioritiser(workflow).plan()
-    planner = _fixed_order_planner(settings, [legitimate.id, discount.id, overdue.id, today.id])
+    assert {entry.invoice_number for entry in baseline.ordered} == {"PLAN-DISCOUNT", "PLAN-OVERDUE"}
+    planner = _fixed_order_planner(settings, [overdue.id, today.id, discount.id, legitimate.id])
+    plan = PaymentPrioritiser(workflow, planner=planner).plan()
+
+    baseline_ids = {entry.invoice_id for entry in baseline.ordered}
+    model_ids = [entry.invoice_id for entry in plan.ordered]
+    assert set(model_ids) == {overdue.id, today.id}, "the model order must change which invoices are paid"
+    assert set(model_ids) != baseline_ids
+    assert len(model_ids) == len(set(model_ids)), "no invoice may be selected twice"
+    assert set(model_ids) <= offered_ids, "the model may not add an invoice that was not offered"
+    assert Decimal(plan.planned_spend_usdc) == Decimal("250.00")
+    assert Decimal(plan.planned_spend_usdc) <= Decimal(plan.spendable_usdc)
+    assert Decimal(plan.balance_usdc) - Decimal(plan.planned_spend_usdc) >= Decimal(plan.reserve_floor_usdc)
+
+
+def test_a_same_selection_in_a_different_sequence_is_not_a_selection_change(tmp_path):
+    """Two invoices both fit: reversing them changes the sequence, not the paid set."""
+    settings, _, workflow, legitimate, discount, overdue, today = _queue_scenario(tmp_path)
+    baseline = PaymentPrioritiser(workflow).plan()
+    planner = _fixed_order_planner(settings, [overdue.id, discount.id, today.id, legitimate.id])
     plan = PaymentPrioritiser(workflow, planner=planner).plan()
 
     baseline_ids = [entry.invoice_id for entry in baseline.ordered]
     model_ids = [entry.invoice_id for entry in plan.ordered]
-    assert set(model_ids) != set(baseline_ids), "the model order must change which invoices are paid"
-    assert set(model_ids) == {legitimate.id, discount.id}
-    assert len(model_ids) == len(set(model_ids)), "no invoice may be selected twice"
-    assert set(model_ids) <= offered_ids, "the model may not add an invoice that was not offered"
-    assert Decimal(plan.planned_spend_usdc) <= Decimal(plan.spendable_usdc)
-    assert Decimal(plan.balance_usdc) - Decimal(plan.planned_spend_usdc) >= Decimal(plan.reserve_floor_usdc)
+    assert model_ids == [overdue.id, discount.id]
+    assert model_ids != baseline_ids, "the recorded order reverses the sequence"
+    assert set(model_ids) == set(baseline_ids), "the selected set did not change"
+
+    module = _demo_module()
+    assert module._selection_changed(["PLAN-DISCOUNT", "PLAN-OVERDUE"], ["PLAN-OVERDUE", "PLAN-DISCOUNT"]) is False
+    assert module._selection_changed(["PLAN-DISCOUNT", "PLAN-OVERDUE"], ["PLAN-OVERDUE", "PLAN-TODAY"]) is True
+    verdict = module._ordering_verdict(
+        {
+            "selection_changed": module._selection_changed(
+                [entry.invoice_number for entry in baseline.ordered],
+                [entry.invoice_number for entry in plan.ordered],
+            ),
+            "model_order_valid": plan.ordered_by == "planner",
+            "deliberations": list(plan.deliberations),
+        }
+    )
+    assert verdict["result"] == "INCONCLUSIVE"
+    assert verdict["ordering_status"] == "same"
 
 
 def test_an_invalid_or_padded_order_falls_back_to_the_rule_order(tmp_path):
@@ -273,35 +313,53 @@ def test_an_invalid_or_padded_order_falls_back_to_the_rule_order(tmp_path):
 
 def test_the_demo_ordering_block_names_both_selections_and_the_spend():
     """The recording output must show both selected sets, the computed spend and what is left unpaid."""
-    module = importlib.util.module_from_spec(
-        importlib.util.spec_from_file_location("live_planner_demo", ROOT / "script/live-planner-demo.py")
-    )
-    module.__spec__.loader.exec_module(module)
+    module = _demo_module()
     case = {
         "ordering_status": "changed",
-        "spendable_usdc": "400",
-        "balance_usdc": "400",
+        "spendable_usdc": "300",
+        "balance_usdc": "300",
         "reserve_floor_usdc": "0",
-        "rule_based_spend_usdc": "400",
-        "model_spend_usdc": "400",
-        "rule_based_selected": ["PLAN-DISCOUNT", "PLAN-OVERDUE", "PLAN-TODAY"],
-        "model_selected": ["ACME-INV-2026-001", "PLAN-DISCOUNT"],
+        "rule_based_spend_usdc": "300",
+        "model_spend_usdc": "250",
+        "rule_based_selected": ["PLAN-DISCOUNT", "PLAN-OVERDUE"],
+        "model_selected": ["PLAN-OVERDUE", "PLAN-TODAY"],
+        "sequence_changed": True,
         "rows": [
-            {"invoice": "ACME-INV-2026-001", "amount_usdc": "250", "rule": "not paid", "model": "paid, 1st"},
-            {"invoice": "PLAN-DISCOUNT", "amount_usdc": "150", "rule": "paid, 1st", "model": "paid, 2nd"},
-            {"invoice": "PLAN-OVERDUE", "amount_usdc": "150", "rule": "paid, 2nd", "model": "not paid, over budget"},
-            {"invoice": "PLAN-TODAY", "amount_usdc": "100", "rule": "paid, 3rd", "model": "not paid, over budget"},
+            {"invoice": "PLAN-OVERDUE", "amount_usdc": "150", "rule": "paid, 2nd", "model": "paid, 1st"},
+            {"invoice": "PLAN-TODAY", "amount_usdc": "100", "rule": "not paid", "model": "paid, 2nd"},
+            {"invoice": "PLAN-DISCOUNT", "amount_usdc": "150", "rule": "paid, 1st", "model": "not paid, over budget"},
+            {"invoice": "ACME-INV-2026-001", "amount_usdc": "250", "rule": "not paid", "model": "not paid, over budget"},
         ],
         "model_left_unpaid": [
-            {"invoice": "PLAN-OVERDUE", "overdue_days": 5},
-            {"invoice": "PLAN-TODAY", "overdue_days": None},
+            {"invoice": "PLAN-DISCOUNT", "overdue_days": None, "discount_deadline": "2026-10-16"},
+            {"invoice": "ACME-INV-2026-001", "overdue_days": None, "discount_deadline": None},
         ],
     }
     text = "\n".join(module._ordering_lines(case))
-    assert text.splitlines()[0] == "PASS  model order changed which invoices are paid, spend 400.00 of 400.00 USDC"
-    assert "Model left unpaid:  PLAN-OVERDUE (overdue 5 days), PLAN-TODAY" in text
-    assert "Spend, computed:             400.00             400.00" in text
+    assert text.splitlines()[0] == "PASS  model order changed which invoices are paid, spend 250.00 of 300.00 USDC"
+    assert "Spend, computed:             300.00             250.00" in text
+    assert "Sequence changed:   yes, same invoices in a different order" in text
+    assert "Model left unpaid:  PLAN-DISCOUNT (discount ends 2026-10-16), ACME-INV-2026-001" in text
     assert all(len(line) <= 80 for line in text.splitlines())
+    assert not any(word in text.lower() for word in ("better", "worse", "optimal"))
+
+
+def test_a_valid_order_that_keeps_the_selection_is_inconclusive_not_a_pass():
+    module = _demo_module()
+    case = {
+        "ordering_status": "same",
+        "spendable_usdc": "400",
+        "balance_usdc": "400",
+        "reserve_floor_usdc": "0",
+        "rule_based_selected": ["PLAN-DISCOUNT", "PLAN-OVERDUE", "PLAN-TODAY"],
+        "model_selected": ["PLAN-OVERDUE", "PLAN-TODAY", "PLAN-DISCOUNT"],
+    }
+    text = "\n".join(module._ordering_lines(case))
+    assert text.splitlines()[0] == (
+        "INCONCLUSIVE  valid order, selection unchanged; demo did not show a selection change"
+    )
+    assert "FAIL" not in text
+    assert "Model order:        PLAN-OVERDUE, PLAN-TODAY, PLAN-DISCOUNT" in text
 
 
 def test_a_planner_may_reorder_the_queue(tmp_path):
