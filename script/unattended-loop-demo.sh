@@ -40,7 +40,7 @@ for name in "${PROVIDER_SELECTORS[@]}"; do
     PAYMENT_PROVIDER|ACCOUNTING_PROVIDER) [ "$value" = mock ] && continue ;;
     SCREENING_PROVIDER) [ "$value" = fixture ] && continue ;;
   esac
-  refuse "$name=$value is set; unset it and run again"
+  refuse "$name is set; unset it and run again"
 done
 for name in "${LIVE_CREDENTIALS[@]}"; do
   [ -n "${!name:-}" ] && refuse "$name is set; unset it and run again"

@@ -13,6 +13,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "script/unattended-loop-demo.sh"
 
+PROVIDER_SELECTORS = (
+    "PAYMENT_PROVIDER",
+    "ACCOUNTING_PROVIDER",
+    "SCREENING_PROVIDER",
+)
+
 LIVE_CREDENTIALS = (
     "CIRCLE_API_KEY",
     "CIRCLE_ENTITY_SECRET",
@@ -76,19 +82,24 @@ def test_the_demo_refuses_a_live_provider_setting(tmp_path, name, value):
     lines = result.stdout.splitlines()
     assert lines[0] == "FAIL  live provider settings were found and refused"
     assert lines[1] == "Mode:               not started"
-    assert lines[2] == f"Reason:             {name}={value} is set; unset it and run again"
+    assert lines[2] == f"Reason:             {name} is set; unset it and run again"
+    for stream in (result.stdout, result.stderr):
+        assert value not in stream, "the refusal must not echo the configured value"
     assert "Pass outcome" not in result.stdout
     assert list(tmp_path.iterdir()) == [], "a refused run created files"
 
 
-@pytest.mark.parametrize("name", LIVE_CREDENTIALS)
-def test_the_demo_refuses_a_live_credential_without_printing_its_value(tmp_path, name):
-    secret = "do-not-print-this-value"
-    result = _run(_clean_env(TMPDIR=str(tmp_path), **{name: secret}))
+@pytest.mark.parametrize("name", [*PROVIDER_SELECTORS, *LIVE_CREDENTIALS])
+def test_every_refused_variable_names_only_itself(tmp_path, name):
+    """Every variable the script checks: the refusal names it and never prints the value."""
+    sentinel = "do-not-print-this-value"
+    result = _run(_clean_env(TMPDIR=str(tmp_path), **{name: sentinel}))
 
     assert result.returncode == 2
     assert f"Reason:             {name} is set; unset it and run again" in result.stdout
-    assert secret not in result.stdout
+    for stream in (result.stdout, result.stderr):
+        assert sentinel not in stream, f"{name} leaked its value into {stream!r}"
+    assert "Pass outcome" not in result.stdout
     assert list(tmp_path.iterdir()) == [], "a refused run created files"
 
 
