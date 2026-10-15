@@ -298,3 +298,32 @@ def test_desktop_table_badges_can_wrap_inside_narrow_cells():
     desktop = re.search(r"@media \(min-width: 901px\) \{([\s\S]*?)\n      \}", html)
     assert desktop
     assert ".table-wrapper td .badge { max-width: 100%; white-space: normal; }" in desktop.group(1)
+
+
+def _oklch_luminance(lightness: float, chroma: float, hue: float) -> float:
+    import math
+
+    a = chroma * math.cos(math.radians(hue))
+    b = chroma * math.sin(math.radians(hue))
+    l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3
+    m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3
+    s = (lightness - 0.0894841775 * a - 1.2914855480 * b) ** 3
+    red = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+    green = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+    blue = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def test_light_control_border_reaches_three_to_one_on_white():
+    html = (WEB_DIR / "index.html").read_text()
+    match = re.search(r"--control-border: oklch\((\d+)% ([\d.]+) (\d+)\);", html)
+    assert match
+    border = _oklch_luminance(int(match[1]) / 100, float(match[2]), float(match[3]))
+    assert (1.0 + 0.05) / (border + 0.05) >= 3.0
+
+
+def test_fields_use_the_control_border_in_both_themes():
+    html = (WEB_DIR / "index.html").read_text()
+    assert html.count("--control-border:") == 2
+    assert re.search(r"\n      input \{[^}]*border: 1px solid var\(--control-border\)", html)
+    assert re.search(r"\.nav-end input \{[^}]*border: 1px solid var\(--control-border\)", html)
