@@ -8,17 +8,19 @@ as they were, and must never reach the provider's submit path.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import uuid
 
+import httpx
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
 
 from arc_payables.api import create_app
-from arc_payables.circle_adapter import CircleNotificationKeyUnavailable
+from arc_payables.circle_adapter import CircleNotificationKeyUnavailable, CircleNotificationKeys
 from arc_payables.domain import WorkflowState
 from arc_payables.mock_adapters import MockAccountingConnector, MockPaymentProvider
 from arc_payables.seed import seed_demo
@@ -147,6 +149,19 @@ def test_a_mutated_body_fails_verification(tmp_path):
     assert signature not in response.text
 
 
+def test_five_distinct_unknown_key_ids_have_bounded_resolver_calls(tmp_path):
+    calls = []
+    client, _, _, _ = _app(tmp_path, resolver=lambda key_id: calls.append(key_id) or None)
+    body = json.dumps(_payload()).encode()
+
+    responses = [_post(client, None, body, key_id=f"unknown-{index}", signature="bad") for index in range(5)]
+
+    assert len(calls) <= 4
+    assert all(response.status_code == 401 for response in responses)
+    expected = {"error": {"code": "invalid_signature", "message": "The notification signature did not verify."}}
+    assert all(response.json() == expected for response in responses)
+
+
 def test_an_unknown_key_id_is_the_same_answer_as_a_bad_signature(tmp_path):
     key, public_key = _keypair()
     client, _, _, _ = _app(tmp_path, resolver=lambda key_id: public_key if key_id == KEY_ID else None)
@@ -202,6 +217,20 @@ def test_missing_signature_headers_are_refused(tmp_path):
     assert response.json()["error"]["code"] == "missing_headers"
 
 
+def test_a_non_json_content_type_is_refused(tmp_path):
+    key, public_key = _keypair()
+    client, _, _, _ = _app(tmp_path, resolver=lambda key_id: public_key)
+
+    response = client.post(
+        "/webhooks/circle",
+        content=b"{}",
+        headers={"X-Circle-Key-Id": KEY_ID, "X-Circle-Signature": _sign(key, b"{}"), "Content-Type": "text/plain"},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "invalid_content_type"
+
+
 def test_a_body_over_the_limit_is_refused_before_verification(tmp_path):
     key, public_key = _keypair()
     client, _, _, _ = _app(tmp_path, resolver=lambda key_id: public_key, settings_overrides={"circle_webhook_max_body_bytes": 32})
@@ -211,6 +240,53 @@ def test_a_body_over_the_limit_is_refused_before_verification(tmp_path):
 
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "body_too_large"
+
+
+def test_oversize_stream_stops_after_crossing_the_body_limit(tmp_path):
+    client, _, _, _ = _app(tmp_path, resolver=lambda key_id: None)
+    app = client.app
+
+    async def exercise():
+        received = 0
+        response_start = {}
+        response_body = bytearray()
+
+        async def receive():
+            nonlocal received
+            received += 1
+            return {"type": "http.request", "body": b"x" * 8192, "more_body": True}
+
+        async def send(message):
+            if message["type"] == "http.response.start":
+                response_start.update(message)
+            elif message["type"] == "http.response.body":
+                response_body.extend(message.get("body", b""))
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/webhooks/circle",
+            "raw_path": b"/webhooks/circle",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"x-circle-key-id", KEY_ID.encode()),
+                (b"x-circle-signature", b"invalid"),
+            ],
+            "client": ("127.0.0.1", 1),
+            "server": ("testserver", 80),
+        }
+        await app(scope, receive, send)
+        return received, response_start, response_body
+
+    received, response_start, response_body = asyncio.run(exercise())
+
+    assert response_start["status"] == 413
+    assert json.loads(response_body)["error"]["code"] == "body_too_large"
+    assert received <= 9
 
 
 def test_a_signed_but_malformed_body_is_refused(tmp_path):
@@ -270,6 +346,31 @@ def test_a_store_failure_schedules_nothing(tmp_path, monkeypatch):
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "store_unavailable"
     assert store.get_payment(invoice_id) == payment
+
+
+def test_unknown_circle_keys_are_cached_briefly_with_a_size_bound():
+    clock = [0.0]
+    calls = []
+
+    def respond(request):
+        calls.append(request.url.path)
+        return httpx.Response(404)
+
+    keys = CircleNotificationKeys(
+        "https://circle.invalid", None,
+        client=httpx.Client(transport=httpx.MockTransport(respond)),
+        clock=lambda: clock[0],
+    )
+
+    assert keys.public_key("missing") is None
+    assert keys.public_key("missing") is None
+    assert len(calls) == 1
+    clock[0] = 31.0
+    assert keys.public_key("missing") is None
+    assert len(calls) == 2
+    for index in range(300):
+        keys.public_key(f"unknown-{index}")
+    assert len(keys._cache) <= 256
 
 
 def test_the_route_is_disabled_without_the_circle_provider(tmp_path):

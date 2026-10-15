@@ -7,6 +7,7 @@ import json
 import logging
 import queue
 import re
+import time
 import uuid
 from pathlib import Path
 from datetime import date
@@ -251,6 +252,8 @@ def create_app(
     app.state.broadcaster = broadcaster
 
     webhook_keys = webhook_key_resolver
+    webhook_lookup_lock = asyncio.Lock()
+    webhook_lookup_state = {"window_start": time.monotonic(), "ids": set()}
     if webhook_keys is None and settings.payment_provider == "circle":
         webhook_keys = CircleNotificationKeys(
             settings.circle_api_base_url,
@@ -811,13 +814,35 @@ def create_app(
             return _webhook_error(
                 503, "webhook_not_configured", "Circle notifications are not enabled on this deployment."
             )
-        body = await request.body()
-        if len(body) > settings.circle_webhook_max_body_bytes:
-            return _webhook_error(413, "body_too_large", "The notification is too large.")
+        content_type = request.headers.get("Content-Type", "").partition(";")[0].strip().lower()
+        if content_type != "application/json":
+            return _webhook_error(415, "invalid_content_type", "The notification must use application/json.")
+        body_limit = min(65_536, max(0, int(settings.circle_webhook_max_body_bytes)))
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > body_limit:
+                return _webhook_error(413, "body_too_large", "The notification is too large.")
+            chunks.append(chunk)
+        body = b"".join(chunks)
         key_id = request.headers.get("X-Circle-Key-Id")
         signature = request.headers.get("X-Circle-Signature")
         if not key_id or not signature:
             return _webhook_error(400, "missing_headers", "The signature and key id headers are required.")
+        if len(key_id) > 256:
+            return _webhook_error(401, "invalid_signature", "The notification signature did not verify.")
+        async with webhook_lookup_lock:
+            now = time.monotonic()
+            if now - webhook_lookup_state["window_start"] >= 60:
+                webhook_lookup_state["window_start"] = now
+                webhook_lookup_state["ids"].clear()
+            lookup_ids = webhook_lookup_state["ids"]
+            blocked_lookup = key_id not in lookup_ids and len(lookup_ids) >= 4
+            if not blocked_lookup:
+                lookup_ids.add(key_id)
+        if blocked_lookup:
+            return _webhook_error(401, "invalid_signature", "The notification signature did not verify.")
         try:
             public_key = webhook_keys(key_id)
         except CircleNotificationKeyUnavailable:

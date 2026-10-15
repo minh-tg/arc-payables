@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 import base64
 import threading
 import time
@@ -85,7 +86,7 @@ class CircleNotificationKeys:
         self._client = client or httpx.Client(timeout=10.0)
         self._cache_seconds = max(0, int(cache_seconds))
         self._clock = clock
-        self._cache: dict[str, tuple[float, str]] = {}
+        self._cache: OrderedDict[str, tuple[float, str | None]] = OrderedDict()
         self._lock = threading.Lock()
 
     def public_key(self, key_id: str) -> str | None:
@@ -94,7 +95,10 @@ class CircleNotificationKeys:
         with self._lock:
             cached = self._cache.get(key_id)
             if cached and cached[0] > now:
+                self._cache.move_to_end(key_id)
                 return cached[1]
+            if cached:
+                self._cache.pop(key_id, None)
         headers = {"Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -105,6 +109,11 @@ class CircleNotificationKeys:
         except Exception as exc:
             raise CircleNotificationKeyUnavailable("notification key request failed") from exc
         if response.status_code == 404:
+            with self._lock:
+                self._cache[key_id] = (self._clock() + 30, None)
+                self._cache.move_to_end(key_id)
+                while len(self._cache) > 256:
+                    self._cache.popitem(last=False)
             return None
         if response.status_code >= 400:
             raise CircleNotificationKeyUnavailable("notification key request was refused")
@@ -116,7 +125,10 @@ class CircleNotificationKeys:
         if not key:
             raise CircleNotificationKeyUnavailable("notification key response held no key")
         with self._lock:
-            self._cache[key_id] = (now + self._cache_seconds, str(key))
+            self._cache[key_id] = (self._clock() + self._cache_seconds, str(key))
+            self._cache.move_to_end(key_id)
+            while len(self._cache) > 256:
+                self._cache.popitem(last=False)
         return str(key)
 
 
