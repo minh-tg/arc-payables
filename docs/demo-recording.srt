@@ -76,7 +76,7 @@ invoice and ignored it.
 
 18
 00:00:51,883 --> 00:00:56,883
-The scripted fake model ran 33 labelled
+The scripted fake model ran 39 labelled
 cases and 150 adversarial variants;
 
 19

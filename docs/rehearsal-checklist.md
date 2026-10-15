@@ -29,7 +29,7 @@ the timeline in [demo-recording.md](demo-recording.md) and the cues in
 ## Commands, in order
 
 - [ ] `bash script/show-planner-evidence.sh` (about one second, reads a saved file).
-- [ ] `uv run python script/decision-eval.py` (33 cases, scripted fake model, no key).
+- [ ] `uv run python script/decision-eval.py` (39 cases, scripted fake model, no key).
 - [ ] `uv run python script/adversarial-corpus.py` (150 variants, scripted fake model, about 20 seconds).
 - [ ] Console: **Load demo invoices**, open the suspicious invoice, **Evaluate**, expand the failed check.
 - [ ] Console: open the clean invoice, **Evaluate**, **Review payment**, **Cancel**, reopen, **Confirm**, **Verify audit**.
@@ -53,6 +53,6 @@ the timeline in [demo-recording.md](demo-recording.md) and the cues in
 ## After the take
 
 - [ ] Watch the whole video once with the sound off and once with the captions on.
-- [ ] Check every visible number against its command output: 33 labelled cases, 150 variants, 0 with policy on, 150 with policy off, four payables and 400 USDC.
+- [ ] Check every visible number against its command output: 39 labelled cases, 150 variants, 0 with policy on, 150 with policy off, four payables and 400 USDC.
 - [ ] Check that no segment claims adoption, customers or a live Circle notification.
 - [ ] Export at the platform's bitrate, upload, and test the link signed out.

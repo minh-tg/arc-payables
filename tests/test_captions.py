@@ -114,8 +114,8 @@ def test_caption_text_is_the_narration_verbatim():
 def test_captions_use_digits_and_carry_no_tags_or_secrets():
     cues, _narration = read_all()
     text = "\n".join(cue["text"] for cue in cues)
-    assert "33 " in text and "150 " in text and "400 USDC" in text
-    for word in ("thirty-three", "one hundred fifty", "four hundred"):
+    assert "39 " in text and "150 " in text and "400 USDC" in text
+    for word in ("thirty-nine", "one hundred fifty", "four hundred"):
         assert word not in text
     assert "<" not in text and ">" not in text
     assert not re.search(r"0x[0-9a-fA-F]{8,}", text), "a hash or address is in the captions"
