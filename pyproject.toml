@@ -38,6 +38,7 @@ arc-payables-backup = "arc_payables.backup:main"
 arc-payables-restore-drill = "arc_payables.backup:drill_main"
 arc-payables-alert-test = "arc_payables.alert_cli:main"
 arc-payables-anchor = "arc_payables.anchor:main"
+arc-payables-dossier = "arc_payables.dossier:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/arc_payables"]
