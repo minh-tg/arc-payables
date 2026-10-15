@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .alerting import WARNING, Alert
 from .domain import InvoiceRecord
 
 OPEN = "open"
@@ -150,3 +151,30 @@ def add_case_summaries(store: Any, body: dict[str, Any]) -> dict[str, Any]:
             case = store.case_row(row["invoice_id"])
             row["case"] = case_summary(case, store.case_items(row["invoice_id"])) if case else None
     return body
+
+
+def case_alert(case: dict[str, Any], items: list[dict[str, Any]], invoice_number: str) -> Alert:
+    """One alert for one open case. Ids and counts only: no secret, no configured URL, no prose."""
+    records = [item for item in items if item["fix"] == SOURCE_RECORD]
+    reviews = [item for item in items if item["fix"] == HUMAN_REVIEW]
+    parts: list[str] = []
+    if records:
+        named = [f"{item['source_type']} {item['source_id']}" if item["source_id"] else item["source_type"] for item in records]
+        parts.append(f"{_count(len(records), 'record')} to correct ({', '.join(named)})")
+    if reviews:
+        parts.append(f"{_count(len(reviews), 'review')} to acknowledge")
+    return Alert(
+        code="exception_case",
+        severity=WARNING,
+        summary=f"Invoice {invoice_number} is held: " + " and ".join(parts),
+        detail={
+            "invoice_id": case["invoice_id"],
+            "invoice_number": invoice_number,
+            "items": [{"check_code": item["check_code"], "source_id": item["source_id"]} for item in items],
+        },
+        key=f"exception_case:{case['invoice_id']}",
+    )
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}" if number == 1 else f"{number} {noun}s"

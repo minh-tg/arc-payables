@@ -8,6 +8,7 @@ processes evaluating the same invoice from opening two cases.
 from __future__ import annotations
 
 import glob
+import json
 import pathlib
 import re
 import uuid
@@ -287,3 +288,37 @@ def test_repeated_evaluations_do_not_open_a_second_case(runtime):
     runtime["workflow"].evaluate(invoice.id)
 
     assert [event["type"] for event in runtime["store"].case_events(invoice.id)] == ["case_opened"]
+
+
+def test_the_case_alert_names_the_records_and_carries_ids_only(runtime):
+    items = [
+        {"check_code": "receipt_match", "detail": "x", "fix": cases.SOURCE_RECORD, "source_type": "Purchase Receipt",
+         "source_id": "MAT-PRE-0007", "owner_role": "Receiving"},
+        {"check_code": "purchase_order_match", "detail": "x", "fix": cases.SOURCE_RECORD, "source_type": "Purchase Order",
+         "source_id": "PO-0012", "owner_role": "Procurement"},
+        {"check_code": "payee_mismatch", "detail": "x", "fix": cases.HUMAN_REVIEW, "source_type": "Supplier",
+         "source_id": "SUP-1", "owner_role": "Accounts payable"},
+    ]
+
+    alert = cases.case_alert({"invoice_id": "inv-1"}, items, "ACME-INV-2026-001")
+
+    assert (alert.code, alert.severity) == ("exception_case", "warning")
+    assert alert.summary == (
+        "Invoice ACME-INV-2026-001 is held: 2 records to correct "
+        "(Purchase Receipt MAT-PRE-0007, Purchase Order PO-0012) and 1 review to acknowledge"
+    )
+    body = alert.to_dict()
+    assert set(body["detail"]) == {"invoice_id", "invoice_number", "items"}
+    assert [item["source_id"] for item in body["detail"]["items"]] == ["MAT-PRE-0007", "PO-0012", "SUP-1"]
+    assert alert.key == "exception_case:inv-1"
+    # A payload carries ids and nothing that could leak a destination or a credential.
+    assert "http" not in json.dumps(body).lower()
+
+
+def test_a_single_review_is_worded_in_the_singular(runtime):
+    items = [{"check_code": "payee_mismatch", "detail": "x", "fix": cases.HUMAN_REVIEW, "source_type": "Supplier",
+              "source_id": "SUP-1", "owner_role": "Accounts payable"}]
+
+    alert = cases.case_alert({"invoice_id": "inv-1"}, items, "ACME-INV-2026-001")
+
+    assert alert.summary == "Invoice ACME-INV-2026-001 is held: 1 review to acknowledge"

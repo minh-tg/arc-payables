@@ -6,7 +6,7 @@ make alerting usable in practice: it does not repeat itself, and it never takes 
 
 from __future__ import annotations
 
-from arc_payables.alerting import WebhookSink, evaluate_alerts, payload_preview
+from arc_payables.alerting import Alert, WebhookSink, evaluate_alerts, payload_preview
 
 
 class _Settings:
@@ -133,3 +133,33 @@ def test_the_preview_says_what_would_be_posted():
         outcome="ok", consecutive_failures=0, snapshot=_snapshot(payments_uncertain=1), settings=_Settings()
     )
     assert '"code": "settlements_unconfirmed"' in payload_preview(alerts)
+
+
+def test_alerts_that_share_a_code_but_not_a_key_both_send():
+    """Two held invoices raise the same code, and neither may be swallowed by the other."""
+    sent = []
+    sink = WebhookSink("https://alerts.example.test/hook", poster=lambda url, payload: sent.append(payload))
+    alerts = [
+        Alert("exception_case", "warning", "Invoice A is held", {"invoice_id": "A"}, key="exception_case:A"),
+        Alert("exception_case", "warning", "Invoice B is held", {"invoice_id": "B"}, key="exception_case:B"),
+    ]
+
+    assert sink.send(alerts) == []
+    assert len(sent) == 1
+    assert [alert["detail"]["invoice_id"] for alert in sent[0]["alerts"]] == ["A", "B"]
+
+    # Each key stays quiet on its own for the interval, exactly like an unkeyed alert.
+    assert sink.send([alerts[0]]) == []
+    assert len(sent) == 1
+
+
+def test_a_keyless_alert_is_still_deduped_by_code():
+    sent = []
+    sink = WebhookSink("https://alerts.example.test/hook", poster=lambda url, payload: sent.append(payload))
+    alerts = evaluate_alerts(
+        outcome="ok", consecutive_failures=0, snapshot=_snapshot(payments_uncertain=1), settings=_Settings()
+    )
+
+    assert sink.send(alerts) == []
+    assert sink.send(alerts) == []
+    assert len(sent) == 1

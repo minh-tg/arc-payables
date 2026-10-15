@@ -34,9 +34,15 @@ class Alert:
     severity: str
     summary: str
     detail: dict[str, Any] = field(default_factory=dict)
+    key: str | None = None
+    """What the repeat interval is keyed on. Absent, it is the code. An alert that is about one
+    invoice sets its own key so two held invoices in one pass are two alerts, not one."""
 
     def to_dict(self) -> dict[str, Any]:
-        return {"code": self.code, "severity": self.severity, "summary": self.summary, "detail": self.detail}
+        body = {"code": self.code, "severity": self.severity, "summary": self.summary, "detail": self.detail}
+        if self.key:
+            body["key"] = self.key
+        return body
 
 
 def evaluate_alerts(
@@ -137,7 +143,8 @@ class WebhookSink:
         """Send what is due, and report what could not be sent."""
         due: list[Alert] = []
         for alert in alerts:
-            last = self._sent.get(alert.code)
+            dedupe = alert.key or alert.code
+            last = self._sent.get(dedupe)
             if last is not None and (self._clock() - last) < self.min_interval_seconds:
                 continue
             due.append(alert)
@@ -154,7 +161,7 @@ class WebhookSink:
         except Exception as exc:
             return [{"code": alert.code, "error": f"{type(exc).__name__}: {exc}"[:200]} for alert in due]
         for alert in due:
-            self._sent[alert.code] = self._clock()
+            self._sent[alert.key or alert.code] = self._clock()
         return []
 
     def _http_post(self, url: str, payload: dict) -> None:  # pragma: no cover - exercised by hand

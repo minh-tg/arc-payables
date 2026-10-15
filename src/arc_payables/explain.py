@@ -272,6 +272,10 @@ ALERTS: dict[str, dict[str, Any]] = {
     "reserve_breached": _row("The treasury is below the configured reserve floor."),
     "settlements_unconfirmed": _row("Settlements that have not been confirmed."),
     "payments_not_in_ledger": _row("Confirmed payments that are not in the ledger."),
+    "exception_case": _row(
+        "A case file lists the records to correct.",
+        "Open the invoice and work the case.",
+    ),
 }
 
 #: The frequently misunderstood consequences, in plain questions.
