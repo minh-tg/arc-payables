@@ -58,7 +58,7 @@ function detailTable(item) {
           'tr',
           {},
           h('td', {}, h('a', { href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, row.invoice_number)),
-          h('td', {}, row.transaction_hash || '—'),
+          h('td', {}, row.transaction_hash ? h('span', { class: 'mono' }, row.transaction_hash, row.simulated ? ' ' : null, row.simulated ? badge('Simulated', 'warn') : null) : '—'),
           h('td', {}, row.erp_status || '—'),
           h('td', { class: 'num' }, String(row.erp_attempts || 0)),
           h('td', {}, row.erp_error_code || '—', plainWords('writeback', row.erp_error_code)),

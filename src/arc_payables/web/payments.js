@@ -347,13 +347,17 @@ async function renderPayments(root, [reference] = []) {
         h('td', {}, row.supplier_id),
         h('td', { class: 'num' }, money(row.amount_usdc)),
         h('td', {}, row.recipient || '—'),
-        h('td', {}, row.confirmation_status ? badge(row.confirmation_status, stateTone(row.confirmation_status)) : '—', plainWords('confirmations', row.confirmation_status)),
+        h('td', {}, row.confirmation_status ? badge(row.confirmation_status, stateTone(row.confirmation_status)) : '—', row.simulated ? badge('Simulated', 'warn') : null, plainWords('confirmations', row.confirmation_status)),
         h('td', {}, row.erp_status ? badge(row.erp_status, stateTone(row.erp_status)) : '—'),
         h('td', { class: 'num' }, row.fee_usdc ? money(row.fee_usdc) : '—'),
         h(
           'td',
           {},
-          row.explorer_url ? h('a', { href: row.explorer_url, target: '_blank', rel: 'noreferrer' }, `${row.transaction_hash.slice(0, 12)}…`) : '—',
+          row.transaction_hash
+            ? row.simulated || !row.explorer_url
+              ? h('span', { class: 'mono' }, row.transaction_hash)
+              : h('a', { href: row.explorer_url, target: '_blank', rel: 'noreferrer' }, `${row.transaction_hash.slice(0, 12)}…`)
+            : '—',
         ),
         h('td', {}, outcomeBadge(row.outcome), plainWords('outcomes', row.outcome.code), outcomeWords(row.outcome.code)),
       ),

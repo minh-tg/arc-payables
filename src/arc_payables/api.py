@@ -440,7 +440,12 @@ def create_app(
         """
         from .cases import add_case_summaries
 
-        return add_case_summaries(workflow.store, build_attention(workflow))
+        result = add_case_summaries(workflow.store, build_attention(workflow))
+        simulated = settings.payment_provider == "mock"
+        for item in result.get("items", []):
+            for payment in item.get("detail", {}).get("payments", []):
+                payment["simulated"] = simulated
+        return result
 
     @app.get("/setup", tags=["health"], dependencies=[Depends(require_api_key)])
     def setup() -> dict[str, Any]:

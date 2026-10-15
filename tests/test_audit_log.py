@@ -147,6 +147,25 @@ def test_a_mock_settlement_is_marked_simulated_without_an_explorer_link(runtime)
     assert row["simulated"] is True and row["explorer_url"] is None
 
 
+def test_attention_payment_rows_include_the_simulated_flag(runtime):
+    _settle(runtime, runtime["legitimate_id"])
+    _set_payment(
+        runtime,
+        runtime["legitimate_id"],
+        {"confirmation_status": "PENDING"},
+        WorkflowState.NEEDS_RECONCILIATION.value,
+    )
+
+    response = _client(runtime).get("/attention", headers={"X-API-Key": "log-key"})
+    assert response.status_code == 200
+    row = next(
+        payment
+        for item in response.json()["items"]
+        for payment in item.get("detail", {}).get("payments", [])
+    )
+    assert row["simulated"] is True
+
+
 def test_a_live_settlement_keeps_its_explorer_link(runtime):
     _settle(runtime, runtime["legitimate_id"])
     runtime["workflow"].settings.payment_provider = "local"

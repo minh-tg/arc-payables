@@ -110,13 +110,11 @@ async function renderAudit(root) {
       h('td', {}, h('a', { href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, row.invoice_number)),
       h('td', {}, row.supplier_id),
       h('td', {}, clock(row.settled_at || row.confirmed_at)),
-      h('td', {}, row.confirmation_status ? badge(row.confirmation_status, stateTone(row.confirmation_status)) : '—'),
+      h('td', {}, row.confirmation_status ? badge(row.confirmation_status, stateTone(row.confirmation_status)) : '—', row.simulated ? badge('Simulated', 'warn') : null),
       h(
         'td',
         {},
-        row.transaction_hash
-          ? h('span', { class: 'mono' }, `${String(row.transaction_hash).slice(0, 18)}…`)
-          : '—',
+        row.transaction_hash ? h('span', { class: 'mono' }, row.transaction_hash) : '—',
       ),
       h(
         'td',
