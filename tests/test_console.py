@@ -278,7 +278,7 @@ def test_phone_layout_gives_inline_controls_tap_height():
     html = (WEB_DIR / "index.html").read_text()
     mobile = re.search(r"@media \(max-width: 899px\) \{([\s\S]*?)\n      \}", html)
     assert mobile
-    assert "td a, .term { display: inline-flex; align-items: center; min-height: 44px; }" in mobile.group(1)
+    assert "td a, .term, .card > a, .health-summary > a { display: inline-flex; align-items: center; min-height: 44px; }" in mobile.group(1)
     assert "input:not([type='checkbox']) { min-height: 44px; }" in mobile.group(1)
 
 
@@ -347,3 +347,13 @@ def test_theme_colours_and_radii_are_tokens():
     assert not re.search(r"\.log-level-\w+ \{ color: oklch", rules)
     assert "border-radius: 12px" not in rules
     assert "rgba(10, 15, 30" not in rules
+
+
+def test_phone_header_keeps_refresh_on_the_title_row():
+    html = (WEB_DIR / "index.html").read_text()
+    mobile = re.search(r"@media \(max-width: 899px\) \{([\s\S]*?)\n      \}", html)
+    assert mobile
+    rules = mobile.group(1)
+    assert ".header-meta { display: contents; }" in rules
+    assert ".header-refresh { grid-column: 2; grid-row: 1; }" in rules
+    assert "#environment-label { grid-column: 1; grid-row: 2;" in rules

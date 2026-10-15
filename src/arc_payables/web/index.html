@@ -516,9 +516,15 @@
         .nav-group + .nav-group { margin-top: 8px; padding-top: 8px; }
         .nav-end { flex-direction: column; align-items: flex-start; }
         .nav-end input { max-width: 100%; }
-        .header { flex-wrap: wrap; }
-        .header-meta { width: 100%; justify-content: flex-start; }
-        #environment-label { max-width: none; }
+        /* Menu, title and Refresh share the first row; the environment and balance take the second. */
+        .header {
+          display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px;
+        }
+        .header-meta { display: contents; }
+        .header-title { grid-column: 1; grid-row: 1; }
+        .header-refresh { grid-column: 2; grid-row: 1; }
+        #environment-label { grid-column: 1; grid-row: 2; max-width: none; min-width: 0; }
+        .balance-pill { grid-column: 2; grid-row: 2; justify-self: end; }
         .journey, .destination-grid, .review-fields { grid-template-columns: 1fr; }
         .invoice-summary { align-items: flex-start; flex-direction: column; }
         .section-heading { flex-wrap: wrap; align-items: flex-start; }
@@ -526,7 +532,7 @@
         .responsive-table td { overflow-wrap: anywhere; min-width: 0; }
         button, .btn, summary { min-height: 44px; }
         .action-row .btn, .action-row button { min-height: 44px; }
-        td a, .term { display: inline-flex; align-items: center; min-height: 44px; }
+        td a, .term, .card > a, .health-summary > a { display: inline-flex; align-items: center; min-height: 44px; }
         input:not([type='checkbox']) { min-height: 44px; }
         .stats { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
         main { padding: 16px; }
