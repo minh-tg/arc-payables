@@ -89,8 +89,9 @@ def _outcome(payment: dict | None, state: str | None) -> dict[str, Any]:
     }
 
 
-def _row(invoice: Any, state: str, payment: dict | None) -> dict[str, Any]:
+def _row(invoice: Any, state: str, payment: dict | None, *, simulated: bool = False) -> dict[str, Any]:
     permit = (payment or {}).get("permit") or {}
+    transaction_hash = (payment or {}).get("transaction_hash")
     return {
         "invoice_id": invoice.id,
         "invoice_number": invoice.invoice_number,
@@ -104,11 +105,12 @@ def _row(invoice: Any, state: str, payment: dict | None) -> dict[str, Any]:
         "payment_id": (payment or {}).get("payment_id"),
         "confirmation_status": (payment or {}).get("confirmation_status") or "NOT_ATTEMPTED",
         "erp_status": (payment or {}).get("erp_status"),
-        "transaction_hash": (payment or {}).get("transaction_hash"),
+        "transaction_hash": transaction_hash,
+        "simulated": simulated,
+        # A mock settlement has no on-chain transaction, so its hash must not link to an explorer
+        # page for a transaction that does not exist. The hash stays visible: the audit trail uses it.
         "explorer_url": (
-            f"{ARC_TESTNET_EXPLORER}/tx/{(payment or {}).get('transaction_hash')}"
-            if (payment or {}).get("transaction_hash")
-            else None
+            f"{ARC_TESTNET_EXPLORER}/tx/{transaction_hash}" if transaction_hash and not simulated else None
         ),
         "fee_units": (payment or {}).get("fee_units"),
         "fee_usdc": units_to_usdc((payment or {}).get("fee_units")) if (payment or {}).get("fee_units") else None,
@@ -127,12 +129,13 @@ def list_payments(
     limit: int = MAX_ROWS,
 ) -> dict[str, Any]:
     """Every payment the agent has authorized, newest first, with what became of it."""
+    simulated = workflow.settings.payment_provider == "mock"
     rows: list[dict[str, Any]] = []
     for invoice, state in workflow.store.list_invoices():
         payment = workflow.store.get_payment(invoice.id)
         if payment is None:
             continue
-        row = _row(invoice, state, payment)
+        row = _row(invoice, state, payment, simulated=simulated)
         if confirmation and str(row["confirmation_status"]).upper() != confirmation.upper():
             continue
         if ledger and str(row["erp_status"] or "").upper() != ledger.upper():
@@ -182,6 +185,7 @@ def _match(workflow: Any, reference: str) -> tuple[Any, str, dict | None, str]:
 def payment_report(workflow: Any, reference: str) -> dict[str, Any]:
     """Everything recorded about one payment, in the order a reviewer asks for it."""
     invoice, state, payment, matched_by = _match(workflow, reference)
+    simulated = workflow.settings.payment_provider == "mock"
     detail = workflow.get_invoice(invoice.id)
     events = workflow.store.events(invoice.id)
     audit = workflow.store.verify_audit_chain()
@@ -240,9 +244,10 @@ def payment_report(workflow: Any, reference: str) -> dict[str, Any]:
             "recipient": authorization.get("recipient"),
             "payer": authorization.get("payer"),
             "transaction_hash": (payment or {}).get("transaction_hash"),
+            "simulated": simulated,
             "explorer_url": (
                 f"{ARC_TESTNET_EXPLORER}/tx/{(payment or {}).get('transaction_hash')}"
-                if (payment or {}).get("transaction_hash")
+                if (payment or {}).get("transaction_hash") and not simulated
                 else None
             ),
             "confirmation_status": (payment or {}).get("confirmation_status"),

@@ -127,8 +127,38 @@ def test_a_successful_payment_says_so_and_names_both_ledger_entries(runtime):
     assert report["ledger"]["payment_entry"]
     assert report["ledger"]["fee_entry"]
     assert report["settlement"]["transaction_hash"].startswith("0x")
-    assert report["settlement"]["explorer_url"].endswith(report["settlement"]["transaction_hash"])
+    # The mock provider settles nothing on chain, so its hash must not link to an explorer page.
+    assert report["settlement"]["simulated"] is True
+    assert report["settlement"]["explorer_url"] is None
     assert report["audit"]["ok"] is True
+
+
+def test_a_mock_settlement_is_marked_simulated_without_an_explorer_link(runtime):
+    _settle(runtime, runtime["legitimate_id"])
+
+    report = payment_report(runtime["workflow"], runtime["legitimate_id"])
+    assert report["settlement"]["simulated"] is True
+    assert report["settlement"]["explorer_url"] is None
+    assert report["settlement"]["transaction_hash"].startswith("0x")
+
+    row = next(
+        item for item in list_payments(runtime["workflow"])["payments"] if item["invoice_id"] == runtime["legitimate_id"]
+    )
+    assert row["simulated"] is True and row["explorer_url"] is None
+
+
+def test_a_live_settlement_keeps_its_explorer_link(runtime):
+    _settle(runtime, runtime["legitimate_id"])
+    runtime["workflow"].settings.payment_provider = "local"
+
+    report = payment_report(runtime["workflow"], runtime["legitimate_id"])
+    assert report["settlement"]["simulated"] is False
+    assert report["settlement"]["explorer_url"].endswith(report["settlement"]["transaction_hash"])
+
+    row = next(
+        item for item in list_payments(runtime["workflow"])["payments"] if item["invoice_id"] == runtime["legitimate_id"]
+    )
+    assert row["simulated"] is False and row["explorer_url"].endswith(row["transaction_hash"])
 
 
 def test_money_that_moved_without_a_ledger_entry_is_not_reported_as_success(runtime):
