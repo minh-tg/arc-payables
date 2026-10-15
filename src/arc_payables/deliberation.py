@@ -350,12 +350,32 @@ def build_case_draft_prompt(item: dict, untrusted: str, max_chars: int) -> str:
     )
 
 
-def parse_recommendation(content: str) -> tuple[dict[str, Any] | None, str | None]:
-    """Validate a planner response strictly. Returns (parsed, problem)."""
+_REASONING_CLOSERS = ("</thought>", "</think>")
+
+
+def _answer_text(content: str) -> str:
+    """The part of a model reply that must be the JSON answer.
+
+    Some models print a reasoning block before the answer. A reply that opens with one is read from
+    the end of its last closing tag; an unclosed block leaves the whole reply, which then fails as
+    not JSON. A code fence around the answer is removed. Whatever remains is parsed strictly, so
+    prose after the answer, or an answer that exists only inside the reasoning, is still rejected.
+    """
     text = content.strip()
+    lowered = text.lower()
+    if lowered.startswith(("<thought>", "<think>")):
+        ends = [lowered.rfind(closer) + len(closer) for closer in _REASONING_CLOSERS if closer in lowered]
+        if ends:
+            text = text[max(ends):].strip()
     if text.startswith("```"):
         text = text.strip("`")
         text = text.split("\n", 1)[1] if "\n" in text else text
+    return text
+
+
+def parse_recommendation(content: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate a planner response strictly. Returns (parsed, problem)."""
+    text = _answer_text(content)
     try:
         payload = json.loads(text)
     except ValueError:
@@ -392,10 +412,7 @@ def parse_recommendation(content: str) -> tuple[dict[str, Any] | None, str | Non
 
 def parse_draft(content: str) -> tuple[dict[str, Any] | None, str | None]:
     """Parse a draft response as a JSON object. Field and text rules live in :mod:`cases`."""
-    text = content.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text.split("\n", 1)[1] if "\n" in text else text
+    text = _answer_text(content)
     try:
         payload = json.loads(text)
     except ValueError:
@@ -407,10 +424,7 @@ def parse_draft(content: str) -> tuple[dict[str, Any] | None, str | None]:
 
 def parse_order(content: str, expected_ids: list[str]) -> tuple[list[tuple[str, str]] | None, str | None]:
     """Validate an ordering response: exactly the invoices given, each once, each with a reason."""
-    text = content.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text.split("\n", 1)[1] if "\n" in text else text
+    text = _answer_text(content)
     try:
         payload = json.loads(text)
     except ValueError:

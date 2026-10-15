@@ -357,3 +357,30 @@ def test_the_planner_prompt_asks_for_a_reason_inside_the_accepted_length():
 
     assert "under 300 characters" in SYSTEM_PROMPT
     assert 300 < MAX_REASON_CHARS
+
+
+ANSWER = '{"action": "ESCALATE", "reason": "Over the limit.", "confidence": "high", "evidence_requests": []}'
+
+
+def test_a_reasoning_block_before_the_answer_is_skipped_and_the_answer_is_still_validated():
+    from arc_payables.deliberation import parse_recommendation
+
+    parsed, problem = parse_recommendation(f"<thought>Draft: {ANSWER}\nCheck: ok.</thought>\n{ANSWER}")
+    assert problem is None and parsed["action"] == "ESCALATE"
+    parsed, problem = parse_recommendation('<think>x</think>\n```json\n' + ANSWER + '\n```')
+    assert problem is None and parsed["action"] == "ESCALATE"
+    _parsed, problem = parse_recommendation('<thought>x</thought>{"action": "TRANSFER_ALL", "reason": "r"}')
+    assert problem == "disallowed_action"
+
+
+def test_an_answer_that_exists_only_inside_the_reasoning_is_rejected():
+    from arc_payables.deliberation import parse_recommendation
+
+    for reply in (
+        f"<thought>The answer is {ANSWER}</thought>",
+        f"<thought>{ANSWER}",
+        f"<thought>x</thought>Here you go: {ANSWER}",
+        f"{ANSWER} <thought>x</thought>",
+    ):
+        parsed, problem = parse_recommendation(reply)
+        assert parsed is None and problem == "not_json", reply
