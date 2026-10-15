@@ -14,8 +14,9 @@ ARC_TESTNET_EXPLORER = "https://testnet.arcscan.app"
 
 #: Accounting states in which a payable may be paid. One definition, three readers: the
 #: deterministic policy, the advisory agent, and the connector's own discovery, so discovery
-#: cannot surface something the policy would refuse on its state alone.
-PAYABLE_INVOICE_STATUSES = frozenset({"SUBMITTED", "UNPAID", "OVERDUE", "PARTLY PAID"})
+#: cannot surface something the policy would refuse on its state alone. A partly paid invoice is
+#: not listed: the workflow pays an invoice's full amount, so a smaller balance is a block.
+PAYABLE_INVOICE_STATUSES = frozenset({"SUBMITTED", "UNPAID", "OVERDUE"})
 
 
 def is_evm_address(value: str | None) -> bool:

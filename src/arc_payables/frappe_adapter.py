@@ -327,6 +327,7 @@ class FrappeAccountingConnector:
         if not self.settings.frappe_accounting_ready:
             raise FrappeAdapterError(None, "account/currency/exchange-rate/fee mapping is incomplete")
         self._verify_account_mapping(invoice, mapping)
+        self._require_full_balance(invoice)
 
         amount_usdc = Decimal(invoice.amount_units) / Decimal(USDC_SCALE)
         try:
@@ -568,6 +569,23 @@ class FrappeAccountingConnector:
             return ""
         return str(self.get_document("Account", account).get("account_currency") or "")
 
+    def _require_full_balance(self, invoice: InvoiceRecord) -> None:
+        """Refuse to book a payment the invoice's open balance cannot absorb.
+
+        Only called before the Payment Entry is created: afterwards the balance is zero by design.
+        The money has already moved at this point, so a refusal leaves the writeback failed and
+        visible for a person rather than booking an allocation ERPNext would reject or distort.
+        """
+        raw = self.get_document("Purchase Invoice", invoice.purchase_invoice_id or "")
+        if raw.get("outstanding_amount") is None:
+            raise FrappeAdapterError(None, "Purchase Invoice does not report an outstanding amount")
+        if self._amount_units(raw.get("outstanding_amount")) < self._amount_units(raw.get("grand_total")):
+            raise FrappeAdapterError(
+                None,
+                "Purchase Invoice has already been paid or credited; the open balance is below the amount paid",
+                uncertain=False,
+            )
+
     def _verify_account_mapping(self, invoice: InvoiceRecord, mapping: PaymentMapping) -> None:
         if invoice.currency.upper() != mapping.source_currency.upper():
             raise FrappeAdapterError(
@@ -629,6 +647,18 @@ class FrappeAccountingConnector:
             return "CANCELLED"
         if code == 0:
             return "DRAFT"
+        # The label can still read "Overdue" or "Unpaid" after a partial payment or an applied
+        # credit, so the balance decides: only an untouched invoice is payable in full.
+        outstanding, total = raw.get("outstanding_amount"), raw.get("grand_total")
+        if outstanding is not None and total is not None:
+            try:
+                balance, billed = Decimal(str(outstanding)), Decimal(str(total))
+            except InvalidOperation:
+                return "UNKNOWN"
+            if balance <= 0:
+                return "PAID"
+            if balance != billed:
+                return "PARTLY PAID"
         return status.upper() if status else "SUBMITTED"
 
     def _settlement_units_from_erp(self, erp_units: int, currency: str) -> int:

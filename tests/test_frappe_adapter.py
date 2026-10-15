@@ -14,7 +14,7 @@ from arc_payables.accounting import (
     compute_payment_entry_amounts,
     payload_fields,
 )
-from arc_payables.domain import InvoiceRecord, USDC_SCALE
+from arc_payables.domain import InvoiceRecord, PAYABLE_INVOICE_STATUSES, USDC_SCALE
 from arc_payables.frappe_adapter import FrappeAccountingConnector, FrappeAdapterError
 from arc_payables.ports import PaymentMapping
 from arc_payables.settings import Settings
@@ -343,6 +343,7 @@ def _payment_handler(
     settlement_account_currency: str = "USDC",
     payable_account_currency: str = "USD",
     fee_account_currency: str = "USD",
+    invoice_outstanding: float = 250,
 ):
     fee_entries = fee_entries if fee_entries is not None else {}
     account_currencies = {
@@ -364,7 +365,9 @@ def _payment_handler(
         if path.startswith("/api/resource/Payment Entry/"):
             return httpx.Response(200, json={"data": entries[path.rsplit("/", 1)[-1]]})
         if path == "/api/resource/Purchase Invoice/PINV-1":
-            return httpx.Response(200, json={"data": {"name": "PINV-1", "currency": "USD"}})
+            return httpx.Response(200, json={"data": {
+                "name": "PINV-1", "currency": "USD", "grand_total": 250, "outstanding_amount": invoice_outstanding,
+            }})
         if path.startswith("/api/resource/Cost Center/"):
             return httpx.Response(200, json={"data": {"name": path.rsplit("/", 1)[-1], "company": COMPANY, "is_group": 0}})
         if path.startswith("/api/resource/Currency/"):
@@ -621,6 +624,31 @@ def test_live_payment_entry_requires_every_mapping_value():
 )
 def test_erp_invoice_status_is_derived_from_docstatus_and_fails_closed(raw, expected):
     assert FrappeAccountingConnector._invoice_status(raw) == expected
+
+
+def test_status_follows_the_open_balance_not_only_the_label():
+    def raw(status, outstanding):
+        return {"docstatus": 1, "status": status, "grand_total": 250, "outstanding_amount": outstanding}
+
+    assert FrappeAccountingConnector._invoice_status(raw("Unpaid", 250)) == "UNPAID"
+    # ERPNext keeps the label "Overdue" after a partial payment or an applied credit.
+    assert FrappeAccountingConnector._invoice_status(raw("Overdue", 100)) == "PARTLY PAID"
+    assert FrappeAccountingConnector._invoice_status(raw("Partly Paid", 100)) == "PARTLY PAID"
+    assert FrappeAccountingConnector._invoice_status(raw("Unpaid", 0)) == "PAID"
+    assert FrappeAccountingConnector._invoice_status(raw("Unpaid", "not-a-number")) == "UNKNOWN"
+    for status in ("PARTLY PAID", "PAID"):
+        assert status not in PAYABLE_INVOICE_STATUSES
+
+
+def test_payment_entry_is_refused_when_the_invoice_balance_is_below_the_payment():
+    entries: dict[str, dict] = {}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
+    handler = _payment_handler(entries, counters, invoice_outstanding=100)
+    connector = FrappeAccountingConnector(_settings(), httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(FrappeAdapterError, match="already been paid or credited") as raised:
+        connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, _mapping())
+    assert counters == {"create": 0, "submit": 0, "fee_create": 0}
+    assert raised.value.uncertain is False
 
 
 def test_invoice_without_linked_purchase_invoice_cannot_claim_payable_state():
