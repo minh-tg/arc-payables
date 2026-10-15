@@ -1,0 +1,58 @@
+name: Trial report
+description: Report what happened when you tried the mock demo (see docs/try-it.md)
+title: "Trial: "
+labels: ["trial"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The demo is mock. Do not paste real supplier details, credentials or secrets here.
+        This issue is public.
+  - type: dropdown
+    id: role
+    attributes:
+      label: Your background
+      options:
+        - Accounts payable or finance
+        - Developer
+        - Security or risk
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: reached
+    attributes:
+      label: How far did you get
+      options:
+        - Ran it locally
+        - Used the hosted demo
+        - Only read the README or watched the video
+    validations:
+      required: true
+  - type: textarea
+    id: confusing
+    attributes:
+      label: What did you not understand or not trust
+      description: Name the screen and what you expected it to mean.
+    validations:
+      required: true
+  - type: dropdown
+    id: unsafe
+    attributes:
+      label: Did you find a way to make it pay something it should not
+      options:
+        - Not tried
+        - Tried, no
+        - Yes, described below
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Steps for anything unsafe, and anything else
+  - type: checkboxes
+    id: quote
+    attributes:
+      label: Quoting
+      options:
+        - label: The maintainer may quote this report, with my GitHub handle, in the project submission.

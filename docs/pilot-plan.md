@@ -3,6 +3,11 @@
 **Gate:** Finish M01–M16 in [manual-readiness.md](manual-readiness.md), save dated owner
 sign-off and resolve safety failures **before recruiting users or counting traction**.
 
+## Anyone can try it first
+
+[Try it in 15 minutes](try-it.md) is a mock-only path for a stranger, with a public trial report
+form. A report counts as outside feedback on a prototype, listed apart from pilot participants.
+
 ## Start with usability, not live finance
 
 Choose one real consenting business workflow; the owner's business may qualify.
