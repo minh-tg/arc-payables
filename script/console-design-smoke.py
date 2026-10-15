@@ -7,13 +7,20 @@ Run the mock server separately, then:
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+import tempfile
 
-from playwright.sync_api import Page, sync_playwright
+try:
+    from playwright.sync_api import Error as PlaywrightError, Page, sync_playwright
+except ImportError:
+    print("SKIP  Playwright is not installed")
+    raise SystemExit(0)
 
 BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8097")
-SHOTS = Path("/home/minh/projects/hackathons/tameion/local-docs/orchestration/ux-shots")
+SHOTS = Path(os.environ.get("CONSOLE_DESIGN_SHOTS_DIR", Path(tempfile.gettempdir()) / "tameion-console-design-smoke"))
+CHROMIUM_PATH = os.environ.get("CHROMIUM_PATH")
 ROUTES = {
     "overview": "Overview",
     "attention": "Exceptions",
@@ -24,6 +31,8 @@ ROUTES = {
     "treasury": "Treasury and risk",
     "setup": "Setup",
     "invoice/demo-invoice-suspicious": "Invoice",
+    "invoice/demo-invoice-legitimate": "Invoice",
+    "payments/demo-invoice-legitimate": "Settlements",
 }
 
 
@@ -32,6 +41,65 @@ def prepare_demo(page: Page) -> None:
     assert response.ok, f"demo seed failed: HTTP {response.status}"
     response = page.request.post(f"{BASE_URL}/invoices/demo-invoice-suspicious/evaluate")
     assert response.ok, f"demo evaluation failed: HTTP {response.status}"
+
+
+def add_long_hash_payment(page: Page) -> None:
+    transaction_hash = "0x" + "ab" * 32
+    body = {
+        "totals": {"value_usdc": 1250, "fees_usdc": 0.1, "settled": 1, "settled_not_recorded": 0, "unconfirmed": 0, "failed": 0},
+        "payments": [{
+            "invoice_id": "demo-invoice-legitimate",
+            "invoice_number": "ACME-INV-2026-001",
+            "supplier_id": "supplier-acme",
+            "amount_usdc": 1250,
+            "recipient": "0x1111111111111111111111111111111111111111",
+            "confirmation_status": "CONFIRMED",
+            "simulated": True,
+            "erp_status": "ERP_RECORDED",
+            "fee_usdc": 0.1,
+            "transaction_hash": transaction_hash,
+            "explorer_url": None,
+            "settled_at": "2026-10-15T09:00:00+00:00",
+            "outcome": {"code": "settled_and_recorded", "success": True, "summary": "Settled and recorded"},
+        }],
+    }
+
+    def fulfill_payments(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    page.route("**/payments", fulfill_payments)
+
+
+def add_payment_report_fixture(page: Page) -> None:
+    report = {
+        "outcome": {"code": "settled_and_recorded", "success": True, "summary": "Payment settled and recorded."},
+        "reference": {"matched_by": "invoice id", "value": "demo-invoice-legitimate"},
+        "invoice": {"id": "demo-invoice-legitimate", "invoice_number": "ACME-INV-2026-001"},
+        "settlement": {
+            "amount_usdc": 1250,
+            "recipient": "0x1111111111111111111111111111111111111111",
+            "payer": "0x2222222222222222222222222222222222222222",
+            "confirmation_status": "CONFIRMED",
+            "simulated": True,
+            "settled_at": "2026-10-15T09:00:00+00:00",
+            "transaction_hash": "0x" + "ab" * 32,
+        },
+        "authorization": {"signature_verified": True},
+        "ledger": {"status": "ERP_RECORDED", "fee_status": "ERP_RECORDED", "attempts": 1},
+        "audit": {"ok": True, "entries": 1},
+        "timeline": [{
+            "when": 1792057080,
+            "event": "INVOICE_RECEIVED",
+            "state": "ERP_PENDING",
+            "explanation": "Invoice received for processing.",
+            "entry_hash": "0x" + "cd" * 32,
+        }],
+    }
+
+    def fulfill_report(route):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(report))
+
+    page.route("**/payments/demo-invoice-legitimate*", fulfill_report)
 
 
 def add_draft_fixture(page: Page) -> None:
@@ -81,6 +149,18 @@ def assert_view(page: Page, route: str, title: str, width: int) -> None:
             .filter((el) => el.getClientRects().length)
             .map((el) => ({text: el.textContent.trim(), height: el.getBoundingClientRect().height}))
             .filter((el) => el.height < 44),
+          smallTargets: [...document.querySelectorAll('td a, .term, input:not([type="checkbox"])')]
+            .filter((el) => el.getClientRects().length)
+            .map((el) => ({text: el.textContent.trim(), height: el.getBoundingClientRect().height}))
+            .filter((el) => el.height < 44),
+          tableWidths: [...document.querySelectorAll('.table-wrapper')]
+            .map((el) => ({scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, heading: el.querySelector('th')?.textContent.trim()})),
+          overflowingTables: [...document.querySelectorAll('.table-wrapper')]
+            .filter((el) => el.scrollWidth > el.clientWidth)
+            .map((el) => ({scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, heading: el.innerText.slice(0, 80)})),
+          splitMono: [...document.querySelectorAll('#view .table-wrapper td.mono')]
+            .filter((el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length > 1; })
+            .map((el) => el.textContent.trim()),
           renderError: document.querySelector('#view .error strong')?.textContent || null
         })"""
     )
@@ -89,6 +169,15 @@ def assert_view(page: Page, route: str, title: str, width: int) -> None:
     assert result["bodyWidth"] <= width, (route, width, result["bodyWidth"])
     if width < 900:
         assert not result["undersized"], (route, width, result["undersized"])
+        assert not result["smallTargets"], (route, width, result["smallTargets"])
+    if width == 1280:
+        assert not result["overflowingTables"], (route, result["overflowingTables"])
+        assert not result["splitMono"], (route, result["splitMono"])
+        if route in {"payments", "audit", "treasury"}:
+            targets = result["tableWidths"]
+            if route == "treasury":
+                targets = [item for item in targets if item["heading"] == "Supplier"]
+            print(f"WIDTH  {route}: {targets}")
     assert not result["renderError"], (route, result["renderError"])
 
 
@@ -148,6 +237,61 @@ def assert_case_and_badges(page: Page) -> None:
     assert not result["touching"], result
 
 
+
+def assert_payment_report(page: Page) -> None:
+    add_payment_report_fixture(page)
+    page.set_viewport_size({"width": 1280, "height": 900})
+    page.goto(f"{BASE_URL}/console/#/payments/demo-invoice-legitimate", wait_until="domcontentloaded")
+    page.locator("#view .card h2").filter(has_text="Audit chain").wait_for(timeout=10000)
+    result = page.evaluate(
+        """() => {
+          const audit = [...document.querySelectorAll('#view .card')]
+            .find((card) => card.querySelector('h2')?.textContent.trim() === 'Audit chain');
+          const row = audit?.querySelector('tbody tr');
+          return {
+            event: row?.children[1]?.textContent.trim(),
+            state: row?.children[2]?.textContent.trim(),
+            time: row?.children[0]?.textContent.trim(),
+            badgeFonts: [...document.querySelectorAll('dl.facts dd .badge')].map((el) => getComputedStyle(el).fontFamily)
+          };
+        }"""
+    )
+    assert result["event"] == "Invoice received", result
+    assert result["state"] == "Pending ledger sync", result
+    assert result["time"] != "1792057080" and "2026" in result["time"], result
+    assert result["badgeFonts"] and all("Inter" in family for family in result["badgeFonts"]), result
+
+
+def assert_reconcile_finding(page: Page) -> None:
+    transaction_hash = "0x" + "ab" * 32
+
+    def fulfill_reconcile(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=(
+                '{"coverage":{"complete_from_block":0,"provider":"mock","guard_address":"0xguard"},'
+                '"blocking":1,"review":1,"records":1,"observations":0,"findings":[{'
+                '"severity":"blocking","kind":"unconfirmed","detail":"Mock settlement was not observed.",'
+                '"invoice_id":"demo-invoice-suspicious","transaction_hash":"'
+                + transaction_hash
+                + '","simulated":true}]}'
+            ),
+        )
+
+    page.route("**/reconciliation/run", fulfill_reconcile)
+    page.set_viewport_size({"width": 1280, "height": 900})
+    page.goto(f"{BASE_URL}/console/#/payments", wait_until="domcontentloaded")
+    page.locator("#view button").filter(has_text="Reconcile with the chain").wait_for(timeout=10000)
+    page.get_by_role("button", name="Reconcile with the chain").click()
+    page.locator(f".mono:text-is('{transaction_hash}')").wait_for(timeout=10000)
+    cell = page.locator(".mono").filter(has_text=transaction_hash).locator("..").last
+    assert transaction_hash in cell.inner_text(), cell.inner_text()
+    assert cell.locator(".badge", has_text="Simulated").count() == 1
+    page.unroute("**/reconciliation/run", fulfill_reconcile)
+    page.close()
+
+
 def save_screenshots(browser) -> None:
     SHOTS.mkdir(parents=True, exist_ok=True)
     for theme in ("light", "dark"):
@@ -164,25 +308,34 @@ def save_screenshots(browser) -> None:
 
 def main() -> None:
     with sync_playwright() as playwright:
-        executable = Path.home() / ".cache/ms-playwright/chromium-1243/chrome-linux64/chrome"
-        browser = playwright.chromium.launch(executable_path=str(executable), headless=True)
+        try:
+            launch_options = {"headless": True}
+            if CHROMIUM_PATH:
+                launch_options["executable_path"] = CHROMIUM_PATH
+            browser = playwright.chromium.launch(**launch_options)
+        except PlaywrightError as error:
+            print(f"SKIP  Chromium is unavailable: {error}")
+            return
         bootstrap = browser.new_page()
         prepare_demo(bootstrap)
         bootstrap.close()
 
-        for width in (390, 899, 900):
+        for width in (1280, 900, 390):
             context = browser.new_context(viewport={"width": width, "height": 900})
             page = context.new_page()
             add_draft_fixture(page)
+            add_long_hash_payment(page)
+            add_payment_report_fixture(page)
             for route, title in ROUTES.items():
                 assert_view(page, route, title, width)
             if width == 390:
                 assert_case_and_badges(page)
             context.close()
-
+        assert_payment_report(browser.new_page(viewport={"width": 1280, "height": 900}))
+        assert_reconcile_finding(browser.new_page(viewport={"width": 1280, "height": 900}))
         save_screenshots(browser)
         browser.close()
-    print("PASS  9 routes at 390px and 900px, mobile targets, invoice layout and four screenshots")
+    print("PASS  11 routes at 1280px, 900px and 390px, table widths, phone targets, invoice layout and four screenshots")
 
 
 if __name__ == "__main__":
