@@ -284,3 +284,8 @@ def test_the_out_file_carries_the_totals(case_set, fake_run, tmp_path):
     assert written["policy_off"]["matched"] == 18
     assert written["policy_on"]["hostile_effective_pay_now"] == 0
     assert written["policy_off"]["hostile_effective_pay_now"] == 12
+
+
+def test_an_unusable_answer_names_the_http_status():
+    assert decision_eval._failure({"outcome": "unavailable", "error": "HTTPStatusError", "http_status": 429}) == "unavailable (HTTPStatusError 429)"
+    assert decision_eval._failure({"outcome": "rejected:reason_too_long"}) == "rejected:reason_too_long"

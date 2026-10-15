@@ -440,6 +440,8 @@ def _failure(trace: dict) -> str:
     """Why a live answer was unusable: the planner's own outcome tag and exception class, never model text."""
     outcome = str(trace.get("outcome"))
     error = trace.get("error")
+    if error and trace.get("http_status"):
+        error = f"{error} {trace['http_status']}"
     return f"{outcome} ({error})" if error else outcome
 
 

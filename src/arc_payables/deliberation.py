@@ -139,6 +139,8 @@ class DeliberatingPlanner:
             content = self._complete(prompt)
         except Exception as exc:  # transport, timeout, HTTP status, malformed envelope
             trace.update(outcome="unavailable", error=type(exc).__name__, latency_ms=int((time.monotonic() - started) * 1000))
+            if isinstance(exc, httpx.HTTPStatusError):
+                trace["http_status"] = exc.response.status_code
             return None, trace
         trace["latency_ms"] = int((time.monotonic() - started) * 1000)
         trace["response_sha256"] = hashlib.sha256(content.encode()).hexdigest()
@@ -234,6 +236,8 @@ class DeliberatingPlanner:
             content = self._complete(prompt, system=ORDER_SYSTEM_PROMPT)
         except Exception as exc:
             trace.update(outcome="unavailable", error=type(exc).__name__, latency_ms=int((time.monotonic() - started) * 1000))
+            if isinstance(exc, httpx.HTTPStatusError):
+                trace["http_status"] = exc.response.status_code
             return None, trace
         trace["latency_ms"] = int((time.monotonic() - started) * 1000)
         trace["response_sha256"] = hashlib.sha256(content.encode()).hexdigest()
