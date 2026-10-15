@@ -165,6 +165,47 @@ class APWorkflow:
         if case["fingerprint"] != decision["evidence_hash"] or self.store.case_items(invoice.id) != items:
             self.store.replace_case(invoice.id, OPEN, decision["evidence_hash"], items)
 
+    def recheck_case(self, invoice_id: str) -> dict[str, Any]:
+        """Re-read the evidence behind an open case, and re-evaluate only when it changed.
+
+        The worker polls because the accounting system pushes nothing. Only a change in the evidence
+        the decision read causes another evaluation, so a pass that finds nothing new writes
+        nothing. The re-evaluation is the same call a person would make: the policy, the evidence
+        hash, the approval binding and the state machine are untouched, and nothing here approves,
+        waives, authorizes or pays anything.
+
+        Returns whether the evidence changed and what the case looks like afterwards. An invoice
+        without an open case is left alone.
+        """
+        from .policy import compute_evidence_hash
+
+        case = self.store.case_row(invoice_id)
+        if case is None or case["status"] != OPEN:
+            return {"changed": False, "status": case["status"] if case else None, "action": None}
+        invoice = self._invoice_or_404(invoice_id)
+        try:
+            context = self._load_context(invoice)
+        except WorkflowError:
+            raise
+        except Exception as exc:
+            raise WorkflowError(
+                503,
+                "evidence_unavailable",
+                "Required accounting or treasury evidence is unavailable; the case stands.",
+            ) from exc
+        fingerprint = compute_evidence_hash(invoice, context["accounting"], context["treasury"], context["screening"])
+        if fingerprint == case["fingerprint"]:
+            self.store.set_case_checked(invoice_id)
+            decision = self.store.get_decision(invoice_id) or {}
+            return {"changed": False, "status": OPEN, "action": decision.get("action")}
+        self.store.record_case_event(invoice_id, "source_changed")
+        self.evaluate(invoice_id)
+        decision = self.store.get_decision(invoice_id) or {}
+        failing = any(not check.get("passed") for check in decision.get("policy_checks", []))
+        self.store.record_case_event(invoice_id, "recheck_still_failing" if failing else "recheck_cleared")
+        self.store.set_case_checked(invoice_id)
+        return {"changed": True, "status": OPEN if failing else CLEARED, "action": decision.get("action")}
+
     def _active_approval(self, invoice_id: str, approvals: list | None = None) -> list | None:
         approvals = self.store.get_approval(invoice_id) if approvals is None else approvals
         if not approvals or self.settings.auth_mode != "oidc":

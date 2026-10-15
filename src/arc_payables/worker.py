@@ -1,12 +1,13 @@
 """The background pass: what happens when nobody is asking.
 
 Every other entry point in this project is a person or a test calling something. This is the part
-that runs on a timer, and it exists because four things otherwise wait forever:
+that runs on a timer, and it exists because five things otherwise wait forever:
 
 * a settlement whose confirmation never came back stays unconfirmed,
 * a confirmed payment the ledger rejected stays unrecorded,
 * a payable that arrived before its due date stays parked once the date arrives,
-* a screening taken months ago stays at its old risk tier.
+* a screening taken months ago stays at its old risk tier,
+* a held invoice whose source record is corrected is never looked at again.
 
 A pass does the work it can do without a decision, records what it did, and stops. It never approves
 anything, and by default it never starts a payment either: paying unattended is opt-in, because that
@@ -129,6 +130,8 @@ def run_pass(
     """Run one pass over every invoice, then the standing jobs. Never raises for one bad row."""
     started = now()
     report = PassReport(started_at=started, finished_at=started, steps=[])
+    case_alerts: list[dict[str, Any]] = []
+    case_delivery: list[dict[str, Any]] = []
 
     try:
         invoices = workflow.store.list_invoices()
@@ -179,6 +182,8 @@ def run_pass(
                     step.detail["errors"].append({"invoice_id": invoice.id, "error": _bounded(exc)})
         report.steps.append(step)
 
+    report.steps.append(_recheck_cases(workflow, remaining, alerts_sink, case_alerts, case_delivery))
+
     if intake:
         # Discovery runs before autopay so a payable found in this pass can be decided and paid in
         # the same one, and always after the two repair steps, which owe nothing to the queue.
@@ -198,8 +203,109 @@ def run_pass(
 
     report.finished_at = now()
     _raise_alerts(workflow, report, alerts_sink)
+    report.alerts.extend(case_alerts)
+    report.alert_delivery.extend(case_delivery)
     _record(workflow, report)
     return report
+
+
+def _deliver_case_alerts(
+    workflow: APWorkflow,
+    step: StepReport,
+    sink: Any | None,
+    alerts: list[dict[str, Any]],
+    delivery: list[dict[str, Any]],
+) -> None:
+    """Tell someone about open cases nobody has been told about, through the pass's own sink.
+
+    The attempt is recorded on the case, so a repeated pass sends nothing. With no destination
+    configured nothing is attempted and nothing is written: the case stays pending, and a
+    destination configured later still gets its one alert.
+    """
+    from .alerting import log_alerts
+    from .cases import case_alert
+
+    try:
+        pending = workflow.store.cases_awaiting_alert()
+    except Exception as exc:
+        step.failed += 1
+        step.detail.setdefault("errors", []).append({"error": _bounded(exc)})
+        return
+    for row in pending:
+        invoice = workflow.store.get_invoice(row["invoice_id"])
+        alert = case_alert(
+            row,
+            workflow.store.case_items(row["invoice_id"]),
+            invoice.invoice_number if invoice else row["invoice_id"],
+        )
+        log_alerts([alert])
+        alerts.append(alert.to_dict())
+        if sink is None:
+            continue
+        failures = sink.send([alert])
+        if failures:
+            # Only the error's type, never its message: a transport error names the destination URL,
+            # and the case history is not a place for it.
+            text = str(failures[0].get("error") or "")
+            code = text.split(":", 1)[0].strip()[:MAX_ERROR_CHARS] if ":" in text else "delivery_failed"
+            workflow.store.record_case_event(row["invoice_id"], "alert_failed", code or "delivery_failed")
+            delivery.append({"code": alert.code, "invoice_id": row["invoice_id"], "error": code or "delivery_failed"})
+        else:
+            workflow.store.record_case_event(row["invoice_id"], "alert_sent")
+            delivery.append({"code": alert.code, "invoice_id": row["invoice_id"]})
+
+
+def _recheck_cases(
+    workflow: APWorkflow,
+    remaining: int,
+    alerts_sink: Any | None,
+    alerts: list[dict[str, Any]],
+    delivery: list[dict[str, Any]],
+) -> StepReport:
+    """Re-read the evidence behind open cases, then alert on the ones nobody has been told about.
+
+    Only a change in the evidence causes another evaluation, so a pass that finds nothing new
+    writes nothing. Re-evaluating is the same call a person would make; no case can approve,
+    waive or pay anything, and a case that clears only leaves the invoice in the eligible state it
+    would have reached on its own.
+    """
+    step = StepReport(name="cases")
+    try:
+        open_cases = workflow.store.open_case_rows()
+    except Exception as exc:
+        step.error = _bounded(exc)
+        step.failed += 1
+        return step
+    for row in open_cases:
+        step.examined += 1
+        if remaining <= 0:
+            step.detail["deferred"] = step.detail.get("deferred", 0) + 1
+            continue
+        try:
+            outcome = workflow.recheck_case(row["invoice_id"])
+        except WorkflowError as exc:
+            step.failed += 1
+            step.detail.setdefault("refusals", {})
+            step.detail["refusals"][exc.code] = step.detail["refusals"].get(exc.code, 0) + 1
+            continue
+        except Exception as exc:
+            step.failed += 1
+            step.detail.setdefault("errors", [])
+            if len(step.detail["errors"]) < 5:
+                step.detail["errors"].append({"invoice_id": row["invoice_id"], "error": _bounded(exc)})
+            continue
+        remaining -= 1
+        if not outcome.get("changed"):
+            step.skipped += 1
+            continue
+        step.acted += 1
+        step.detail.setdefault("rechecked", [])
+        if len(step.detail["rechecked"]) < 5:
+            step.detail["rechecked"].append(
+                {"invoice_id": row["invoice_id"], "status": outcome.get("status"), "action": outcome.get("action")}
+            )
+    _deliver_case_alerts(workflow, step, alerts_sink, alerts, delivery)
+    return step
 
 
 def _backoff_remaining(payment: dict, now: datetime) -> int | None:

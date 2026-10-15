@@ -61,7 +61,7 @@ def _extra_eligible_invoice(runtime, external_id: str = "PINV-EXTRA-1") -> str:
 def test_a_pass_records_what_it_did(runtime):
     report = worker.run_pass(runtime["workflow"])
     assert report.outcome == "ok"
-    assert [step.name for step in report.steps] == ["reconcile", "writeback", "rescreen", "observe"]
+    assert [step.name for step in report.steps] == ["reconcile", "writeback", "cases", "rescreen", "observe"]
 
     summary = runtime["store"].worker_summary()
     assert summary["last"]["outcome"] == "ok"
@@ -319,7 +319,7 @@ def test_a_workflow_refusal_is_reported_as_a_refusal_not_a_crash(runtime, monkey
 
 def test_rescreen_can_be_switched_off(runtime):
     report = worker.run_pass(runtime["workflow"], rescreen=False)
-    assert [step.name for step in report.steps] == ["reconcile", "writeback", "observe"]
+    assert [step.name for step in report.steps] == ["reconcile", "writeback", "cases", "observe"]
 
 
 def test_observation_reports_the_reserve_headroom(runtime):

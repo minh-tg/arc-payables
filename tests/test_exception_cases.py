@@ -15,7 +15,8 @@ import uuid
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 
-from arc_payables import cases
+from arc_payables import cases, worker
+from arc_payables.alerting import WebhookSink
 from arc_payables.domain import DecisionAction, InvoiceRecord, WorkflowState
 from arc_payables.seed import ATTACKER_WALLET, SUPPLIER_ID
 
@@ -322,3 +323,145 @@ def test_a_single_review_is_worded_in_the_singular(runtime):
     alert = cases.case_alert({"invoice_id": "inv-1"}, items, "ACME-INV-2026-001")
 
     assert alert.summary == "Invoice ACME-INV-2026-001 is held: 1 review to acknowledge"
+
+
+def _step(report, name):
+    return next(step for step in report.steps if step.name == name)
+
+
+def _open_payee_case(runtime):
+    """Hold the seeded invoice on a payee mismatch. The trusted wallet moves, the invoice does not."""
+    supplier = runtime["store"].get_supplier_fixture(SUPPLIER_ID)
+    supplier["approved_wallet"] = ATTACKER_WALLET
+    runtime["store"].seed_fixture("supplier", SUPPLIER_ID, supplier)
+    runtime["store"].seed_fixture("screening", ATTACKER_WALLET.lower(), {"status": "CLEAR"})
+    runtime["workflow"].evaluate(runtime["legitimate_id"])
+    assert runtime["store"].case_row(runtime["legitimate_id"])["status"] == cases.OPEN
+
+
+def _move_trusted_wallet(runtime, wallet: str, version: str) -> None:
+    supplier = runtime["store"].get_supplier_fixture(SUPPLIER_ID)
+    supplier["approved_wallet"] = wallet
+    supplier["wallet_version"] = version
+    runtime["store"].seed_fixture("supplier", SUPPLIER_ID, supplier)
+    runtime["store"].seed_fixture("screening", wallet.lower(), {"status": "CLEAR"})
+
+
+def test_a_pass_rechecks_an_open_case_without_re_running_the_evaluation(runtime):
+    """Unchanged evidence means no second decision, however often the worker looks."""
+    invoice = _new_invoice(runtime, receipt_ids=())
+    runtime["workflow"].evaluate(invoice.id)
+    before = len([event for event in runtime["store"].events(invoice.id) if event["type"] == "DECISION_RECORDED"])
+
+    report = worker.run_pass(runtime["workflow"], rescreen=False)
+
+    step = _step(report, "cases")
+    assert (step.examined, step.acted, step.skipped) == (1, 0, 1)
+    assert runtime["store"].case_row(invoice.id)["last_checked_at"] is not None
+    assert [event["type"] for event in runtime["store"].case_events(invoice.id)] == ["case_opened"]
+    after = len([event for event in runtime["store"].events(invoice.id) if event["type"] == "DECISION_RECORDED"])
+    assert after == before
+
+
+def test_a_source_change_re_evaluates_and_stays_open_while_the_check_still_fails(runtime):
+    _open_payee_case(runtime)
+    _move_trusted_wallet(runtime, "0x2222222222222222222222222222222222222222", "moved-again")
+
+    report = worker.run_pass(runtime["workflow"], rescreen=False)
+
+    assert _step(report, "cases").acted == 1
+    assert runtime["store"].case_row(runtime["legitimate_id"])["status"] == cases.OPEN
+    assert [event["type"] for event in runtime["store"].case_events(runtime["legitimate_id"])] == [
+        "case_opened", "source_changed", "recheck_still_failing",
+    ]
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ESCALATED.value
+    assert runtime["store"].get_payment(runtime["legitimate_id"]) is None
+
+
+def test_a_corrected_source_clears_the_case_and_reaches_only_the_eligible_state(runtime):
+    invoice = _new_invoice(runtime, receipt_ids=())
+    runtime["workflow"].evaluate(invoice.id)
+    assert runtime["store"].case_row(invoice.id)["status"] == cases.OPEN
+
+    runtime["store"].update_invoice_record(replace(invoice, receipt_ids=("PR-ACME-2026-001",)), "TEST_SOURCE_CORRECTION")
+
+    report = worker.run_pass(runtime["workflow"], rescreen=False)
+
+    assert _step(report, "cases").acted == 1
+    row = runtime["store"].case_row(invoice.id)
+    assert row["status"] == cases.CLEARED and row["last_checked_at"] is not None
+    assert runtime["store"].case_items(invoice.id) == []
+    assert [event["type"] for event in runtime["store"].case_events(invoice.id)] == [
+        "case_opened", "source_changed", "recheck_cleared",
+    ]
+    result = runtime["workflow"].get_invoice(invoice.id)
+    assert result["decision"]["action"] == DecisionAction.PAY_NOW.value
+    assert result["state"] == WorkflowState.ELIGIBLE.value
+    # The case path approves nothing, authorizes nothing, pays nothing and writes no ERP record.
+    assert runtime["store"].get_approval(invoice.id) is None
+    assert runtime["store"].get_payment(invoice.id) is None
+    assert runtime["payment"].submission_calls == 0
+    assert runtime["accounting"].entries == {}
+
+    # The invoice then takes the ordinary path, under its own authorization.
+    paid = worker.run_pass(runtime["workflow"], autopay=True, rescreen=False)
+    assert _step(paid, "autopay").acted == 1
+    assert runtime["store"].get_state(invoice.id) == WorkflowState.ERP_RECORDED.value
+
+
+def test_a_previous_approval_does_not_survive_changed_evidence(runtime):
+    _open_payee_case(runtime)
+    approved = runtime["workflow"].approve(runtime["legitimate_id"], {
+        "reviewer": "ap-reviewer",
+        "approved": True,
+        "note": "Reviewed the mismatch out of band.",
+        "acknowledged_checks": ["payee_mismatch"],
+    })
+    assert approved["decision"]["action"] == DecisionAction.PAY_NOW.value
+    assert runtime["store"].case_row(runtime["legitimate_id"])["status"] == cases.CLEARED
+
+    _move_trusted_wallet(runtime, "0x2222222222222222222222222222222222222222", "changed-after-approval")
+
+    worker.run_pass(runtime["workflow"], autopay=True, rescreen=False)
+
+    assert runtime["payment"].submission_calls == 0
+    assert runtime["store"].get_payment(runtime["legitimate_id"]) is None
+    assert runtime["store"].get_state(runtime["legitimate_id"]) == WorkflowState.ESCALATED.value
+    assert runtime["store"].case_row(runtime["legitimate_id"])["status"] == cases.OPEN
+
+
+def test_a_repeated_pass_sends_one_alert_and_records_one_event(runtime):
+    invoice = _new_invoice(runtime, receipt_ids=())
+    runtime["workflow"].evaluate(invoice.id)
+    sent: list[dict] = []
+    sink = WebhookSink("https://alerts.example.test/hook", poster=lambda url, payload: sent.append(payload),
+                       min_interval_seconds=0)
+
+    worker.run_pass(runtime["workflow"], rescreen=False, alerts_sink=sink)
+    worker.run_pass(runtime["workflow"], rescreen=False, alerts_sink=sink)
+
+    assert len(sent) == 1
+    alert = sent[0]["alerts"][0]
+    assert alert["code"] == "exception_case"
+    assert alert["detail"]["invoice_id"] == invoice.id
+    assert set(alert["detail"]) == {"invoice_id", "invoice_number", "items"}
+    assert "http" not in json.dumps(sent).lower()
+    assert [event["type"] for event in runtime["store"].case_events(invoice.id)] == ["case_opened", "alert_sent"]
+
+
+def test_a_failed_alert_records_the_error_type_without_the_destination(runtime):
+    invoice = _new_invoice(runtime, receipt_ids=())
+    runtime["workflow"].evaluate(invoice.id)
+
+    def explode(url, payload):
+        raise RuntimeError(f"cannot reach {url}")
+
+    sink = WebhookSink("https://hooks.example.test/secret-token-that-must-not-leak", poster=explode)
+    report = worker.run_pass(runtime["workflow"], rescreen=False, alerts_sink=sink)
+
+    events = runtime["store"].case_events(invoice.id)
+    failed = next(event for event in events if event["type"] == "alert_failed")
+    assert failed["detail"] == "RuntimeError"
+    assert "secret-token" not in json.dumps(events)
+    assert "http" not in json.dumps(events).lower()
+    assert _step(report, "cases").failed == 0

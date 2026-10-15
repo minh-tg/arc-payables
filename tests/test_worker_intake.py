@@ -167,7 +167,7 @@ def test_discovery_and_autopay_settle_a_payable_with_nobody_in_the_loop(runtime)
     """The whole point: find it, decide it, pay it, book it, without a person or a second command."""
     report = worker.run_pass(runtime["workflow"], intake=True, autopay=True, rescreen=False)
 
-    assert [step.name for step in report.steps] == ["reconcile", "writeback", "intake", "autopay", "observe"]
+    assert [step.name for step in report.steps] == ["reconcile", "writeback", "cases", "intake", "autopay", "observe"]
     assert _step(report, "intake").acted == 1
     assert _step(report, "autopay").acted == 1
     invoice = _by_external_id(runtime["store"], IMPORTABLE)
@@ -235,7 +235,7 @@ def test_a_connector_that_fails_to_enumerate_degrades_the_pass(runtime, monkeypa
     assert "the ledger is unreachable" in intake.error
     # One broken step is not a broken pass: the rest of the work still ran.
     assert report.outcome == "degraded"
-    assert [step.name for step in report.steps] == ["reconcile", "writeback", "intake", "observe"]
+    assert [step.name for step in report.steps] == ["reconcile", "writeback", "cases", "intake", "observe"]
 
 
 def test_a_payable_the_system_will_not_settle_is_declined_with_its_reason(runtime):
