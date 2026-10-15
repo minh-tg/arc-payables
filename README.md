@@ -429,7 +429,10 @@ A pass runs the enabled steps and stops:
 | `intake` | Reads the payables the ledger still owes, imports the ones nobody has captured, and evaluates each against the policy. It also re-evaluates a payable it parked until a due date once that date enters the payment window, so an invoice that arrived early becomes payable on its own. Discovery is what makes the queue current without a person. |
 | `rescreen` | Re-screens counterparties past their cadence and moves their risk tier. |
 | `autopay` | Records a validated plan of invoices already `ELIGIBLE`/`PAY_NOW`, executes the first choice through fresh evaluation and normal authorization, then replans on the changed treasury. Off unless asked for. |
+| `cases` | Re-reads the accounting evidence for each open exception case. When it changed, the invoice is evaluated again and the result goes into the case history. It records, alerts once and re-evaluates; it never approves, waives or edits a record. |
 | `observe` | Reports the balance, the reserve headroom and the guard's budgets. Observation is not evidence, so this writes nothing. |
+
+`bash script/unattended-loop-demo.sh` runs one such pass against mock providers in a temporary directory and prints a short summary. It refuses to start if a live provider variable is set.
 
 Run against a live ledger with autopay on, the whole chain runs in one pass: the pass above found
 three payables nobody had imported, evaluated all three, and paid none of them, because screening has
@@ -552,6 +555,8 @@ One recorded run against a live model (DeepSeek V4.1 Flash, mock providers, no f
 [Decision layer: one live-model run](docs/decision-layer-evidence.md). The model deliberated on a limit
 trade-off, named and ignored an injected instruction, and chose a different queue order than the
 rules, while the deterministic policy and the contract caps stayed in force.
+
+The labelled evaluation set, the harness (`script/decision-eval.py`) and what runs after the model are described in [Policy after the model](docs/policy-after-the-model.md). Its numbers come from a scripted fake model; live-model numbers are listed there as pending.
 
 **`PLANNER_BASE_URL` is a trust boundary you choose.** The prompt carries invoice and supplier
 details, so point it only at an endpoint you would send those documents to, and prefer HTTPS: this
