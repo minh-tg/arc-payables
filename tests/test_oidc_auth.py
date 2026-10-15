@@ -133,17 +133,25 @@ def test_session_cookie_security_pkce_identity_and_no_token_storage(desk):
     assert b"code_verifier=" in token_request.content
 
 
+#: Stands in for a timestamp 120 seconds ahead of the request. The parametrised list is built at
+#: collection time, so a literal value would age out of the future before a slow suite reached it.
+FUTURE_TIMESTAMP = object()
+
+
 @pytest.mark.parametrize("overrides", [
     {"iss": "https://other-business.example"}, {"aud": "other-application"},
     {"nonce": "copied-from-another-browser"}, {"nonce": None},
-    {"exp": 1}, {"iat": int(time.time()) + 120}, {"iat": True},
-    {"auth_time": int(time.time()) - 901}, {"auth_time": int(time.time()) + 120},
+    {"exp": 1}, {"iat": FUTURE_TIMESTAMP}, {"iat": True},
+    {"auth_time": int(time.time()) - 901}, {"auth_time": FUTURE_TIMESTAMP},
     {"amr": ["pwd"]}, {"amr": "mfa"}, {"amr": None},
     {"aud": ["tameion-test", "other"]}, {"azp": "other"},
     {"at_hash": "not-the-access-token"}, {"sub": ""}, {"sub": 123},
 ])
 def test_invalid_or_non_mfa_identity_never_gets_a_session(desk, overrides):
-    desk[2].claim_overrides = overrides
+    desk[2].claim_overrides = {
+        name: int(time.time()) + 120 if value is FUTURE_TIMESTAMP else value
+        for name, value in overrides.items()
+    }
     client, response = sign_in(desk, "approver")
     assert response.status_code == 401, response.text
     assert client.get("/invoices").status_code == 401
