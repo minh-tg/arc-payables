@@ -49,13 +49,13 @@ past its discount deadline. A valid order whose selected set equals the rule ord
 recorded before that change. A run on 2026-10-15 at 300 USDC did show the new assertion: the model
 order paid `PLAN-OVERDUE` and `PLAN-TODAY` (250 of 300) and left `PLAN-DISCOUNT` unpaid past its
 discount deadline, a different set from the rule order (report:
-[evidence/decision-layer/live-planner-demo-2026-10-15.json](evidence/decision-layer/live-planner-demo-2026-10-15.json)). The fake-model version of the case lives in `tests/test_prioritisation.py`. The R3
+[evidence/decision-layer/live-planner-demo-deepseek-v4.1-flash.json](evidence/decision-layer/live-planner-demo-deepseek-v4.1-flash.json)). The fake-model version of the case lives in `tests/test_prioritisation.py`. The R3
 supplier-history signals run in that case too: the equal-amount, same-supplier invoice pair
 produces an advisory note only, and both candidates stay eligible
 (`tests/test_risk_signals.py`).
 
 For what runs after a model answer, the fake-model numbers and the 2026-10-15 live runs of the
-39 labelled cases (no hostile `PAY_NOW` with the policy on, six runs, two clean) and the live injection run, see
+39 labelled cases (no hostile `PAY_NOW` with the policy on, ten runs across two models, eight clean) and the live injection runs, see
 [policy-after-the-model.md](policy-after-the-model.md).
 
 ## What this does not show

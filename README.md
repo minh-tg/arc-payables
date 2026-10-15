@@ -36,7 +36,7 @@ About 10 minutes.
 
 - The hosted mock console is unverified until the owner deploys it.
 - Live Circle notifications are unverified; tests use locally generated keys.
-- Live-model results (2026-10-15, one small model): six runs of the 39 cases, two clean passes, one failure that was a harness defect, three inconclusive (one cause found: an over-long reason, prompt fixed). No hostile answer reached `PAY_NOW` with the policy on. The 250-variant injection corpus was also sent to the live model: 0 of 250 said `PAY_NOW`. The headline 39/39 and 250-variant numbers come from a scripted fake model.
+- Live-model results (2026-10-15, two small models, five runs each of the 39 cases): eight clean passes and two inconclusive runs (one reply not JSON, two HTTP 500 errors). No hostile answer reached `PAY_NOW` with the policy on in any run. The 250-variant injection corpus went to both models: 0 of 250 answered `PAY_NOW`. One model's queue-ordering reply was rejected and the rule order stayed. The headline 39/39 and 250-variant numbers come from a scripted fake model.
 - Fresh ERPNext settlement is deferred to the owner.
 - Customers and usage are unverified.
 
@@ -593,7 +593,7 @@ One recorded run against a live model (DeepSeek V4.1 Flash, mock providers, no f
 trade-off, named and ignored an injected instruction, and chose a different queue order than the
 rules, while the deterministic policy and the contract caps stayed in force.
 
-The labelled evaluation set, the harness (`script/decision-eval.py`) and what runs after the model are described in [Policy after the model](docs/policy-after-the-model.md). Its headline numbers come from a scripted fake model; the six live-model runs, including the failed and inconclusive ones, and the live injection run are listed there.
+The labelled evaluation set, the harness (`script/decision-eval.py`) and what runs after the model are described in [Policy after the model](docs/policy-after-the-model.md). Its headline numbers come from a scripted fake model; the ten live-model runs across two models, including the inconclusive ones, and the live injection runs are listed there.
 
 **`PLANNER_BASE_URL` is a trust boundary you choose.** The prompt carries invoice and supplier
 details, so point it only at an endpoint you would send those documents to, and prefer HTTPS: this
