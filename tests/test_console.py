@@ -272,3 +272,11 @@ def test_reconciliation_findings_render_full_transaction_hashes():
     assert "item.simulated ? badge('Simulated', 'warn') : null" in payments
     assert "h('span', { class: 'mono' }, item.transaction_hash)" in payments
     assert "item.transaction_hash.slice(0, 10)" not in payments
+
+
+def test_phone_layout_gives_inline_controls_tap_height():
+    html = (WEB_DIR / "index.html").read_text()
+    mobile = re.search(r"@media \(max-width: 899px\) \{([\s\S]*?)\n      \}", html)
+    assert mobile
+    assert "td a, .term { display: inline-flex; align-items: center; min-height: 44px; }" in mobile.group(1)
+    assert "input:not([type='checkbox']) { min-height: 44px; }" in mobile.group(1)
