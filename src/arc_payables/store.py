@@ -804,6 +804,126 @@ class SQLiteEvidenceStore:
                  "digest": row["digest"], "plan": json.loads(row["plan_json"]), "status": row["status"],
                  "outcome": json.loads(row["outcome_json"])} for row in rows]
 
+    def open_case(self, invoice_id: str, fingerprint: str, items: list[dict]) -> bool:
+        """Insert a case for this invoice unless one already exists. Returns whether it was created.
+
+        INSERT OR IGNORE on the primary key is what keeps two processes evaluating the same invoice
+        at the same moment from opening two cases, and therefore from sending two alerts.
+        """
+        now = utcnow().isoformat()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = connection.execute(
+                    "INSERT OR IGNORE INTO exception_cases(invoice_id,status,fingerprint,opened_at,last_checked_at,updated_at) "
+                    "VALUES(?,?,?,?,NULL,?)",
+                    (invoice_id, "open", fingerprint, now, now),
+                )
+                created = cursor.rowcount > 0
+                if created:
+                    self._replace_case_items(connection, invoice_id, items)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return created
+
+    def replace_case(self, invoice_id: str, status: str, fingerprint: str, items: list[dict]) -> None:
+        """Rewrite a case's status, evidence fingerprint and items in one transaction."""
+        now = utcnow().isoformat()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    "UPDATE exception_cases SET status=?, fingerprint=?, updated_at=? WHERE invoice_id=?",
+                    (status, fingerprint, now, invoice_id),
+                )
+                self._replace_case_items(connection, invoice_id, items)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    @staticmethod
+    def _replace_case_items(connection: sqlite3.Connection, invoice_id: str, items: list[dict]) -> None:
+        connection.execute("DELETE FROM exception_case_items WHERE invoice_id=?", (invoice_id,))
+        for position, item in enumerate(items):
+            connection.execute(
+                "INSERT INTO exception_case_items(invoice_id,position,check_code,detail,fix,source_type,source_id,owner_role) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    invoice_id,
+                    position,
+                    item["check_code"],
+                    item["detail"],
+                    item["fix"],
+                    item["source_type"],
+                    item.get("source_id"),
+                    item["owner_role"],
+                ),
+            )
+
+    def set_case_checked(self, invoice_id: str, checked_at: str | None = None) -> None:
+        """Record that the worker re-read the evidence, whether or not it had changed."""
+        now = utcnow().isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE exception_cases SET last_checked_at=?, updated_at=? WHERE invoice_id=?",
+                (checked_at or now, now, invoice_id),
+            )
+
+    def record_case_event(self, invoice_id: str, event_type: str, detail: str | None = None) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO exception_case_events(invoice_id,event_type,detail,created_at) VALUES(?,?,?,?)",
+                (invoice_id, event_type, detail, utcnow().isoformat()),
+            )
+
+    def case_row(self, invoice_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT invoice_id,status,fingerprint,opened_at,last_checked_at,updated_at FROM exception_cases WHERE invoice_id=?",
+                (invoice_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def open_case_rows(self) -> list[dict]:
+        """Every case still open, oldest first, so a pass works through them in a stable order."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT invoice_id,status,fingerprint,opened_at,last_checked_at,updated_at FROM exception_cases "
+                "WHERE status='open' ORDER BY opened_at, invoice_id",
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def cases_awaiting_alert(self) -> list[dict]:
+        """Open cases whose alert has not been attempted, so a repeated pass sends nothing."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT c.invoice_id,c.status,c.fingerprint,c.opened_at,c.last_checked_at,c.updated_at "
+                "FROM exception_cases c WHERE c.status='open' AND NOT EXISTS ("
+                "SELECT 1 FROM exception_case_events e WHERE e.invoice_id=c.invoice_id "
+                "AND e.event_type IN ('alert_sent','alert_failed')) ORDER BY c.opened_at, c.invoice_id",
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def case_items(self, invoice_id: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT check_code,detail,fix,source_type,source_id,owner_role FROM exception_case_items "
+                "WHERE invoice_id=? ORDER BY position",
+                (invoice_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def case_events(self, invoice_id: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT event_type,detail,created_at FROM exception_case_events WHERE invoice_id=? ORDER BY id",
+                (invoice_id,),
+            ).fetchall()
+        return [{"type": row["event_type"], "detail": row["detail"], "at": row["created_at"]} for row in rows]
+
     def record_worker_run(self, started_at: str, finished_at: str, outcome: str, detail: dict) -> None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
