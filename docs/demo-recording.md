@@ -25,6 +25,11 @@ Do not run the live-model script while recording. It takes about 35 seconds and 
 | 1:50–2:25 | Browser: explorer page for the settlement transaction, then the `PaymentExecuted` and USDC `Transfer` events; then the evidence page's ERPNext table | "Separately, one 0.01 test-USDC payment went through the guard contract on Arc Testnet from a Circle smart-contract wallet. The explorer shows the guard's event and the matching transfer. An ERPNext sandbox Payment Entry carries the same transaction hash. The application's own audit record for that run is missing, and the evidence page says so." |
 | 2:25–2:45 | Repo README top, or the evidence page's limits section | "The guard fixes per-payment, per-epoch and per-recipient caps at deployment, and rejects replays and expired permits. This is a testnet prototype with no customers yet. Adoption is not verified. The repository is github.com/minh-tg/arc-payables." |
 
+Optional extras, if a segment finishes early (each prints about ten lines and touches no live service):
+
+- `bash script/unattended-loop-demo.sh` runs one worker pass with autopay on mock providers and prints the one simulated payment. Say "simulated", not "paid".
+- `uv run python script/decision-eval.py` prints the 33-case result of a scripted fake model: policy on against policy off. Say "scripted model", never "model accuracy".
+
 Keep the video **below 3:00** including any title or closing card. Do not describe the mock
 walkthrough as live Circle or ERP activity. Do not say the model "approved" or "paid" anything:
 it advises, and the deterministic policy and the contract decide.
