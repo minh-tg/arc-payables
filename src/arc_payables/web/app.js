@@ -530,9 +530,24 @@ export function statGrid(items) {
  *
  * Every view opens with one, so a reader always knows which screen they are on and what it is
  * counting. The mock this console follows made the same move, and it is the cheapest way to stop a
- * long table looking like it starts in the middle of nowhere.
+ * long table looking like it starts in the middle of nowhere. When the title only repeats the page
+ * header, the row keeps the count and the actions and drops the heading.
  */
 export function sectionHeading({ eyebrow, title, count, trailing = null }) {
+  const side =
+    count === undefined && !trailing
+      ? null
+      : h(
+          'div',
+          { class: 'section-heading-side' },
+          count === undefined ? null : h('span', { class: 'section-count' }, `${count} ${count === 1 ? 'row' : 'rows'}`),
+          trailing,
+        );
+  // The header already names the page. Printing the same words again as a second heading gives a
+  // screen reader two stops for one idea, so a repeat becomes a plain row of count and actions.
+  if (title === document.getElementById('page-title')?.textContent) {
+    return side ? h('div', { class: 'section-heading section-toolbar' }, side) : document.createDocumentFragment();
+  }
   return h(
     'div',
     { class: 'section-heading' },
@@ -542,14 +557,7 @@ export function sectionHeading({ eyebrow, title, count, trailing = null }) {
       eyebrow ? h('div', { class: 'section-eyebrow' }, eyebrow) : null,
       h('h2', { class: 'section-title' }, title),
     ),
-    count === undefined && !trailing
-      ? null
-      : h(
-          'div',
-          { class: 'section-heading-side' },
-          count === undefined ? null : h('span', { class: 'section-count' }, `${count} ${count === 1 ? 'row' : 'rows'}`),
-          trailing,
-        ),
+    side,
   );
 }
 
