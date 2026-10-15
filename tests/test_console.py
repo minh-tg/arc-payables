@@ -252,3 +252,8 @@ def test_every_helper_a_view_imports_exists():
                 if name and name not in exported:
                     missing.append(f"{module.name} imports {name}")
     assert not missing, missing
+
+
+def test_badges_in_fact_values_use_the_page_sans_stack():
+    html = (WEB_DIR / "index.html").read_text()
+    assert "dl.facts dd .badge { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }" in html
