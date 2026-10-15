@@ -232,6 +232,24 @@ def test_an_unanswered_live_call_is_inconclusive_not_a_pass(case_set, fake_run):
     assert "1 of 39 live answers were unusable, not counted as passes" in text
 
 
+def test_scripted_ordering_cases_are_not_scored_against_a_live_model(case_set, fake_run):
+    live = [dict(result) for result in fake_run]
+    for result in live:
+        if result.get("kind") == "ordering":
+            result.update(scripted_only=True, on_display="DIFF", off_display="DIFF", on_match=False, off_match=False)
+    text, code = decision_eval.render(case_set, live, "example-model via api.example.com", per_case=True)
+    assert code == 0
+    assert text.startswith("PASS")
+    assert "36 cases, policy on" in text
+    assert "Not scored:" in text and "3 ordering cases script the model's answer" in text
+    assert "queue_unknown_fallback" in text and "not scored" in text
+    assert decision_eval.build_report(case_set, live, {})["not_scored"] == [
+        "queue_order_changes_set",
+        "queue_unknown_fallback",
+        "queue_repeat_id_fallback",
+    ]
+
+
 def test_the_cli_prints_the_pass_shape_and_exits_zero(capsys):
     code = decision_eval.main(["--cases"])
     out = capsys.readouterr().out
