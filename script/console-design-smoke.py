@@ -167,11 +167,11 @@ def assert_view(page: Page, route: str, title: str, width: int) -> None:
     assert result["title"] == f"{title} · Tameion", (route, result["title"])
     assert result["documentWidth"] <= width, (route, width, result["documentWidth"])
     assert result["bodyWidth"] <= width, (route, width, result["bodyWidth"])
-    if width < 900:
+    if width < 1024:
         assert not result["undersized"], (route, width, result["undersized"])
         assert not result["smallTargets"], (route, width, result["smallTargets"])
+    assert not result["overflowingTables"], (route, width, result["overflowingTables"])
     if width == 1280:
-        assert not result["overflowingTables"], (route, result["overflowingTables"])
         assert not result["splitMono"], (route, result["splitMono"])
         if route in {"payments", "audit", "treasury"}:
             targets = result["tableWidths"]
@@ -320,7 +320,7 @@ def main() -> None:
         prepare_demo(bootstrap)
         bootstrap.close()
 
-        for width in (1280, 900, 390):
+        for width in (1280, 1024, 900, 390):
             context = browser.new_context(viewport={"width": width, "height": 900})
             page = context.new_page()
             add_draft_fixture(page)
@@ -335,7 +335,7 @@ def main() -> None:
         assert_reconcile_finding(browser.new_page(viewport={"width": 1280, "height": 900}))
         save_screenshots(browser)
         browser.close()
-    print("PASS  11 routes at 1280px, 900px and 390px, table widths, phone targets, invoice layout and four screenshots")
+    print("PASS  11 routes at 1280px, 1024px, 900px and 390px, table widths, phone targets, invoice layout and four screenshots")
 
 
 if __name__ == "__main__":

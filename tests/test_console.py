@@ -276,7 +276,7 @@ def test_reconciliation_findings_render_full_transaction_hashes():
 
 def test_phone_layout_gives_inline_controls_tap_height():
     html = (WEB_DIR / "index.html").read_text()
-    mobile = re.search(r"@media \(max-width: 899px\) \{([\s\S]*?)\n      \}", html)
+    mobile = re.search(r"@media \(max-width: 1023px\) \{([\s\S]*?)\n      \}", html)
     assert mobile
     assert "td a, .term, .card > a, .health-summary > a { display: inline-flex; align-items: center; min-height: 44px; }" in mobile.group(1)
     assert "input:not([type='checkbox']) { min-height: 44px; }" in mobile.group(1)
@@ -295,7 +295,7 @@ def test_design_smoke_uses_portable_browser_and_screenshot_paths():
 
 def test_desktop_table_badges_can_wrap_inside_narrow_cells():
     html = (WEB_DIR / "index.html").read_text()
-    desktop = re.search(r"@media \(min-width: 901px\) \{([\s\S]*?)\n      \}", html)
+    desktop = re.search(r"@media \(min-width: 1024px\) \{([\s\S]*?)\n      \}", html)
     assert desktop
     assert ".table-wrapper td .badge { max-width: 100%; white-space: normal; }" in desktop.group(1)
 
@@ -351,7 +351,7 @@ def test_theme_colours_and_radii_are_tokens():
 
 def test_phone_header_keeps_refresh_on_the_title_row():
     html = (WEB_DIR / "index.html").read_text()
-    mobile = re.search(r"@media \(max-width: 899px\) \{([\s\S]*?)\n      \}", html)
+    mobile = re.search(r"@media \(max-width: 1023px\) \{([\s\S]*?)\n      \}", html)
     assert mobile
     rules = mobile.group(1)
     assert ".header-meta { display: contents; }" in rules

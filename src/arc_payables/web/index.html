@@ -293,7 +293,7 @@
       .card > details { margin-top: 12px; }
       td { overflow-wrap: break-word; }
       td > .mono { overflow-wrap: anywhere; }
-      @media (min-width: 901px) {
+      @media (min-width: 1024px) {
         td { overflow-wrap: anywhere; }
         td.num, td.mono { white-space: nowrap; }
         .table-wrapper td .badge { max-width: 100%; white-space: normal; }
@@ -507,8 +507,9 @@
       footer { max-width: 1200px; margin: 0 auto; padding: 8px 24px 28px; color: var(--muted); font-size: var(--text-sm); }
       .testnet { border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 8px; }
 
-      /* Below the breakpoint the sidebar becomes a row and a wide table becomes labelled cards. */
-      @media (max-width: 899px) {
+      /* The sidebar is a drawer below 1240px. With it open, a table that carries full transaction
+         hashes needs about 960px, which the page only has once the sidebar is out of the way. */
+      @media (max-width: 1239px) {
         .app-layout { grid-template-columns: 1fr; }
         .sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
         .sidebar { display: none; }
@@ -518,6 +519,11 @@
         .nav-group + .nav-group { margin-top: 8px; padding-top: 8px; }
         .nav-end { flex-direction: column; align-items: flex-start; }
         .nav-end input { max-width: 100%; }
+        .split { grid-template-columns: 1fr; }
+      }
+
+      /* Below 1024px a wide table becomes labelled cards and the header folds to two rows. */
+      @media (max-width: 1023px) {
         /* Menu, title and Refresh share the first row; the environment and balance take the second. */
         .header {
           display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px;
@@ -564,10 +570,6 @@
         .log-line { grid-template-columns: 58px 50px minmax(0, 1fr); gap: 8px; }
         .audit-entry { grid-template-columns: 1fr; gap: 4px; }
         .stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-        .split { grid-template-columns: 1fr; }
-      }
-      @media (max-width: 1099px) {
-        .split { grid-template-columns: 1fr; }
       }
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
