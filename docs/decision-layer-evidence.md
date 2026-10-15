@@ -46,13 +46,16 @@ preference pays `PLAN-OVERDUE` (150) and `PLAN-TODAY` (100), which leaves `PLAN-
 past its discount deadline. A valid order whose selected set equals the rule order is reported as
 `INCONCLUSIVE  valid order, selection unchanged; demo did not show a selection change` and exits
 3, because an unchanged selection is neither a pass nor a failed order. The result above was
-recorded before that change, so it does not demonstrate the new assertion and a fresh owner run
-is pending. The fake-model version of the case lives in `tests/test_prioritisation.py`. The R3
+recorded before that change. A run on 2026-10-15 at 300 USDC did show the new assertion: the model
+order paid `PLAN-OVERDUE` and `PLAN-TODAY` (250 of 300) and left `PLAN-DISCOUNT` unpaid past its
+discount deadline, a different set from the rule order (report:
+[evidence/decision-layer/live-planner-demo-2026-10-15.json](evidence/decision-layer/live-planner-demo-2026-10-15.json)). The fake-model version of the case lives in `tests/test_prioritisation.py`. The R3
 supplier-history signals run in that case too: the equal-amount, same-supplier invoice pair
 produces an advisory note only, and both candidates stay eligible
 (`tests/test_risk_signals.py`).
 
-For what runs after a model answer and the fake-model numbers for the labelled case set, see
+For what runs after a model answer, the fake-model numbers and the 2026-10-15 live runs of the
+39 labelled cases (no hostile `PAY_NOW` with the policy on, one unusable answer per run), see
 [policy-after-the-model.md](policy-after-the-model.md).
 
 ## What this does not show

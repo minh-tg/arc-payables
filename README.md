@@ -36,7 +36,7 @@ About 10 minutes.
 
 - The hosted mock console is unverified until the owner deploys it.
 - Live Circle notifications are unverified; tests use locally generated keys.
-- Live-model results are pending; the evaluation numbers come from a scripted fake model.
+- Live-model results: three runs of the 39 cases against one small model (2026-10-15), none a clean pass. No hostile answer reached `PAY_NOW` with the policy on, and one live answer per run was unusable. The headline 39/39 and 150-variant numbers still come from a scripted fake model.
 - Fresh ERPNext settlement is deferred to the owner.
 - Customers and usage are unverified.
 
@@ -593,7 +593,7 @@ One recorded run against a live model (DeepSeek V4.1 Flash, mock providers, no f
 trade-off, named and ignored an injected instruction, and chose a different queue order than the
 rules, while the deterministic policy and the contract caps stayed in force.
 
-The labelled evaluation set, the harness (`script/decision-eval.py`) and what runs after the model are described in [Policy after the model](docs/policy-after-the-model.md). Its numbers come from a scripted fake model; live-model numbers are listed there as pending.
+The labelled evaluation set, the harness (`script/decision-eval.py`) and what runs after the model are described in [Policy after the model](docs/policy-after-the-model.md). Its headline numbers come from a scripted fake model; the three live-model runs, including their unusable answers, are listed there.
 
 **`PLANNER_BASE_URL` is a trust boundary you choose.** The prompt carries invoice and supplier
 details, so point it only at an endpoint you would send those documents to, and prefer HTTPS: this
