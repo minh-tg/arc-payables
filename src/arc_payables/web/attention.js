@@ -125,7 +125,7 @@ async function renderAttention(root) {
   }
   for (const item of data.items) {
     const detail = detailTable(item);
-    const classes = `card finding ${item.severity === 'critical' ? 'critical' : 'warning'}`;
+    const classes = `card finding ${item.severity === 'critical' ? 'critical' : item.severity === 'warning' ? 'warning' : ''}`;
     const head = h(
       'div',
       { class: 'finding-head' },

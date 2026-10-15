@@ -57,7 +57,7 @@ async function renderOverview(root) {
     const invoice = item.detail?.invoices?.[0] || item.detail?.payments?.[0];
     const href = invoice ? `#/invoice/${encodeURIComponent(invoice.invoice_id)}` : '#/attention';
     return h('tr', {},
-      h('td', {}, badge(item.severity, item.severity === 'critical' ? 'bad' : 'warn')),
+      h('td', {}, badge(item.severity, item.severity === 'critical' ? 'bad' : item.severity === 'warning' ? 'warn' : 'neutral')),
       h('td', {}, item.summary),
       h('td', {}, invoice?.invoice_number || 'Deployment'),
       h('td', {}, h('a', { class: 'btn', href }, invoice ? 'Review invoice' : 'Resolve issue')),
