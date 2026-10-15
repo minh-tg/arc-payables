@@ -13,6 +13,8 @@ normal policy, authorization and payment path, or it does not.
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
 from .alerting import WARNING, Alert
@@ -24,6 +26,39 @@ CLEARED = "cleared"
 
 SOURCE_RECORD = "source_record"
 HUMAN_REVIEW = "human_review"
+
+#: The keys a validated draft carries. A model answer with anything else is rejected rather than
+#: partially trusted.
+DRAFT_FIELDS = frozenset({"text", "check_code", "source_type", "owner_role"})
+
+#: A URL in any shape a model might produce: a scheme, a bare host, or a markdown link. None of
+#: these belongs in a note that a person copies into their own accounting channel.
+DRAFT_URL = re.compile(
+    r"(https?://|www\.|\[[^\]]*\]\([^)]*\)|\b[a-z0-9][a-z0-9-]*\.(?:com|org|net|io|co|xyz|dev|app)\b)",
+    re.IGNORECASE,
+)
+DRAFT_ADDRESS = re.compile(r"\b0x[a-fA-F0-9]{40}\b")
+#: Words that turn an advisory note into an instruction to move money or change authority. The
+#: deterministic template uses none of them, so a note that does is replaced by the template.
+DRAFT_PAYMENT_WORDS = re.compile(
+    r"\b(approve|approval|authorize|authorization|pay|payment|payable|payee|remit|remittance|"
+    r"transfer|wire|deposit|disburse|wallet|sign)\b",
+    re.IGNORECASE,
+)
+DRAFT_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+#: The deterministic note, used when no planner is configured or the model answer is unusable. The
+#: text names the record to correct and never carries invoice-derived text, which is untrusted.
+DRAFT_TEMPLATE_WITH_RECORD = (
+    "To {owner_role}: a check on {source_type} {source_id} is failing for an invoice that is held. "
+    "Please review that record and correct it in the accounting system. "
+    "The held invoice is checked again on the next worker pass."
+)
+DRAFT_TEMPLATE_WITHOUT_RECORD = (
+    "To {owner_role}: a check that needs a {source_type} record is failing and none was found. "
+    "Please create or link one in the accounting system. "
+    "The held invoice is checked again on the next worker pass."
+)
 
 #: The accounting record behind each check, and the role that usually handles that record. The role
 #: is a label for a team, not an assignment to a person, and no user is named anywhere.
@@ -114,6 +149,7 @@ def _after(refs: Any, prefix: str) -> str | None:
 
 def case_payload(row: dict[str, Any], items: list[dict[str, Any]], events: list[dict[str, Any]]) -> dict[str, Any]:
     """The case as the API returns it. Only these fields, so the console has one shape to read."""
+    draft_json = row.get("draft_json")
     return {
         "invoice_id": row["invoice_id"],
         "status": row["status"],
@@ -130,8 +166,79 @@ def case_payload(row: dict[str, Any], items: list[dict[str, Any]], events: list[
             }
             for item in items
         ],
+        "draft": json.loads(draft_json) if draft_json else None,
         "events": [{"type": event["type"], "at": event["at"], "detail": event["detail"]} for event in events],
     }
+
+
+def draft_item(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The item a draft is written for: the first record a person can correct, or None.
+
+    A case whose failing checks are all human-review items has no record to name, so it has no
+    draft. That keeps the note pointing at an accounting record rather than at a decision.
+    """
+    for item in items:
+        if item.get("fix") == SOURCE_RECORD:
+            return item
+    return None
+
+
+def template_draft(item: dict[str, Any]) -> str:
+    """The deterministic note for one item. It names the owner and the record, and nothing else."""
+    if item.get("source_id"):
+        return DRAFT_TEMPLATE_WITH_RECORD.format(
+            owner_role=item["owner_role"], source_type=item["source_type"], source_id=item["source_id"]
+        )
+    return DRAFT_TEMPLATE_WITHOUT_RECORD.format(owner_role=item["owner_role"], source_type=item["source_type"])
+
+
+def validate_draft(payload: Any, item: dict[str, Any], untrusted: str, max_chars: int) -> tuple[str | None, str | None]:
+    """Validate one model answer against the case item. Returns (text, problem), text None if unusable.
+
+    The model may write only the text. It restates the check and record it is writing about, and any
+    answer that names a different one is rejected, as is any text carrying a URL, a payment address,
+    a money instruction, or a copy of the invoice's own untrusted free text.
+    """
+    if not isinstance(payload, dict):
+        return None, "not_an_object"
+    if set(payload) != DRAFT_FIELDS:
+        return None, "unknown_fields"
+    if payload.get("check_code") != item["check_code"]:
+        return None, "unknown_check"
+    if payload.get("source_type") != item["source_type"]:
+        return None, "unknown_source"
+    if payload.get("owner_role") != item["owner_role"]:
+        return None, "unknown_role"
+    text = payload.get("text")
+    if not isinstance(text, str):
+        return None, "missing_text"
+    text = text.strip()
+    if not text:
+        return None, "empty"
+    if len(text) > max_chars:
+        return None, "too_long"
+    if DRAFT_CONTROL_CHARS.search(text):
+        return None, "not_plain_text"
+    if DRAFT_ADDRESS.search(text):
+        return None, "payment_address"
+    if DRAFT_URL.search(text):
+        return None, "url"
+    if DRAFT_PAYMENT_WORDS.search(text):
+        return None, "payment_instruction"
+    if _repeats_invoice_text(text, untrusted):
+        return None, "invoice_text_repeated"
+    return text, None
+
+
+def _repeats_invoice_text(text: str, untrusted: str) -> bool:
+    """True when the draft copies a run of the invoice's own free text, which is untrusted data."""
+    hostile = " ".join(str(untrusted or "").split()).casefold()
+    if len(hostile) < 20:
+        return False
+    plain = " ".join(text.split()).casefold()
+    if hostile in plain:
+        return True
+    return any(plain.find(hostile[start:start + 40]) >= 0 for start in range(0, max(0, len(hostile) - 39), 20))
 
 
 def case_summary(row: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:

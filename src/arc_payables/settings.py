@@ -316,6 +316,10 @@ class Settings(BaseSettings):
     circle_webhook_max_body_bytes: int = 65536
     circle_webhook_key_cache_seconds: int = 3600
 
+    # Exception-case draft note. The planner writes at most this many characters, and the
+    # deterministic fallback template carries the same cap so the two cannot diverge.
+    case_draft_max_chars: int = 240
+
     # Local-key (EOA) executor: an alternative to Circle's Developer-Controlled Wallets for
     # Arc Testnet. Here the payer key is held locally, which makes it suitable for testnet
     # runs and for developing without Circle credentials. It is deliberately Arc Testnet

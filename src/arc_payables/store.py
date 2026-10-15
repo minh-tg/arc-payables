@@ -870,13 +870,17 @@ class SQLiteEvidenceStore:
         return created
 
     def replace_case(self, invoice_id: str, status: str, fingerprint: str, items: list[dict]) -> None:
-        """Rewrite a case's status, evidence fingerprint and items in one transaction."""
+        """Rewrite a case's status, evidence fingerprint and items in one transaction.
+
+        The stored draft is cleared here: it described the items being replaced, so keeping it
+        would leave a note pointing at a check the case no longer fails.
+        """
         now = utcnow().isoformat()
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 connection.execute(
-                    "UPDATE exception_cases SET status=?, fingerprint=?, updated_at=? WHERE invoice_id=?",
+                    "UPDATE exception_cases SET status=?, fingerprint=?, draft_json=NULL, updated_at=? WHERE invoice_id=?",
                     (status, fingerprint, now, invoice_id),
                 )
                 self._replace_case_items(connection, invoice_id, items)
@@ -884,6 +888,14 @@ class SQLiteEvidenceStore:
             except Exception:
                 connection.rollback()
                 raise
+
+    def set_case_draft(self, invoice_id: str, draft: dict | None) -> None:
+        """Store the case's unsent draft note, or clear it with None. Advisory text only."""
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE exception_cases SET draft_json=?, updated_at=? WHERE invoice_id=?",
+                (canonical_json(draft) if draft is not None else None, utcnow().isoformat(), invoice_id),
+            )
 
     @staticmethod
     def _replace_case_items(connection: sqlite3.Connection, invoice_id: str, items: list[dict]) -> None:
@@ -923,7 +935,8 @@ class SQLiteEvidenceStore:
     def case_row(self, invoice_id: str) -> dict | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT invoice_id,status,fingerprint,opened_at,last_checked_at,updated_at FROM exception_cases WHERE invoice_id=?",
+                "SELECT invoice_id,status,fingerprint,opened_at,last_checked_at,updated_at,draft_json "
+                "FROM exception_cases WHERE invoice_id=?",
                 (invoice_id,),
             ).fetchone()
         return dict(row) if row else None

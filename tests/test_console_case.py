@@ -55,7 +55,7 @@ def _run(tmp_path: Path, source: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
-CASE_FUNCTIONS = ("caseRecord", "caseCard")
+CASE_FUNCTIONS = ("caseRecord", "caseCard", "draftCard")
 
 HOSTILE = '<img src=x onerror="alert(1)">'
 
@@ -121,6 +121,38 @@ assert.equal(cleared.children[0], '—');
 assert.equal(cleared.children[1], ' ');
 assert.equal(cleared.children[2].children[0], 'Checks now pass');
 """)
+
+
+@pytest.mark.skipif(NODE is None, reason="node is required for console behavior checks")
+def test_the_draft_card_labels_an_unsent_model_note_and_renders_text_as_text(tmp_path):
+    _run(tmp_path, _case_card_harness(f"""
+const card = draftCard({{text: '{HOSTILE}', source: 'model', check_code: 'receipt_match', owner_role: 'Receiving', created_at: '2026-10-15T09:00:00+00:00'}});
+const {{ tags, texts }} = collect(card);
+assert.equal(card.tag, 'section');
+assert.ok(texts.includes('{HOSTILE}'), 'draft text stays a text child');
+assert.ok(texts.includes('Draft, not sent'), 'the badge states the draft is unsent');
+assert.ok(texts.some((text) => String(text).includes('planner model')), 'a model draft says so');
+assert.ok(texts.some((text) => String(text).includes('It changes no check, approval or payment')), 'the notice states its limit');
+assert.ok(!tags.includes('button') && !tags.includes('a') && !tags.includes('input'), 'nothing on the card is an action');
+"""))
+
+
+@pytest.mark.skipif(NODE is None, reason="node is required for console behavior checks")
+def test_the_draft_card_never_names_a_model_for_the_template(tmp_path):
+    _run(tmp_path, _case_card_harness("""
+const card = draftCard({text: 'To Receiving: a check on Purchase Receipt PR-9 is failing.', source: 'template', check_code: 'receipt_match', owner_role: 'Receiving', created_at: '2026-10-15T09:00:00+00:00'});
+const { texts } = collect(card);
+assert.ok(texts.some((text) => String(text).includes('no model used')), 'the template says no model was used');
+assert.ok(!texts.some((text) => String(text).includes('planner model')), 'the template never names a model');
+"""))
+
+
+@pytest.mark.skipif(NODE is None, reason="node is required for console behavior checks")
+def test_the_case_panel_adds_the_draft_only_for_an_open_case_with_one(tmp_path):
+    source = (WEB / "invoice.js").read_text()
+    assert "function casePanel(" in source
+    assert "result.status === 'open' && result.draft" in source
+    assert "nodes.push(draftCard(result.draft))" in source
 
 
 @pytest.mark.skipif(NODE is None, reason="node is required for console behavior checks")

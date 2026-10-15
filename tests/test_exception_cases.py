@@ -153,8 +153,9 @@ def test_the_payload_is_the_documented_shape(runtime):
         store.case_events(runtime["legitimate_id"]),
     )
 
-    assert set(payload) == {"invoice_id", "status", "opened_at", "last_checked_at", "items", "events"}
+    assert set(payload) == {"invoice_id", "status", "opened_at", "last_checked_at", "items", "draft", "events"}
     assert set(payload["items"][0]) == {"check_code", "detail", "fix", "source_type", "source_id", "owner_role"}
+    assert payload["draft"] is None
     assert set(payload["events"][0]) == {"type", "at", "detail"}
     assert payload["events"][0]["detail"] is None
     assert cases.case_summary(store.case_row(runtime["legitimate_id"]), store.case_items(runtime["legitimate_id"])) == {
@@ -491,7 +492,7 @@ def test_the_case_route_returns_the_case_file(runtime):
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"invoice_id", "status", "opened_at", "last_checked_at", "items", "events"}
+    assert set(body) == {"invoice_id", "status", "opened_at", "last_checked_at", "items", "draft", "events"}
     assert body["invoice_id"] == invoice.id
     assert body["status"] == cases.OPEN
     assert body["last_checked_at"] is None

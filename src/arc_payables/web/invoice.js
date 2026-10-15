@@ -84,12 +84,30 @@ function caseCard(caseFile) {
   return card;
 }
 
-// A missing case is nothing to show. Any other failure is reported inside the card's own panel, so
-// the rest of the invoice page still renders whatever the case route did.
+// The planner's unsent note to the record owner. Text only: nothing here sends, copies or edits it,
+// and the owner named in the text comes from the case, not from the model. A model-off deployment
+// says so plainly rather than mentioning a model it never called.
+function draftCard(draft) {
+  const meta = draft.source === 'model'
+    ? `Written by the planner model, then checked by code. Drafted ${formatTimestamp(draft.created_at)}`
+    : `Standard text, no model used. Drafted ${formatTimestamp(draft.created_at)}`;
+  return panel(
+    'Draft message to the record owner',
+    h('div', { class: 'finding-head' }, badge('Draft, not sent', 'neutral'), h('span', { class: 'finding-code' }, meta)),
+    h('div', { class: 'check' }, h('span', { style: 'min-width:0;overflow-wrap:anywhere' }, draft.text)),
+    h('p', { class: 'muted' }, 'Not sent. This system sends this text to no one. Read it against the table above, then copy it into your own channel if it helps. It changes no check, approval or payment.'),
+  );
+}
+
+// A missing case is nothing to show. Any other failure is reported inside the case's own panel, so
+// the rest of the invoice page still renders whatever the case route did. The unsent draft is a
+// second card after the case card, only while the case is open.
 function casePanel(result) {
-  if (result && result.status === 404) return null;
-  if (result instanceof Error) return panel('Exception case', errorPanel(result));
-  return caseCard(result);
+  if (result && result.status === 404) return [];
+  if (result instanceof Error) return [panel('Exception case', errorPanel(result))];
+  const nodes = [caseCard(result)];
+  if (result.status === 'open' && result.draft) nodes.push(draftCard(result.draft));
+  return nodes;
 }
 
 async function renderInvoice(root, [invoiceId]) {
@@ -113,8 +131,8 @@ async function renderInvoice(root, [invoiceId]) {
   root.append(h('ol', { class: 'payment-stages', 'aria-label': 'Payment lifecycle' },
     [['Evidence', Boolean(decision)], ['Authorized', Boolean(detail.payment)], ['Settled', detail.payment?.confirmation_status === 'CONFIRMED'], ['Ledger recorded', detail.state === 'ERP_RECORDED']].map(([label, complete]) => h('li', { class: complete ? 'done' : '' }, `${complete ? '✓ ' : ''}${label}`)),
   ));
-  const caseNode = casePanel(caseResult);
-  if (caseNode) root.append(caseNode);
+  const caseNodes = casePanel(caseResult);
+  root.append(...caseNodes);
   const addressesMatch = supplier?.wallet && invoice.invoice_payee_address && supplier.wallet.toLowerCase() === invoice.invoice_payee_address.toLowerCase();
   const addressBadge = !invoice.invoice_payee_address
     ? badge('Not provided on document', 'neutral')

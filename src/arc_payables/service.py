@@ -10,8 +10,8 @@ from decimal import Decimal
 from typing import Any
 
 from .agent import EvidenceDecisionAgent
-from .cases import CLEARED, OPEN, case_items
-from .deliberation import build_decision_agent
+from .cases import CLEARED, OPEN, case_items, draft_item, template_draft, validate_draft
+from .deliberation import build_case_draft_planner, build_decision_agent
 from .domain import (
     ARC_TESTNET_CHAIN_ID,
     ARC_TESTNET_USDC,
@@ -89,6 +89,7 @@ class APWorkflow:
         settings: Settings,
         agent: EvidenceDecisionAgent | None = None,
         screener=None,
+        draft_planner=None,
     ):
         self.store = store
         self.accounting = accounting
@@ -98,6 +99,7 @@ class APWorkflow:
         self.settings = settings
         self.agent = agent if agent is not None else build_decision_agent(settings)
         self.screener = screener or FixtureScreeningProvider(store)
+        self.draft_planner = draft_planner if draft_planner is not None else build_case_draft_planner(settings)
 
     def create_invoice(self, invoice: InvoiceRecord, idempotency_key: str) -> tuple[InvoiceRecord, bool]:
         try:
@@ -157,13 +159,54 @@ class APWorkflow:
         if case is None:
             if self.store.open_case(invoice.id, decision["evidence_hash"], items):
                 self.store.record_case_event(invoice.id, "case_opened")
+                self._draft_case(invoice, items)
             return
         if case["status"] != OPEN:
             self.store.replace_case(invoice.id, OPEN, decision["evidence_hash"], items)
             self.store.record_case_event(invoice.id, "case_opened")
+            self._draft_case(invoice, items)
             return
         if case["fingerprint"] != decision["evidence_hash"] or self.store.case_items(invoice.id) != items:
             self.store.replace_case(invoice.id, OPEN, decision["evidence_hash"], items)
+            self._draft_case(invoice, items)
+
+    def _draft_case(self, invoice: InvoiceRecord, items: list[dict[str, Any]]) -> None:
+        """Write the case's one unsent draft note, from the planner or the template.
+
+        The note is written when a case opens or its items change, never on a read. A planner that
+        is missing, slow or unusable is not an error: the deterministic template is stored instead,
+        so the card can never show raw model output. This is advisory text only, and nothing here
+        sends it, approves anything, or touches a check, an approval or a payment.
+        """
+        item = draft_item(items)
+        if item is None:
+            self.store.set_case_draft(invoice.id, None)
+            return
+        max_chars = int(self.settings.case_draft_max_chars)
+        untrusted = invoice.source_text or ""
+        text = None
+        source = "template"
+        if self.draft_planner is not None:
+            try:
+                payload, _problem = self.draft_planner.draft_case_note(item, untrusted, max_chars)
+            except Exception:
+                payload = None
+            if payload is not None:
+                text, _problem = validate_draft(payload, item, untrusted, max_chars)
+                if text is not None:
+                    source = "model"
+        if text is None:
+            text = template_draft(item)
+        self.store.set_case_draft(
+            invoice.id,
+            {
+                "text": text,
+                "source": source,
+                "check_code": item["check_code"],
+                "owner_role": item["owner_role"],
+                "created_at": utcnow().isoformat(),
+            },
+        )
 
     def recheck_case(self, invoice_id: str) -> dict[str, Any]:
         """Re-read the evidence behind an open case, and re-evaluate only when it changed.
