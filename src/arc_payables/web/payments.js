@@ -54,7 +54,13 @@ function reconciliationResult(report) {
       h('td', {}, item.kind),
       h('td', {}, item.detail),
       h('td', {}, item.invoice_id ? h('a', { href: `#/payments/${encodeURIComponent(item.invoice_id)}` }, 'Open report') : '—'),
-      h('td', { class: 'mono' }, item.transaction_hash ? `${item.transaction_hash.slice(0, 10)}…` : '—'),
+      h(
+        'td',
+        {},
+        item.transaction_hash
+          ? h('span', {}, item.simulated ? badge('Simulated', 'warn') : null, h('span', { class: 'mono' }, item.transaction_hash))
+          : '—',
+      ),
     ),
   );
   return [

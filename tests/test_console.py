@@ -265,3 +265,10 @@ def test_settlement_timeline_humanizes_codes_and_formats_times():
     assert "humanizeCode(event.state)" in payments
     assert "formatTimestamp(timestamp)" in payments
     assert "new Date(Number(rawWhen) * 1000).toISOString()" in payments
+
+
+def test_reconciliation_findings_render_full_transaction_hashes():
+    payments = (WEB_DIR / "payments.js").read_text()
+    assert "item.simulated ? badge('Simulated', 'warn') : null" in payments
+    assert "h('span', { class: 'mono' }, item.transaction_hash)" in payments
+    assert "item.transaction_hash.slice(0, 10)" not in payments
