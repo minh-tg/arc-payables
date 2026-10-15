@@ -1,0 +1,156 @@
+{
+  "note": "Fixture receipts for the read-only paymaster check. The UserOperationEvent log is the real one from docs/evidence/arc-testnet-allowance-history.json; the other cases are edited copies.",
+  "entrypoint": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+  "user_operation_event_topic": "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f",
+  "receipts": {
+    "nonzero_paymaster": {
+      "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+      "status": "0x1",
+      "logs": [
+        {
+          "address": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "topics": [
+            "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f",
+            "0xb6fdd66f12556691565cba55c997dba3877d640aa4c56960ab3cdeb652075f67",
+            "0x000000000000000000000000784fcf77d0f718210dbadbce1a464bcb67e58aed",
+            "0x00000000000000000000000003df76c8c30a88f424cf3cbbc36a1ca02763103b"
+          ],
+          "data": "0x00000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000002467533b094eb2000000000000000000000000000000000000000000000000000000000003d8b7",
+          "blockHash": "0x586c6f2bad2e917a8e6449e7d5dbc63a6420af8de2e3adbe6d806139155ca724",
+          "blockNumber": "0x3de72a9",
+          "blockTimestamp": "0x6abe09ce",
+          "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+          "transactionIndex": "0x3",
+          "logIndex": "0xd",
+          "removed": false
+        }
+      ]
+    },
+    "zero_paymaster": {
+      "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+      "status": "0x1",
+      "logs": [
+        {
+          "address": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "topics": [
+            "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f",
+            "0xb6fdd66f12556691565cba55c997dba3877d640aa4c56960ab3cdeb652075f67",
+            "0x000000000000000000000000784fcf77d0f718210dbadbce1a464bcb67e58aed",
+            "0x0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          "data": "0x00000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000002467533b094eb2000000000000000000000000000000000000000000000000000000000003d8b7",
+          "blockHash": "0x586c6f2bad2e917a8e6449e7d5dbc63a6420af8de2e3adbe6d806139155ca724",
+          "blockNumber": "0x3de72a9",
+          "blockTimestamp": "0x6abe09ce",
+          "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+          "transactionIndex": "0x3",
+          "logIndex": "0xd",
+          "removed": false
+        }
+      ]
+    },
+    "wrong_event_signature": {
+      "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+      "status": "0x1",
+      "logs": [
+        {
+          "address": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "topics": [
+            "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+            "0xb6fdd66f12556691565cba55c997dba3877d640aa4c56960ab3cdeb652075f67",
+            "0x000000000000000000000000784fcf77d0f718210dbadbce1a464bcb67e58aed",
+            "0x00000000000000000000000003df76c8c30a88f424cf3cbbc36a1ca02763103b"
+          ],
+          "data": "0x00000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000002467533b094eb2000000000000000000000000000000000000000000000000000000000003d8b7",
+          "blockHash": "0x586c6f2bad2e917a8e6449e7d5dbc63a6420af8de2e3adbe6d806139155ca724",
+          "blockNumber": "0x3de72a9",
+          "blockTimestamp": "0x6abe09ce",
+          "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+          "transactionIndex": "0x3",
+          "logIndex": "0xd",
+          "removed": false
+        }
+      ]
+    },
+    "wrong_event_address": {
+      "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+      "status": "0x1",
+      "logs": [
+        {
+          "address": "0x1111111111111111111111111111111111111111",
+          "topics": [
+            "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f",
+            "0xb6fdd66f12556691565cba55c997dba3877d640aa4c56960ab3cdeb652075f67",
+            "0x000000000000000000000000784fcf77d0f718210dbadbce1a464bcb67e58aed",
+            "0x00000000000000000000000003df76c8c30a88f424cf3cbbc36a1ca02763103b"
+          ],
+          "data": "0x00000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000002467533b094eb2000000000000000000000000000000000000000000000000000000000003d8b7",
+          "blockHash": "0x586c6f2bad2e917a8e6449e7d5dbc63a6420af8de2e3adbe6d806139155ca724",
+          "blockNumber": "0x3de72a9",
+          "blockTimestamp": "0x6abe09ce",
+          "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+          "transactionIndex": "0x3",
+          "logIndex": "0xd",
+          "removed": false
+        }
+      ]
+    },
+    "malformed_log": {
+      "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+      "status": "0x1",
+      "logs": [
+        {
+          "address": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "topics": [
+            "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f",
+            "0xb6fdd66f12556691565cba55c997dba3877d640aa4c56960ab3cdeb652075f67",
+            "0x000000000000000000000000784fcf77d0f718210dbadbce1a464bcb67e58aed"
+          ],
+          "data": "0x00000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000002467533b094eb2000000000000000000000000000000000000000000000000000000000003d8b7",
+          "blockHash": "0x586c6f2bad2e917a8e6449e7d5dbc63a6420af8de2e3adbe6d806139155ca724",
+          "blockNumber": "0x3de72a9",
+          "blockTimestamp": "0x6abe09ce",
+          "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+          "transactionIndex": "0x3",
+          "logIndex": "0xd",
+          "removed": false
+        }
+      ]
+    },
+    "no_user_operation_event": {
+      "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+      "status": "0x1",
+      "logs": [
+        {
+          "address": "0x3600000000000000000000000000000000000000",
+          "topics": [
+            "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925"
+          ]
+        }
+      ]
+    },
+    "reverted": {
+      "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+      "status": "0x0",
+      "logs": [
+        {
+          "address": "0x0000000071727de22e5e9d8baf0edac6f37da032",
+          "topics": [
+            "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f",
+            "0xb6fdd66f12556691565cba55c997dba3877d640aa4c56960ab3cdeb652075f67",
+            "0x000000000000000000000000784fcf77d0f718210dbadbce1a464bcb67e58aed",
+            "0x00000000000000000000000003df76c8c30a88f424cf3cbbc36a1ca02763103b"
+          ],
+          "data": "0x00000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000002467533b094eb2000000000000000000000000000000000000000000000000000000000003d8b7",
+          "blockHash": "0x586c6f2bad2e917a8e6449e7d5dbc63a6420af8de2e3adbe6d806139155ca724",
+          "blockNumber": "0x3de72a9",
+          "blockTimestamp": "0x6abe09ce",
+          "transactionHash": "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0",
+          "transactionIndex": "0x3",
+          "logIndex": "0xd",
+          "removed": false
+        }
+      ]
+    }
+  }
+}

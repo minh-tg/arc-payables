@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx
 from eth_account import Account
+from eth_utils import keccak
 
 from .domain import ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC, USDC_SCALE
 from .evm import decode_bool, decode_uint256, encode_balance_of, selector
@@ -32,6 +33,16 @@ EPOCH_CAP_SELECTOR = "0x" + selector("epochCap()").hex()
 RECIPIENT_EPOCH_CAP_SELECTOR = "0x" + selector("recipientEpochCap()").hex()
 EPOCH_LENGTH_SELECTOR = "0x" + selector("epochLength()").hex()
 PAUSED_SELECTOR = "0x" + selector("paused()").hex()
+
+# Standard EntryPoint v0.7 UserOperationEvent. The paymaster is the third indexed argument
+# (userOpHash, sender, paymaster, ...), so it travels as topics[3], the low 20 bytes of the word.
+USER_OPERATION_EVENT_TOPIC = "0x" + keccak(
+    text="UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)"
+).hex()
+ARC_TESTNET_ENTRYPOINT = "0x0000000071727de22e5e9d8baf0edac6f37da032"
+ZERO_ADDRESS = "0x" + "00" * 20
+# The documented Circle SCA settlement in docs/evidence/arc-testnet-allowance-history.json.
+DEFAULT_PAYMASTER_TRANSACTION_HASH = "0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0"
 
 LIVE_PROVIDERS = {"circle", "local"}
 
@@ -229,6 +240,126 @@ def verify(
         ok = False
         findings.append(f"TODO  the payment provider is '{view.name}': no live payment would be sent")
     return ok, findings
+
+
+def short_hash(value: str, *, full_hashes: bool = False) -> str:
+    """First 10 and last 6 characters, the same shortening the console uses."""
+    if full_hashes or len(value) <= 16:
+        return value
+    return f"{value[:10]}...{value[-6:]}"
+
+
+def _line(label: str, value: str) -> str:
+    """Label at the left, value at column 21, so a value reads without hunting for it."""
+    return f"{label + ':':<20}{value}"
+
+
+def _address_from_topic(topic: Any) -> str | None:
+    """The address in one indexed address topic, or None when the word is not 32 bytes."""
+    if not isinstance(topic, str) or not topic.startswith("0x") or len(topic) != 66:
+        return None
+    try:
+        int(topic, 16)
+    except ValueError:
+        return None
+    return "0x" + topic[-40:]
+
+
+def user_operation_paymaster(receipt: dict[str, Any] | None) -> str | None:
+    """Paymaster from the standard UserOperationEvent in a receipt, or None when absent.
+
+    Only a log emitted by the Arc EntryPoint with the v0.7 event signature counts. A missing
+    topic, a log from another contract and an address word of the wrong length all return None
+    rather than a decoded guess.
+    """
+    logs = receipt.get("logs") if isinstance(receipt, dict) else None
+    if not isinstance(logs, list):
+        return None
+    for log in logs:
+        if not isinstance(log, dict) or str(log.get("address") or "").lower() != ARC_TESTNET_ENTRYPOINT:
+            continue
+        topics = log.get("topics")
+        if not isinstance(topics, list) or len(topics) < 4:
+            continue
+        if str(topics[0]).lower() != USER_OPERATION_EVENT_TOPIC:
+            continue
+        return _address_from_topic(topics[3])
+    return None
+
+
+@dataclass(frozen=True)
+class PaymasterCheck:
+    """What one public receipt shows about the paymaster field, and nothing beyond it."""
+
+    verdict: str
+    transaction_hash: str
+    event: str
+    paymaster: str | None
+    paymaster_note: str
+    not_verified: str | None = None
+
+    @property
+    def exit_code(self) -> int:
+        return {"VERIFIED": 0, "FAIL": 1, "INCONCLUSIVE": 3}[self.verdict]
+
+    def lines(self, *, full_hashes: bool = False) -> list[str]:
+        transaction = short_hash(self.transaction_hash, full_hashes=full_hashes)
+        if self.verdict == "VERIFIED":
+            address = short_hash(self.paymaster or "", full_hashes=full_hashes)
+            headline = f"nonzero paymaster {address} in the UserOperationEvent"
+            paymaster = f"{address} (protocol-level gas payer)"
+        elif self.verdict == "FAIL":
+            headline = "no usable paymaster in the UserOperationEvent"
+            paymaster = self.paymaster_note
+        else:
+            headline = "receipt could not be read, nothing is verified"
+            paymaster = "unverified"
+        lines = [
+            f"{self.verdict}  {headline}",
+            _line("Network", f"Arc Testnet ({ARC_TESTNET_CHAIN_ID})"),
+            _line("Transaction", transaction),
+            _line("Event", self.event),
+            _line("Paymaster", paymaster),
+        ]
+        if self.not_verified:
+            lines.append(_line("Not verified", self.not_verified))
+        lines.append(_line("Mode", "read-only, no credentials, no Circle API call"))
+        return lines
+
+
+def check_paymaster(rpc: RpcClient, transaction_hash: str) -> PaymasterCheck:
+    """Read one receipt and answer only whether a nonzero paymaster field is present.
+
+    Read-only, and never a pass unless the event was read: an unreachable RPC or a missing
+    receipt is INCONCLUSIVE, and a missing, malformed or zero paymaster is FAIL.
+    """
+    try:
+        receipt = rpc.call("eth_getTransactionReceipt", [transaction_hash])
+    except Exception:
+        return PaymasterCheck(
+            "INCONCLUSIVE", transaction_hash, "not read (RPC unreachable)", None, "unverified"
+        )
+    if not isinstance(receipt, dict):
+        return PaymasterCheck(
+            "INCONCLUSIVE", transaction_hash, "not read (no receipt returned)", None, "unverified"
+        )
+    if str(receipt.get("status", "")) not in {"0x1", "1"}:
+        return PaymasterCheck("FAIL", transaction_hash, "receipt status is not success", None, "unavailable")
+    paymaster = user_operation_paymaster(receipt)
+    if paymaster is None:
+        return PaymasterCheck("FAIL", transaction_hash, "missing or malformed", None, "unavailable")
+    if paymaster == ZERO_ADDRESS:
+        return PaymasterCheck(
+            "FAIL", transaction_hash, "UserOperationEvent found, paymaster is the zero address", None, "none (zero address)"
+        )
+    return PaymasterCheck(
+        "VERIFIED",
+        transaction_hash,
+        "UserOperationEvent found, receipt status success",
+        paymaster,
+        "protocol-level gas payer",
+        "who owns or funds the paymaster, and what the business paid",
+    )
 
 
 def _decode_string(data: str) -> str:

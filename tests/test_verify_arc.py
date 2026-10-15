@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -7,6 +10,7 @@ from arc_payables.domain import ARC_TESTNET_CHAIN_ID, ARC_TESTNET_USDC
 from arc_payables.settings import Settings
 from arc_payables.verify_arc import (
     DECIMALS_SELECTOR,
+    DEFAULT_PAYMASTER_TRANSACTION_HASH,
     EPOCH_CAP_SELECTOR,
     EPOCH_LENGTH_SELECTOR,
     PAUSED_SELECTOR,
@@ -15,7 +19,9 @@ from arc_payables.verify_arc import (
     POLICY_SIGNER_SELECTOR,
     RECIPIENT_EPOCH_CAP_SELECTOR,
     RpcClient,
+    check_paymaster,
     provider_view,
+    user_operation_paymaster,
     verify,
 )
 
@@ -182,3 +188,99 @@ def test_a_paused_guard_is_reported_as_not_ready():
     ok, findings = verify(_rpc(guard_paused=True), settings, signer_address=SIGNER)
     assert ok is False
     assert any("guard is paused" in line for line in findings)
+
+
+# ---------------------------------------------------------------------------------------
+# Read-only paymaster check
+# ---------------------------------------------------------------------------------------
+
+RECEIPTS = json.loads((Path(__file__).parent / "fixtures/arc-user-operation-receipts.json").read_text())["receipts"]
+PAYMASTER = "0x03df76c8c30a88f424cf3cbbc36a1ca02763103b"
+
+
+def _receipt_rpc(receipt: dict | None, *, unreachable: bool = False) -> RpcClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "eth_getTransactionReceipt" in request.content.decode()
+        if unreachable:
+            raise httpx.ConnectError("rpc unreachable", request=request)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": receipt})
+
+    return RpcClient("https://rpc.invalid", httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+def test_paymaster_check_verifies_the_documented_nonzero_field():
+    check = check_paymaster(_receipt_rpc(RECEIPTS["nonzero_paymaster"]), DEFAULT_PAYMASTER_TRANSACTION_HASH)
+
+    assert check.verdict == "VERIFIED"
+    assert check.exit_code == 0
+    assert check.paymaster == PAYMASTER
+    lines = check.lines()
+    assert lines[0] == "VERIFIED  nonzero paymaster 0x03df76c8...63103b in the UserOperationEvent"
+    assert "0x007678e3...741db0" in lines[2]
+    assert "UserOperationEvent found, receipt status success" in lines[3]
+    assert "(protocol-level gas payer)" in lines[4]
+    assert any(line.startswith("Not verified:       who owns or funds") for line in lines)
+
+
+def test_paymaster_check_reports_a_zero_address_as_a_verified_negative():
+    check = check_paymaster(_receipt_rpc(RECEIPTS["zero_paymaster"]), DEFAULT_PAYMASTER_TRANSACTION_HASH)
+
+    assert check.verdict == "FAIL" and check.exit_code == 1
+    assert "Paymaster:          none (zero address)" in check.lines()
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["wrong_event_signature", "wrong_event_address", "malformed_log", "no_user_operation_event", "reverted"],
+)
+def test_paymaster_check_fails_on_a_receipt_without_a_usable_paymaster(case):
+    check = check_paymaster(_receipt_rpc(RECEIPTS[case]), DEFAULT_PAYMASTER_TRANSACTION_HASH)
+
+    assert check.verdict == "FAIL" and check.exit_code == 1
+    assert check.paymaster is None
+    assert check.lines()[0].startswith("FAIL  no usable paymaster in the UserOperationEvent")
+
+
+def test_paymaster_check_is_inconclusive_when_no_receipt_is_returned():
+    check = check_paymaster(_receipt_rpc(None), DEFAULT_PAYMASTER_TRANSACTION_HASH)
+
+    assert check.verdict == "INCONCLUSIVE" and check.exit_code == 3
+    assert "Event:              not read (no receipt returned)" in check.lines()
+    assert "Paymaster:          unverified" in check.lines()
+
+
+def test_paymaster_check_is_inconclusive_when_the_rpc_is_unreachable():
+    check = check_paymaster(_receipt_rpc(None, unreachable=True), DEFAULT_PAYMASTER_TRANSACTION_HASH)
+
+    assert check.verdict == "INCONCLUSIVE" and check.exit_code == 3
+    assert "Event:              not read (RPC unreachable)" in check.lines()
+
+
+def test_paymaster_check_full_hashes_prints_whole_values():
+    check = check_paymaster(_receipt_rpc(RECEIPTS["nonzero_paymaster"]), DEFAULT_PAYMASTER_TRANSACTION_HASH)
+    short = "\n".join(check.lines())
+    full = "\n".join(check.lines(full_hashes=True))
+
+    assert PAYMASTER not in short and "..." in short
+    assert PAYMASTER in full and DEFAULT_PAYMASTER_TRANSACTION_HASH in full
+
+
+def test_paymaster_output_stays_readable_and_never_claims_sponsorship():
+    for receipt in RECEIPTS.values():
+        lines = check_paymaster(_receipt_rpc(receipt), DEFAULT_PAYMASTER_TRANSACTION_HASH).lines()
+        assert all(len(line) <= 80 for line in lines), lines
+        assert lines[0].split("  ", 1)[0] in {"VERIFIED", "FAIL", "INCONCLUSIVE"}
+        for line in lines[1:]:
+            assert line[20] != " ", line
+    text = "\n".join(check_paymaster(_receipt_rpc(RECEIPTS["nonzero_paymaster"]), DEFAULT_PAYMASTER_TRANSACTION_HASH).lines())
+    for claim in ("sponsor", "circle paid", "free", "immutable"):
+        assert claim not in text.lower()
+
+
+def test_the_paymaster_decoder_ignores_logs_that_are_not_the_standard_event():
+    assert user_operation_paymaster(RECEIPTS["nonzero_paymaster"]) == PAYMASTER
+    assert user_operation_paymaster(RECEIPTS["wrong_event_signature"]) is None
+    assert user_operation_paymaster(RECEIPTS["wrong_event_address"]) is None
+    assert user_operation_paymaster(RECEIPTS["malformed_log"]) is None
+    assert user_operation_paymaster({}) is None
+    assert user_operation_paymaster(None) is None
