@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from .agent import EvidenceDecisionAgent
+from .cases import CLEARED, OPEN, case_items
 from .deliberation import build_decision_agent
 from .domain import (
     ARC_TESTNET_CHAIN_ID,
@@ -128,8 +129,41 @@ class APWorkflow:
             raise WorkflowError(503, "evidence_unavailable", "Required accounting or treasury evidence is unavailable; payment remains blocked.") from exc
         state = self._state_for_decision(decision.action)
         snapshot = self._snapshot(invoice, context)
-        self.store.save_evaluation(invoice_id, decision.to_dict(), state.value, snapshot)
+        decision_dict = decision.to_dict()
+        self.store.save_evaluation(invoice_id, decision_dict, state.value, snapshot)
+        self._sync_case(invoice, decision_dict)
         return self.get_invoice(invoice_id)
+
+    def _sync_case(self, invoice: InvoiceRecord, decision: dict[str, Any]) -> None:
+        """Keep the invoice's case file in step with the decision that was just recorded.
+
+        A case exists while an evaluation leaves the invoice escalated or held with a failing check,
+        and it is cleared as soon as an evaluation fails nothing. Clearing is not an approval and
+        does not move the invoice: the decision, the state machine and the payment path are
+        untouched by anything here.
+        """
+        if self.store.get_payment(invoice.id) is not None:
+            # A settled invoice cannot be corrected into a payment, so a case on it would read as
+            # outstanding work that does not exist. The payment record is not modified here.
+            return
+        failing = [check for check in decision.get("policy_checks", []) if not check.get("passed")]
+        held = decision.get("action") in {DecisionAction.ESCALATE.value, DecisionAction.HOLD.value} and bool(failing)
+        case = self.store.case_row(invoice.id)
+        if not held:
+            if case is not None and case["status"] == OPEN:
+                self.store.replace_case(invoice.id, CLEARED, decision["evidence_hash"], [])
+            return
+        items = case_items(failing, invoice)
+        if case is None:
+            if self.store.open_case(invoice.id, decision["evidence_hash"], items):
+                self.store.record_case_event(invoice.id, "case_opened")
+            return
+        if case["status"] != OPEN:
+            self.store.replace_case(invoice.id, OPEN, decision["evidence_hash"], items)
+            self.store.record_case_event(invoice.id, "case_opened")
+            return
+        if case["fingerprint"] != decision["evidence_hash"] or self.store.case_items(invoice.id) != items:
+            self.store.replace_case(invoice.id, OPEN, decision["evidence_hash"], items)
 
     def _active_approval(self, invoice_id: str, approvals: list | None = None) -> list | None:
         approvals = self.store.get_approval(invoice_id) if approvals is None else approvals

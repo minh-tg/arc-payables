@@ -10,8 +10,55 @@ from __future__ import annotations
 import glob
 import pathlib
 import re
+import uuid
+from dataclasses import asdict, replace
+from datetime import date, timedelta
 
 from arc_payables import cases
+from arc_payables.domain import DecisionAction, InvoiceRecord, WorkflowState
+from arc_payables.seed import ATTACKER_WALLET, SUPPLIER_ID
+
+
+def _seed_erp_payable(runtime, invoice: InvoiceRecord) -> None:
+    """Seed the accounting payable this invoice claims to be linked to.
+
+    The payable is a separate record from the invoice, so the policy comparison the case reads from
+    is a real comparison rather than the invoice validating itself.
+    """
+    runtime["store"].seed_fixture(
+        "erp_payable",
+        invoice.purchase_invoice_id,
+        {
+            "invoice_id": invoice.purchase_invoice_id,
+            "invoice_number": invoice.invoice_number,
+            "supplier_id": invoice.supplier_id,
+            "amount_units": invoice.amount_units,
+            "currency": runtime["settings"].frappe_invoice_currency or "USD",
+            "invoice_date": invoice.invoice_date.isoformat(),
+            "due_date": invoice.due_date.isoformat(),
+            "lines": [asdict(line) for line in invoice.lines],
+            "purchase_order_ids": list(invoice.purchase_order_ids),
+            "receipt_ids": list(invoice.receipt_ids),
+            "payment_terms": invoice.payment_terms,
+            "payee_address": None,
+            "status": "SUBMITTED",
+        },
+    )
+
+
+def _new_invoice(runtime, **changes) -> InvoiceRecord:
+    base = runtime["store"].get_invoice(runtime["legitimate_id"])
+    invoice = replace(
+        base,
+        id=str(uuid.uuid4()),
+        invoice_number=f"TEST-{uuid.uuid4().hex[:10]}",
+        purchase_invoice_id=f"PINV-TEST-{uuid.uuid4().hex[:8]}",
+        source_document_hash=uuid.uuid4().hex * 2,
+        **changes,
+    )
+    runtime["store"].create_invoice(invoice, str(uuid.uuid4()))
+    _seed_erp_payable(runtime, invoice)
+    return invoice
 
 
 def _checks(*specs) -> list[dict]:
@@ -174,3 +221,69 @@ def test_every_policy_check_has_a_record_mapping():
     assert codes
     missing = sorted(code for code in codes if code not in cases.RECORDS)
     assert not missing, f"no record mapping for: {missing}"
+
+
+def test_a_missing_receipt_opens_a_case_naming_the_record_to_create(runtime):
+    invoice = _new_invoice(runtime, receipt_ids=())
+    result = runtime["workflow"].evaluate(invoice.id)
+
+    assert result["decision"]["action"] == DecisionAction.ESCALATE.value
+    assert result["state"] == WorkflowState.ESCALATED.value
+    assert runtime["store"].case_row(invoice.id)["status"] == cases.OPEN
+    assert runtime["store"].case_items(invoice.id) == [
+        {
+            "check_code": "missing_receipt",
+            "detail": "No Purchase Receipt evidence was found.",
+            "fix": cases.HUMAN_REVIEW,
+            "source_type": "Purchase Receipt",
+            "source_id": None,
+            "owner_role": "Receiving",
+        }
+    ]
+    assert [event["type"] for event in runtime["store"].case_events(invoice.id)] == ["case_opened"]
+
+
+def test_a_payee_mismatch_opens_a_case_naming_the_supplier_record(runtime):
+    supplier = runtime["store"].get_supplier_fixture(SUPPLIER_ID)
+    supplier["approved_wallet"] = ATTACKER_WALLET
+    runtime["store"].seed_fixture("supplier", SUPPLIER_ID, supplier)
+    runtime["store"].seed_fixture("screening", ATTACKER_WALLET.lower(), {"status": "CLEAR"})
+
+    runtime["workflow"].evaluate(runtime["legitimate_id"])
+
+    assert runtime["store"].case_items(runtime["legitimate_id"]) == [
+        {
+            "check_code": "payee_mismatch",
+            "detail": "Invoice payee differs from the trusted Supplier wallet; invoice address cannot be a payment destination.",
+            "fix": cases.HUMAN_REVIEW,
+            "source_type": "Supplier",
+            "source_id": SUPPLIER_ID,
+            "owner_role": "Accounts payable",
+        }
+    ]
+    # A case describes work; it is not an approval, an authorization or a payment record.
+    assert runtime["store"].get_approval(runtime["legitimate_id"]) is None
+    assert runtime["store"].get_payment(runtime["legitimate_id"]) is None
+    assert runtime["payment"].submission_calls == 0
+
+
+def test_an_eligible_invoice_has_no_case(runtime):
+    runtime["workflow"].evaluate(runtime["legitimate_id"])
+
+    assert runtime["store"].case_row(runtime["legitimate_id"]) is None
+
+
+def test_a_waiting_invoice_has_no_case(runtime):
+    invoice = _new_invoice(runtime, due_date=date.today() + timedelta(days=30))
+    result = runtime["workflow"].evaluate(invoice.id)
+
+    assert result["state"] == WorkflowState.WAITING.value
+    assert runtime["store"].case_row(invoice.id) is None
+
+
+def test_repeated_evaluations_do_not_open_a_second_case(runtime):
+    invoice = _new_invoice(runtime, receipt_ids=())
+    runtime["workflow"].evaluate(invoice.id)
+    runtime["workflow"].evaluate(invoice.id)
+
+    assert [event["type"] for event in runtime["store"].case_events(invoice.id)] == ["case_opened"]
