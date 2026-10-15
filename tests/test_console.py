@@ -257,3 +257,11 @@ def test_every_helper_a_view_imports_exists():
 def test_badges_in_fact_values_use_the_page_sans_stack():
     html = (WEB_DIR / "index.html").read_text()
     assert "dl.facts dd .badge { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }" in html
+
+
+def test_settlement_timeline_humanizes_codes_and_formats_times():
+    payments = (WEB_DIR / "payments.js").read_text()
+    assert "humanizeCode(event.event)" in payments
+    assert "humanizeCode(event.state)" in payments
+    assert "formatTimestamp(timestamp)" in payments
+    assert "new Date(Number(rawWhen) * 1000).toISOString()" in payments

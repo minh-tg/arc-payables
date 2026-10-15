@@ -4,7 +4,7 @@
 // why. A row links to the invoice for the deep evidence, and the lookup accepts whatever an operator
 // is holding, which is usually a transaction hash from a block explorer.
 
-import { actionButton, api, apiKey, badge, can, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, stateTone, table } from './app.js';
+import { actionButton, api, apiKey, badge, can, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, stateTone, table, formatTimestamp } from './app.js';
 
 // Every recorded payment compared with the guard's own settlement log. Reads the chain and signs or
 // sends nothing. Absence is only proof when the search began at block 0, so the coverage is shown.
@@ -300,17 +300,21 @@ function reportPanels(report) {
       ),
       table(
         ['When', 'Event', 'State', 'Why', 'Entry hash'],
-        (report.timeline || []).map((event) =>
-          h(
+        (report.timeline || []).map((event) => {
+          const rawWhen = event.when;
+          const timestamp = typeof rawWhen === 'number' || /^\d{10}$/.test(String(rawWhen))
+            ? new Date(Number(rawWhen) * 1000).toISOString()
+            : rawWhen;
+          return h(
             'tr',
             {},
-            h('td', {}, event.when),
-            h('td', {}, event.event),
-            h('td', {}, event.state),
+            h('td', {}, formatTimestamp(timestamp)),
+            h('td', {}, humanizeCode(event.event)),
+            h('td', {}, humanizeCode(event.state)),
             h('td', { class: 'muted' }, event.explanation || ''),
             h('td', {}, (event.entry_hash || '').slice(0, 18)),
-          ),
-        ),
+          );
+        }),
       ),
     ),
   );
