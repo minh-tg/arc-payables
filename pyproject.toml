@@ -37,6 +37,7 @@ arc-payables-erp-verify = "arc_payables.erp_verify:main"
 arc-payables-backup = "arc_payables.backup:main"
 arc-payables-restore-drill = "arc_payables.backup:drill_main"
 arc-payables-alert-test = "arc_payables.alert_cli:main"
+arc-payables-anchor = "arc_payables.anchor:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/arc_payables"]
