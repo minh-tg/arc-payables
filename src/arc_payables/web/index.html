@@ -527,6 +527,9 @@
         .stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
         .split { grid-template-columns: 1fr; }
       }
+      @media (max-width: 1099px) {
+        .split { grid-template-columns: 1fr; }
+      }
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
       }
