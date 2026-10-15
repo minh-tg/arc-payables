@@ -1,7 +1,7 @@
 // Treasury visibility: forward coverage against what is coming, and the counterparty risk that
 // constrains it. Both are read-only except for re-screening.
 
-import { actionButton, api, badge, can, concept, formatTimestamp, h, lede, panel, plainWords, refresh, registerView, sectionHeading, statGrid, table } from './app.js';
+import { actionButton, api, badge, can, concept, formatTimestamp, h, humanizeCode, lede, panel, plainWords, refresh, registerView, sectionHeading, statGrid, table } from './app.js';
 
 function money(value) {
   return value === null || value === undefined ? '—' : `${value} USDC`;
@@ -136,7 +136,7 @@ async function renderTreasury(root) {
       h('td', {}, item.coverable ? badge('covered', 'good') : badge('uncovered', 'bad')),
       h('td', {}, item.payable_by_agent ? badge('payable', 'good') : badge('not payable', 'warn')),
       h('td', {}, item.discount_value_usdc ? `${item.discount_value_usdc} USDC by ${item.discount_deadline}` : '—'),
-      h('td', {}, item.not_payable_reason || (item.reasons || []).join(', ')),
+      h('td', {}, humanizeCode(item.not_payable_reason) || (item.reasons || []).map(humanizeCode).join(', ')),
     ),
   );
   root.append(
@@ -201,7 +201,7 @@ async function renderTreasury(root) {
       h(
         'td',
         {},
-        item.latest_screening ? `${item.latest_screening.status} · ${formatTimestamp(item.latest_screening.checked_at)}` : 'never screened',
+        item.latest_screening ? `${humanizeCode(item.latest_screening.status)} · ${formatTimestamp(item.latest_screening.checked_at)}` : 'never screened',
         plainWords('screening', item.latest_screening && item.latest_screening.status),
       ),
       h('td', { class: 'num' }, item.automatic_limit_usdc ? money(item.automatic_limit_usdc) : '—'),
