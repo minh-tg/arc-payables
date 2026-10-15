@@ -1,8 +1,9 @@
-"""Exception cases: storage, and the items that name a record to correct.
+"""Exception cases: the whole loop, from opening to clearing.
 
 A case is only ever a description of a decision that already happened. These tests pin the storage
-shape it is served with, the record each failing check points at, and the idempotence that keeps two
-processes evaluating the same invoice from opening two cases.
+shape it is served with, the record each failing check points at, the alert that goes out once per
+opening, the recheck that re-evaluates only when the evidence changed, and the fact that nothing on
+this path approves, authorizes, waives or pays.
 """
 
 from __future__ import annotations
