@@ -280,3 +280,21 @@ def test_phone_layout_gives_inline_controls_tap_height():
     assert mobile
     assert "td a, .term { display: inline-flex; align-items: center; min-height: 44px; }" in mobile.group(1)
     assert "input:not([type='checkbox']) { min-height: 44px; }" in mobile.group(1)
+
+
+def test_design_smoke_uses_portable_browser_and_screenshot_paths():
+    smoke = (WEB_DIR.parents[2] / "script" / "console-design-smoke.py").read_text()
+    assert "CONSOLE_DESIGN_SHOTS_DIR" in smoke
+    assert "tempfile.gettempdir()" in smoke
+    assert "CHROMIUM_PATH = os.environ.get(\"CHROMIUM_PATH\")" in smoke
+    assert "playwright.chromium.launch(**launch_options)" in smoke
+    assert "Playwright is not installed" in smoke
+    assert "Chromium is unavailable" in smoke
+    assert "/home/minh/projects/hackathons/tameion" not in smoke
+
+
+def test_desktop_table_badges_can_wrap_inside_narrow_cells():
+    html = (WEB_DIR / "index.html").read_text()
+    desktop = re.search(r"@media \(min-width: 901px\) \{([\s\S]*?)\n      \}", html)
+    assert desktop
+    assert ".table-wrapper td .badge { max-width: 100%; white-space: normal; }" in desktop.group(1)
