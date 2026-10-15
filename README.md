@@ -29,7 +29,7 @@ About 10 minutes.
 4. Run `bash script/show-planner-evidence.sh`. Expect: a saved live-model run with mock providers [saved evidence].
 5. Run `bash script/unattended-loop-demo.sh`. Expect: one simulated payment in a temporary directory [mock].
 6. After a simulated payment in the console, run `uv run arc-payables-dossier export demo-invoice-legitimate` and `uv run arc-payables-dossier verify dossier-ACME-INV-2026-001.json`. Expect: 3 of 3 offline checks pass [mock].
-7. Run `uv run python script/adversarial-corpus.py`. Expect: 150 variants, 0 effective PAY_NOW with policy on [mock, scripted fake model].
+7. Run `uv run python script/adversarial-corpus.py`. Expect: 250 variants, 0 effective PAY_NOW with policy on [mock, scripted fake model].
 8. Open [Submission evidence](docs/submission-evidence.md) and its settlement transaction link. Expect: one 0.01 test-USDC payment [testnet, saved evidence].
 
 **Not verified**

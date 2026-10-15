@@ -40,7 +40,7 @@ Optional extras, if a segment finishes early (each prints about ten lines and to
 
 - `bash script/unattended-loop-demo.sh` runs one worker pass with autopay on mock providers and prints the one simulated payment. Say "simulated", not "paid".
 - `uv run python script/decision-eval.py` prints the 39-case result of a scripted fake model: policy on against policy off. Say "scripted model", never "model accuracy".
-- `uv run python script/adversarial-corpus.py` prints the 150-variant result of the same scripted fake model. Say "150 correlated variants", never "150 attacks".
+- `uv run python script/adversarial-corpus.py` prints the 250-variant result of the same scripted fake model. Say "250 correlated variants", never "150 attacks".
 
 Keep the video **at or below 2:40**. Do not describe the mock walkthrough as live Circle or ERP
 activity. Do not say the model "approved" or "paid" anything: it advises, and the deterministic
