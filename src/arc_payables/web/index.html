@@ -266,6 +266,7 @@
       .card > h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; letter-spacing: -0.01em; }
       .card > p { margin-bottom: 12px; }
       .card > .table-wrapper { margin-top: 12px; }
+      .card > .table-wrapper + p { margin-top: 12px; }
       .card > details { margin-top: 12px; }
       td { overflow-wrap: anywhere; }
       .action-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
@@ -469,8 +470,8 @@
       .card.finding { border-left: 3px solid var(--border-strong); }
       .card.finding.critical { border-left-color: var(--bad); }
       .card.finding.warning { border-left-color: var(--warn); }
-      .card.finding .finding-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-      .card.finding .finding-code { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+      .finding-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+      .finding-code { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: var(--muted); }
 
       footer { max-width: 1200px; margin: 0 auto; padding: 8px 24px 28px; color: var(--muted); font-size: 12px; }
       .testnet { border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 8px; }
