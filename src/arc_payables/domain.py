@@ -231,6 +231,7 @@ class InvoiceHistory:
 
     other_invoices: tuple[InvoiceRecord, ...] = ()
     settled_payments: tuple[SettledPayment, ...] = ()
+    other_invoice_states: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

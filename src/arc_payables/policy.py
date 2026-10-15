@@ -22,6 +22,7 @@ from .domain import (
     SettledPayment,
     TreasurySnapshot,
     USDC_SCALE,
+    WorkflowState,
     is_evm_address,
     units_to_usdc,
 )
@@ -85,6 +86,26 @@ RECEIPT_STATUSES_PAYABLE = {
     "COMPLETED",
     "CLOSED",
 }
+
+DUPLICATE_LIVE_STATES = frozenset(
+    {
+        WorkflowState.RECEIVED.value,
+        WorkflowState.EVIDENCE_CHECKING.value,
+        WorkflowState.ELIGIBLE.value,
+        WorkflowState.WAITING.value,
+        WorkflowState.HELD.value,
+        WorkflowState.ESCALATED.value,
+        WorkflowState.AUTHORIZED.value,
+        WorkflowState.SUBMITTED.value,
+        WorkflowState.NEEDS_RECONCILIATION.value,
+        WorkflowState.CONFIRMED.value,
+        WorkflowState.ERP_PENDING.value,
+        WorkflowState.ERP_RECORDED.value,
+        "OPEN",
+        "PAID",
+        *PAYABLE_INVOICE_STATUSES,
+    }
+)
 
 
 def accounting_source_consistency(
@@ -292,11 +313,13 @@ def load_invoice_history(store, invoice: InvoiceRecord, converter: CurrencyConve
     the policy then reports insufficient history instead of a comparison it cannot support.
     """
     others: list[InvoiceRecord] = []
+    other_states: list[tuple[str, str]] = []
     settled: list[SettledPayment] = []
-    for other, _state in store.list_invoices():
+    for other, state in store.list_invoices():
         if other.id == invoice.id:
             continue
         others.append(other)
+        other_states.append((other.id, state))
         payment = store.get_payment(other.id)
         if not payment:
             continue
@@ -307,7 +330,7 @@ def load_invoice_history(store, invoice: InvoiceRecord, converter: CurrencyConve
         if settled_on is None or amount_units is None or amount_units <= 0:
             continue
         settled.append(SettledPayment(other.id, other.supplier_id, amount_units, settled_on))
-    return InvoiceHistory(tuple(others), tuple(settled))
+    return InvoiceHistory(tuple(others), tuple(settled), tuple(other_states))
 
 
 def _duplicate_number_checks(
@@ -320,9 +343,9 @@ def _duplicate_number_checks(
 ) -> list[PolicyCheck]:
     """Invoice numbers that match this one after normalization, inside the look-back window.
 
-    The same supplier is a hard hold: two records with one number would pay one bill twice, and a
-    reviewer cannot clear that. Another supplier is an advisory note, because different suppliers
-    may legitimately use the same number. Only invoices dated inside `risk_duplicate_window_days`
+    A live or paid record for the same supplier is a hard hold, and a reviewer cannot clear it.
+    Cancelled and otherwise non-payable records are ignored. Another supplier is an advisory note;
+    different suppliers may legitimately use the same number. Only invoices dated inside `risk_duplicate_window_days`
     are compared, so a legitimate annual number reused years later is not held.
     """
     target = normalize_invoice_number(invoice.invoice_number)
@@ -331,12 +354,17 @@ def _duplicate_number_checks(
     window = settings.risk_duplicate_window_days
     same: list[InvoiceRecord] = []
     other: list[InvoiceRecord] = []
+    states = dict(history.other_invoice_states)
     for candidate in history.other_invoices:
         if normalize_invoice_number(candidate.invoice_number) != target:
             continue
         if not 0 <= (today - candidate.invoice_date).days <= window:
             continue
-        (same if candidate.supplier_id == invoice.supplier_id else other).append(candidate)
+        if candidate.supplier_id == invoice.supplier_id:
+            if states.get(candidate.id, "").upper() in DUPLICATE_LIVE_STATES:
+                same.append(candidate)
+        else:
+            other.append(candidate)
     checks: list[PolicyCheck] = []
     ordered = sorted(same, key=lambda item: (item.invoice_number, item.id))
     if ordered:

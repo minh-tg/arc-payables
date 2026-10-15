@@ -14,6 +14,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -30,6 +31,7 @@ from arc_payables.policy import (
     OVERRIDABLE_CHECKS,
     DeterministicPolicy,
     compute_evidence_hash,
+    load_invoice_history,
     normalize_invoice_number,
 )
 from arc_payables.ports import AgentRecommendation
@@ -99,6 +101,10 @@ def _check(decision, code: str):
     return next((check for check in decision.checks if check.code == code), None)
 
 
+def _history_with_invoice_state(invoice, state: str = "ELIGIBLE") -> InvoiceHistory:
+    return InvoiceHistory(other_invoices=(invoice,), other_invoice_states=((invoice.id, state),))
+
+
 def _settled(runtime, amounts: list[str], *, first_day: int = 10) -> tuple[SettledPayment, ...]:
     supplier_id = runtime["invoice"].supplier_id
     return tuple(
@@ -131,7 +137,7 @@ def test_normalization_ignores_case_spacing_punctuation_and_leading_zeros():
 def test_same_supplier_duplicate_number_is_a_hard_hold(runtime):
     invoice = runtime["invoice"]
     earlier = replace(invoice, id="earlier-capture", invoice_number="acme inv 2026 001", purchase_invoice_id="PINV-0007")
-    decision = _evaluate(runtime, InvoiceHistory(other_invoices=(earlier,)))
+    decision = _evaluate(runtime, _history_with_invoice_state(earlier))
     check = _check(decision, "duplicate_number_same_supplier")
     assert check is not None
     assert check.passed is False
@@ -152,9 +158,9 @@ def test_duplicate_number_look_back_window_boundary(runtime):
         purchase_invoice_id="PINV-0007",
         invoice_date=TODAY - timedelta(days=365),
     )
-    assert _check(_evaluate(runtime, InvoiceHistory(other_invoices=(older,))), "duplicate_number_same_supplier") is not None
+    assert _check(_evaluate(runtime, _history_with_invoice_state(older)), "duplicate_number_same_supplier") is not None
     too_old = replace(older, invoice_date=TODAY - timedelta(days=366))
-    assert _check(_evaluate(runtime, InvoiceHistory(other_invoices=(too_old,))), "duplicate_number_same_supplier") is None
+    assert _check(_evaluate(runtime, _history_with_invoice_state(too_old)), "duplicate_number_same_supplier") is None
 
 
 def test_a_reviewer_acknowledgement_cannot_clear_the_duplicate_hold(runtime):
@@ -165,8 +171,38 @@ def test_a_reviewer_acknowledgement_cannot_clear_the_duplicate_hold(runtime):
         "evidence_hash": compute_evidence_hash(invoice, runtime["accounting"], runtime["treasury"], runtime["screening"]),
         "acknowledged_checks": ["duplicate_number_same_supplier"],
     }
-    decision = _evaluate(runtime, InvoiceHistory(other_invoices=(earlier,)), approval=approval)
+    decision = _evaluate(runtime, _history_with_invoice_state(earlier), approval=approval)
     assert _check(decision, "duplicate_number_same_supplier").passed is False
+    assert decision.action == DecisionAction.HOLD
+
+
+def test_load_invoice_history_carries_the_stored_workflow_state(runtime):
+    earlier = replace(runtime["invoice"], id="earlier-cancelled")
+    store = SimpleNamespace(list_invoices=lambda: [(earlier, "CANCELLED")], get_payment=lambda _id: None)
+
+    history = load_invoice_history(store, runtime["invoice"], USDCOnlyConverter("USD"))
+
+    assert (earlier.id, "CANCELLED") in history.other_invoice_states
+
+
+@pytest.mark.parametrize("state", ["CANCELLED", "REJECTED"])
+def test_non_payable_same_supplier_duplicate_is_ignored(runtime, state):
+    earlier = replace(runtime["invoice"], id=f"earlier-{state}", invoice_number="acme inv 2026 001")
+
+    decision = _evaluate(runtime, _history_with_invoice_state(earlier, state))
+
+    assert _check(decision, "duplicate_number_same_supplier") is None
+    assert decision.action == DecisionAction.PAY_NOW
+
+
+@pytest.mark.parametrize("state", ["PAID", "OPEN", "ELIGIBLE"])
+def test_paid_or_open_same_supplier_duplicate_is_a_hard_hold(runtime, state):
+    earlier = replace(runtime["invoice"], id=f"earlier-{state}", invoice_number="acme inv 2026 001")
+
+    decision = _evaluate(runtime, _history_with_invoice_state(earlier, state))
+
+    check = _check(decision, "duplicate_number_same_supplier")
+    assert check is not None and check.passed is False and check.overridable is False
     assert decision.action == DecisionAction.HOLD
 
 
