@@ -293,6 +293,12 @@ class Settings(BaseSettings):
     circle_poll_interval_seconds: float = 2.0
     circle_confirmation_timeout_seconds: int = 90
 
+    # Circle webhook receiver. The route is refused unless the Circle provider is configured, and
+    # the signature is the only credential it accepts, so the only knobs are the request bound and
+    # how long a fetched signing key is cached.
+    circle_webhook_max_body_bytes: int = 65536
+    circle_webhook_key_cache_seconds: int = 3600
+
     # Local-key (EOA) executor: an alternative to Circle's Developer-Controlled Wallets for
     # Arc Testnet. Here the payer key is held locally, which makes it suitable for testnet
     # runs and for developing without Circle credentials. It is deliberately Arc Testnet

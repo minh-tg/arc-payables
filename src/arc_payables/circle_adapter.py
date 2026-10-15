@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import base64
+import threading
 import time
 import uuid
 from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal, ROUND_CEILING
 from typing import Any, Callable
+from urllib.parse import quote
 
 import httpx
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from eth_abi import decode
 
 from .crypto_utils import encrypt_circle_entity_secret
@@ -58,6 +63,76 @@ class CircleAdapterError(RuntimeError):
         self.code = code
         self.uncertain = uncertain
         super().__init__(code)
+
+
+class CircleNotificationKeyUnavailable(RuntimeError):
+    """The signing key could not be fetched, so no notification can be verified right now."""
+
+
+class CircleNotificationKeys:
+    """Fetch and cache Circle's notification signing keys by key id.
+
+    Keys come from the same API base the wallet uses and are cached for a short period. A 404 is an
+    unknown key id, which the caller treats exactly like a bad signature so the route cannot be used
+    to probe which key ids exist. Any other failure means the key could not be fetched, which is a
+    different answer and a different status. The key value never reaches a log or a response.
+    """
+
+    def __init__(self, base_url: str, api_key: str | None, *, client: httpx.Client | None = None,
+                 cache_seconds: int = 3600, clock: Callable[[], float] = time.monotonic):
+        self.api_base = str(base_url or CIRCLE_API_BASE).rstrip("/")
+        self.api_key = api_key
+        self._client = client or httpx.Client(timeout=10.0)
+        self._cache_seconds = max(0, int(cache_seconds))
+        self._clock = clock
+        self._cache: dict[str, tuple[float, str]] = {}
+        self._lock = threading.Lock()
+
+    def public_key(self, key_id: str) -> str | None:
+        """The base64 DER SubjectPublicKeyInfo key for this id, or None when Circle does not know it."""
+        now = self._clock()
+        with self._lock:
+            cached = self._cache.get(key_id)
+            if cached and cached[0] > now:
+                return cached[1]
+        headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        try:
+            response = self._client.get(
+                f"{self.api_base}/notifications/publicKey/{quote(str(key_id), safe='')}", headers=headers
+            )
+        except Exception as exc:
+            raise CircleNotificationKeyUnavailable("notification key request failed") from exc
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise CircleNotificationKeyUnavailable("notification key request was refused")
+        try:
+            data = response.json().get("data") or {}
+            key = data.get("publicKey") or data.get("public_key")
+        except Exception as exc:
+            raise CircleNotificationKeyUnavailable("notification key response was invalid") from exc
+        if not key:
+            raise CircleNotificationKeyUnavailable("notification key response held no key")
+        with self._lock:
+            self._cache[key_id] = (now + self._cache_seconds, str(key))
+        return str(key)
+
+
+def verify_notification_signature(body: bytes, signature: str, public_key: str) -> bool:
+    """Verify a base64 DER ECDSA-SHA256 signature over the exact request bytes.
+
+    The curve comes from the key itself, so the verification is the same for any curve Circle
+    publishes. Every failure, including a malformed base64 value, is an unverified signature.
+    """
+    try:
+        signature_bytes = base64.b64decode(signature, validate=True)
+        der = base64.b64decode(public_key, validate=True)
+        serialization.load_der_public_key(der).verify(signature_bytes, body, ec.ECDSA(hashes.SHA256()))
+    except Exception:
+        return False
+    return True
 
 
 class CircleDeveloperControlledWalletProvider(PaymentProvider):

@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import queue
 import re
 import uuid
@@ -21,8 +22,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .auth import MUTATIONS, OIDCAuth, fail as auth_fail, mount_auth
 from .attention import build_attention
 from .audit_log import list_payments, payment_report, verify_payment
+from .circle_adapter import CircleNotificationKeyUnavailable, CircleNotificationKeys, verify_notification_signature
 from .deliberation import build_order_planner
-from .domain import InvoiceLine, InvoiceRecord, usdc_to_units, utcnow
+from .domain import InvoiceLine, InvoiceRecord, WorkflowState, usdc_to_units, utcnow
 from .forecast import build_forecast
 from .monitoring import rescreen_suppliers, supplier_risk_overview
 from .prioritisation import PaymentPrioritiser
@@ -35,6 +37,48 @@ from .store import SQLiteEvidenceStore
 
 ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 HASH_RE = re.compile(r"^(?:0x)?[a-fA-F0-9]{64}$")
+
+webhook_log = logging.getLogger("arc_payables.webhook")
+
+#: The only notification types this receiver acts on. An unrecognised type is recorded and ignored:
+#: a notification must never change local state because it was not understood.
+CIRCLE_WEBHOOK_EVENTS = frozenset({"TRANSACTION_CONFIRMED", "TRANSACTION_FAILED"})
+
+#: Payment states a notification may name. A settled or failed payment is not pending, so a
+#: notification about one is unmatched rather than tied to an operation.
+CIRCLE_WEBHOOK_PENDING_STATES = frozenset(
+    {WorkflowState.AUTHORIZED.value, WorkflowState.SUBMITTED.value, WorkflowState.NEEDS_RECONCILIATION.value}
+)
+
+
+def _webhook_error(status_code: int, code: str, message: str) -> JSONResponse:
+    """The webhook error shape. It never echoes the body, a header, a key or a signature."""
+    return JSONResponse(status_code=status_code, content={"error": {"code": code, "message": message}})
+
+
+def _circle_notification_fields(body: Any) -> tuple[str, str | None, str | None] | None:
+    """Type, notification id and provider operation id from the assumed Circle envelope.
+
+    Circle's live envelope is unverified here, so this reads one documented shape: a
+    ``notificationType``, an optional ``notificationId`` and an optional ``transaction.id``. Any
+    other shape is a malformed notification. None of these values is trusted; the signature over
+    the raw bytes is what makes the request authentic.
+    """
+    if not isinstance(body, dict):
+        return None
+    event_type = body.get("notificationType")
+    if not isinstance(event_type, str) or not event_type.strip():
+        return None
+    notification_id = body.get("notificationId")
+    if not isinstance(notification_id, str) or not notification_id.strip():
+        notification_id = None
+    transaction = body.get("transaction")
+    transaction_id = None
+    if isinstance(transaction, dict):
+        candidate = transaction.get("id")
+        if isinstance(candidate, str) and candidate.strip():
+            transaction_id = candidate.strip()
+    return event_type.strip(), notification_id, transaction_id
 
 
 class EventBroadcaster:
@@ -177,6 +221,7 @@ def create_app(
     signer=None,
     oidc_client=None,
     converter=None,
+    webhook_key_resolver=None,
 ) -> FastAPI:
     settings = settings or get_settings()
     workflow = build_workflow(
@@ -204,6 +249,14 @@ def create_app(
     app.state.store = store
     broadcaster = EventBroadcaster()
     app.state.broadcaster = broadcaster
+
+    webhook_keys = webhook_key_resolver
+    if webhook_keys is None and settings.payment_provider == "circle":
+        webhook_keys = CircleNotificationKeys(
+            settings.circle_api_base_url,
+            settings.circle_api_key,
+            cache_seconds=settings.circle_webhook_key_cache_seconds,
+        ).public_key
 
     # The operator console: static files, no build step. Serving the shell needs no key because it
     # contains no data; every request it makes is authenticated like any other API call.
@@ -744,6 +797,78 @@ def create_app(
             return reconcile(store, settings).to_dict()
         except ReconciliationUnavailable as exc:
             raise HTTPException(status_code=503, detail={"code": "chain_unreadable", "message": str(exc)}) from exc
+
+    @app.post("/webhooks/circle", tags=["webhooks"])
+    async def circle_webhook(request: Request) -> JSONResponse:
+        """Verify a Circle notification and record it. Nothing here confirms or creates a payment.
+
+        The signature over the raw bytes is the only credential Circle can present, so the route
+        takes no API key. A verified notification is claimed once by id, and a duplicate is a no-op
+        success. Handling ends there: no payment is read into a new state, and the existing
+        chain-checked worker reconcile remains the only thing that may move one forward.
+        """
+        if settings.payment_provider != "circle" or webhook_keys is None:
+            return _webhook_error(
+                503, "webhook_not_configured", "Circle notifications are not enabled on this deployment."
+            )
+        body = await request.body()
+        if len(body) > settings.circle_webhook_max_body_bytes:
+            return _webhook_error(413, "body_too_large", "The notification is too large.")
+        key_id = request.headers.get("X-Circle-Key-Id")
+        signature = request.headers.get("X-Circle-Signature")
+        if not key_id or not signature:
+            return _webhook_error(400, "missing_headers", "The signature and key id headers are required.")
+        try:
+            public_key = webhook_keys(key_id)
+        except CircleNotificationKeyUnavailable:
+            webhook_log.warning("circle webhook key_unavailable")
+            return _webhook_error(
+                503, "key_unavailable", "The signing key could not be fetched. Nothing was scheduled."
+            )
+        if public_key is None or not verify_notification_signature(body, signature, public_key):
+            webhook_log.warning("circle webhook invalid_signature")
+            return _webhook_error(401, "invalid_signature", "The notification signature did not verify.")
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            return _webhook_error(400, "invalid_notification", "The notification is missing required fields.")
+        fields = _circle_notification_fields(payload)
+        if fields is None:
+            return _webhook_error(400, "invalid_notification", "The notification is missing required fields.")
+        event_type, notification_id, transaction_id = fields
+        if notification_id is None:
+            # No stable id in the payload. The key id and the exact received bytes are the only
+            # things that distinguish one delivery, so they become the replay key.
+            notification_id = hashlib.sha256(key_id.encode() + body).hexdigest()
+        invoice_id = None
+        outcome = "ignored"
+        if event_type in CIRCLE_WEBHOOK_EVENTS:
+            if not transaction_id:
+                return _webhook_error(400, "invalid_notification", "The notification is missing required fields.")
+            match = store.find_payment_by_operation(transaction_id)
+            if match is not None and match[1].get("state") in CIRCLE_WEBHOOK_PENDING_STATES:
+                invoice_id = match[0]
+                outcome = "recorded"
+            else:
+                outcome = "unmatched"
+        try:
+            claimed = store.claim_circle_notification(
+                notification_id,
+                key_id,
+                event_type,
+                outcome,
+                provider_transaction_id=transaction_id,
+                invoice_id=invoice_id,
+            )
+        except Exception:
+            webhook_log.error("circle webhook store_unavailable")
+            return _webhook_error(
+                503, "store_unavailable", "The notification could not be recorded. Nothing was scheduled."
+            )
+        if not claimed:
+            return JSONResponse(status_code=200, content={"status": "duplicate"})
+        webhook_log.info("circle webhook %s %s", notification_id, outcome)
+        return JSONResponse(status_code=200, content={"status": outcome})
 
     @app.post("/guard/pause", tags=["operations"], dependencies=[Depends(require_api_key)])
     def pause_guard() -> dict[str, Any]:

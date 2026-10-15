@@ -567,6 +567,23 @@ class SQLiteEvidenceStore:
             row = connection.execute("SELECT record_json FROM payments WHERE invoice_id=?", (invoice_id,)).fetchone()
         return json.loads(row["record_json"]) if row else None
 
+    def find_payment_by_operation(self, provider_transaction_id: str) -> tuple[str, dict] | None:
+        """The invoice and payment the provider names as this operation, if one exists.
+
+        The match is on the provider's own operation id, read from the stored record rather than a
+        copied column so it sees whatever the provider layer last wrote. An empty id matches
+        nothing, because a missing field must not select some other payment.
+        """
+        if not provider_transaction_id:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT invoice_id, record_json FROM payments "
+                "WHERE json_extract(record_json,'$.provider_transaction_id')=? LIMIT 1",
+                (provider_transaction_id,),
+            ).fetchone()
+        return (row["invoice_id"], json.loads(row["record_json"])) if row else None
+
     def update_payment(self, invoice_id: str, updates: dict, state: str, event_type: str, payload: dict | None = None) -> None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -587,6 +604,30 @@ class SQLiteEvidenceStore:
             except Exception:
                 connection.rollback()
                 raise
+
+    def claim_circle_notification(self, notification_id: str, key_id: str, event_type: str, outcome: str,
+                                  provider_transaction_id: str | None = None, invoice_id: str | None = None) -> bool:
+        """Record one Circle notification id, returning False when it was already claimed.
+
+        INSERT OR IGNORE on the primary key is the replay guard: two deliveries of the same id
+        cannot both be processed, and a duplicate is a no-op success rather than an error. Only the
+        notification row is written. The payment record is not touched here or anywhere else on
+        this path.
+        """
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = connection.execute(
+                    "INSERT OR IGNORE INTO circle_notifications"
+                    "(notification_id,key_id,event_type,provider_transaction_id,invoice_id,outcome,received_at) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (notification_id, key_id, event_type, provider_transaction_id, invoice_id, outcome, utcnow().isoformat()),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return cursor.rowcount > 0
 
     def claim_erp_writeback(self, invoice_id: str, lease_seconds: int = 120) -> bool:
         now = utcnow()
