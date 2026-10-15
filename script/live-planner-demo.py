@@ -168,6 +168,19 @@ def _add_payable(store, *, number: str, amount_usdc: int, due_in_days: int, disc
     return invoice
 
 
+def _ordinal(position: int) -> str:
+    suffix = {1: "st", 2: "nd", 3: "rd"}.get(position, "th")
+    return f"{position}{suffix}"
+
+
+def _usdc(value) -> str:
+    return f"{Decimal(str(value)):.2f}"
+
+
+def _row(label: str, value: str) -> str:
+    return f"{label + ':':<20}{value}"
+
+
 def case_queue_ordering(tmp, planner_env):
     """Four payable invoices, a 400 USDC treasury and no reserve: the model chooses the order."""
     settings = Settings(
@@ -201,30 +214,131 @@ def case_queue_ordering(tmp, planner_env):
     offered = [item["invoice"] for item in PaymentPrioritiser(workflow).candidates() if item["eligible"]]
     assert len(offered) == 4, f"expected four competing payables, found {len(offered)}"
     offered_ids = {invoice.id for invoice in offered}
-    live_ids = [entry.invoice_id for entry in live.ordered]
-    assert set(live_ids) <= offered_ids, "the ordering may not add an invoice"
+    assert set(entry.invoice_id for entry in live.ordered) <= offered_ids, "the ordering may not add an invoice"
     assert Decimal(live.planned_spend_usdc) <= Decimal(live.spendable_usdc), "spend may not exceed the spendable balance"
     assert Decimal(live.planned_spend_usdc) <= Decimal(baseline.spendable_usdc)
     for invoice in offered:
         assert store.get_payment(invoice.id) is None
-    numbers = lambda plan: [entry.invoice_number for entry in plan.ordered]
+
+    rule_paid = [entry.invoice_number for entry in baseline.ordered]
+    model_paid = [entry.invoice_number for entry in live.ordered]
+    model_unpaid = [entry for entry in live.excluded if entry.invoice_id in offered_ids]
+    amounts = {
+        entry.invoice_number: entry.amount_usdc
+        for entry in (*baseline.ordered, *baseline.excluded)
+        if entry.invoice_id in offered_ids
+    }
+    due_dates = {invoice.invoice_number: invoice.due_date for invoice in offered}
+    today = date.today()
+    rule_unpaid = [entry.invoice_number for entry in baseline.excluded if entry.invoice_id in offered_ids]
+    # The table leads with what the model order pays, then the rest in the rule order, so the two
+    # readings sit side by side without either one looking like the reference.
+    order = model_paid + [number for number in rule_paid + rule_unpaid if number not in model_paid]
     return {
-        "treasury_usdc": baseline.balance_usdc,
+        "balance_usdc": baseline.balance_usdc,
+        "reserve_floor_usdc": baseline.reserve_floor_usdc,
         "spendable_usdc": live.spendable_usdc,
-        "baseline_order": numbers(baseline),
-        "baseline_ordered_by": baseline.ordered_by,
-        "baseline_planned_spend_usdc": baseline.planned_spend_usdc,
-        "model_order": numbers(live),
-        "model_reasons": {entry.invoice_number: entry.reason for entry in live.ordered},
-        "planned_spend_usdc": live.planned_spend_usdc,
-        "excluded": [{"invoice": e.invoice_number, "reasons": list(e.reasons)} for e in live.excluded if e.invoice_id in offered_ids],
-        "model_changed_the_order": numbers(live) != numbers(baseline),
+        "rule_based_selected": rule_paid,
+        "rule_based_spend_usdc": baseline.planned_spend_usdc,
+        "model_selected": model_paid,
+        "model_spend_usdc": live.planned_spend_usdc,
+        "selection_changed": rule_paid != model_paid,
+        "model_order_valid": live.ordered_by == "planner",
+        "rows": [
+            {
+                "invoice": number,
+                "amount_usdc": amounts[number],
+                "rule": f"paid, {_ordinal(rule_paid.index(number) + 1)}" if number in rule_paid else "not paid",
+                "model": f"paid, {_ordinal(model_paid.index(number) + 1)}" if number in model_paid else "not paid, over budget",
+            }
+            for number in order
+        ],
+        "model_left_unpaid": [
+            {
+                "invoice": entry.invoice_number,
+                "overdue_days": (today - due_dates[entry.invoice_number]).days if due_dates[entry.invoice_number] < today else None,
+            }
+            for entry in model_unpaid
+        ],
         "advisory_decided_by": live.ordered_by,
         "advisory_action": "order",
-        "final_action": " > ".join(numbers(live)),
+        "final_action": " > ".join(model_paid),
         "rationale": live.rationale,
         "deliberations": list(live.deliberations),
     }
+
+
+#: How a rejected ordering answer is put into words. The code decision, not the model, is the reason.
+ORDER_REJECTION_REASONS = {
+    "rejected:unknown_or_missing_invoice": "unknown or missing invoice id in the answer",
+    "rejected:duplicate_invoice": "duplicated invoice id in the answer",
+    "rejected:missing_reason": "an entry had no reason",
+    "rejected:not_json": "the answer was not JSON",
+    "rejected:not_an_object": "the answer was not a JSON object",
+    "rejected:missing_order": "the answer had no order list",
+    "rejected:invalid_entry": "an entry was not an object",
+    "rejected:invalid_invoice_id": "an entry had no invoice id",
+}
+
+
+def _ordering_verdict(case: dict) -> dict:
+    """The verdict for the ordering case: changed selection, rejected answer, or no answer."""
+    trace = (case.get("deliberations") or [{}])[0]
+    outcome = trace.get("outcome")
+    if outcome == "unavailable":
+        return {"result": "INCONCLUSIVE", "ordering_status": "unavailable", "why": "the model gave no usable answer"}
+    if outcome != "used" or not case.get("model_order_valid"):
+        return {
+            "result": "FAIL",
+            "ordering_status": "invalid",
+            "why": ORDER_REJECTION_REASONS.get(str(outcome), str(outcome or "the answer was not a usable ordering")),
+        }
+    if not case.get("selection_changed"):
+        return {"result": "FAIL", "ordering_status": "same", "why": "the model order did not change which invoices are paid"}
+    return {"result": "PASS", "ordering_status": "changed"}
+
+
+def _ordering_lines(case: dict) -> list[str]:
+    spendable = _usdc(case["spendable_usdc"])
+    lines = [_ordering_headline(case, spendable), _row("Spendable", f"{spendable} USDC (balance {_usdc(case['balance_usdc'])}, reserve {_usdc(case['reserve_floor_usdc'])})")]
+    if case.get("ordering_status") == "changed":
+        lines.append(f"{'Invoice':<21}{'Amount':<8}{'Rule-based order':<19}{'Model order'}")
+        for row in case["rows"]:
+            lines.append(f"{row['invoice']:<21}{_usdc(row['amount_usdc']):<8}{row['rule']:<19}{row['model']}")
+        lines.append(f"{'Spend, computed:':<29}{_usdc(case['rule_based_spend_usdc']):<19}{_usdc(case['model_spend_usdc'])}")
+        lines.append(_row("Model left unpaid", _unpaid_words(case)))
+        lines.append(_row("Funds moved", "no, plan only; spend and reserve are computed in code"))
+        return lines
+    lines.append(_row("Rule-based order", ", ".join(case["rule_based_selected"])))
+    if case.get("ordering_status") == "unavailable":
+        error = (case.get("deliberations") or [{}])[0].get("error", "unavailable")
+        lines.append(_row("Model order", f"not evaluated ({error})"))
+    elif case.get("ordering_status") == "invalid":
+        lines.append(_row("Model order", "rejected, the rule-based order is kept"))
+        lines.append(_row("Reason", case.get("why") or "the answer was not a usable ordering"))
+    else:
+        lines.append(_row("Model order", ", ".join(case["model_selected"])))
+        lines.append(_row("Reason", case.get("why") or "the model order did not change which invoices are paid"))
+    lines.append(_row("Funds moved", "no, plan only"))
+    return lines
+
+
+def _ordering_headline(case: dict, spendable: str) -> str:
+    if case.get("ordering_status") == "changed":
+        return f"PASS  model order changed which invoices are paid, spend {_usdc(case['model_spend_usdc'])} of {spendable} USDC"
+    if case.get("ordering_status") == "unavailable":
+        return "INCONCLUSIVE  no usable model answer, the rule-based order is kept"
+    if case.get("ordering_status") == "same":
+        return "FAIL  model order paid the same invoices as the rule order"
+    return "FAIL  model order was not a valid ordering of the offered invoices"
+
+
+def _unpaid_words(case: dict) -> str:
+    words = []
+    for entry in case["model_left_unpaid"]:
+        overdue = f" (overdue {entry['overdue_days']} days)" if entry.get("overdue_days") else ""
+        words.append(f"{entry['invoice']}{overdue}")
+    return ", ".join(words) or "none"
 
 
 #: Cases that exist to show the model answering. A fallback to the deterministic layer is the
@@ -232,8 +346,10 @@ def case_queue_ordering(tmp, planner_env):
 MODEL_MUST_ANSWER = {
     "trade_off_is_deliberated",
     "prompt_injection_cannot_move_the_payment",
-    "model_orders_the_queue_within_the_balance",
 }
+
+#: The ordering case has its own verdict and its own output block, so its result is set here.
+ORDERING_CASE = "model_orders_the_queue_within_the_balance"
 
 CASES = [
     ("decisive_case_skips_the_model", case_decisive),
@@ -274,27 +390,32 @@ def main() -> int:
         for name, run in CASES:
             try:
                 outcome = {"result": "pass", **run(tmp, planner_env)}
-                traces = outcome.get("deliberations") or [{}]
-                if name in MODEL_MUST_ANSWER and traces[0].get("outcome") != "used":
-                    outcome["result"] = "INCONCLUSIVE"
-                    outcome["why"] = f"the model gave no usable answer ({traces[0].get('outcome')}: {traces[0].get('error', '')})"
+                if name == ORDERING_CASE:
+                    outcome.update(_ordering_verdict(outcome))
+                else:
+                    traces = outcome.get("deliberations") or [{}]
+                    if name in MODEL_MUST_ANSWER and traces[0].get("outcome") != "used":
+                        outcome["result"] = "INCONCLUSIVE"
+                        outcome["why"] = f"the model gave no usable answer ({traces[0].get('outcome')}: {traces[0].get('error', '')})"
+                if outcome["result"] == "FAIL":
+                    failed = True
+                elif outcome["result"] == "INCONCLUSIVE":
                     inconclusive = True
                 report["cases"][name] = outcome
             except AssertionError as exc:
                 failed = True
                 report["cases"][name] = {"result": "FAIL", "assertion": str(exc)}
     for name, case in report["cases"].items():
+        if name == ORDERING_CASE:
+            lines = _ordering_lines(case) if case.get("ordering_status") else [f"FAIL  {case.get('assertion', 'the ordering case could not run')}"]
+            print("\n".join(lines))
+            continue
         trace = (case.get("deliberations") or [{}])[0]
         print(f"{case['result']:4}  {name}")
         print(
             f"      final={case.get('final_action')} advisory={case.get('advisory_decided_by')}:"
             f"{case.get('advisory_action')} outcome={trace.get('outcome', 'not consulted')}"
         )
-        if case.get("baseline_order"):
-            print(f"      deterministic order: {' > '.join(case['baseline_order'])} (spend {case['baseline_planned_spend_usdc']} USDC)")
-            print(f"      model order:         {' > '.join(case['model_order'])} (spend {case['planned_spend_usdc']} USDC of {case['spendable_usdc']} spendable)")
-            for number, reason in case["model_reasons"].items():
-                print(f"        {number}: {reason}")
         if case.get("why"):
             print(f"      {case['why']}")
         if case.get("rationale"):
