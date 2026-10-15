@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import statistics
+import unicodedata
 from dataclasses import asdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -12,10 +14,12 @@ from .domain import (
     Decision,
     DecisionAction,
     EvidenceRef,
+    InvoiceHistory,
     InvoiceRecord,
     PAYABLE_INVOICE_STATUSES,
     PolicyCheck,
     ScreeningStatus,
+    SettledPayment,
     TreasurySnapshot,
     USDC_SCALE,
     is_evm_address,
@@ -48,8 +52,19 @@ OVERRIDABLE_CHECKS = {
     "purchase_order_match",
     "receipt_match",
     "invoice_line_total",
+    "supplier_record_changed",
+    "amount_outlier",
 
 }
+
+#: Risk signals that are notes only. A passed advisory check never opens a case, an alert or an
+#: attention row; the console renders it with the neutral `Noted` badge. A test keeps this tuple
+#: and the console's own ADVISORY_CHECKS set from drifting apart.
+ADVISORY_CHECK_CODES = (
+    "duplicate_number_other_supplier",
+    "similar_amount_recent",
+    "history_insufficient",
+)
 
 # ERPNext reports a *submitted* Purchase Order with a business status, never the literal
 # "Submitted"; these values were observed on a live v15 sandbox (a fully billed/received order
@@ -206,6 +221,299 @@ def payment_window(settings: Settings, invoice: InvoiceRecord, today: date) -> t
     return due_soon, discount_due
 
 
+def normalize_invoice_number(value: str | None) -> str:
+    """An invoice number compared without case, spacing, punctuation or leading zeros.
+
+    NFKC folds lookalike characters, casefold removes case, everything outside ASCII letters and
+    digits is dropped, and a run of digits keeps its trailing value ("0007" becomes "7", "000"
+    becomes "0"). The result is used for comparison only; no stored number is rewritten.
+    """
+    folded = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    normalized: list[str] = []
+    digits: list[str] = []
+    for char in folded:
+        if char.isascii() and char.isdigit():
+            digits.append(char)
+            continue
+        if digits:
+            normalized.append(_digits_without_leading_zeros(digits))
+            digits = []
+        if char.isascii() and char.isalpha():
+            normalized.append(char)
+    if digits:
+        normalized.append(_digits_without_leading_zeros(digits))
+    return "".join(normalized)
+
+
+def _digits_without_leading_zeros(digits: list[str]) -> str:
+    return "".join(digits).lstrip("0") or "0"
+
+
+def _usdc_two(value_units: int | Decimal) -> str:
+    return f"{Decimal(str(value_units)) / USDC_SCALE:.2f}"
+
+
+def _supplier_record_changed_on(value: str | None) -> date | None:
+    """The ERP `modified` timestamp, or None when only a version label is recorded.
+
+    `wallet_version` carries the accounting record's `modified` time when a connector read a real
+    record, and a plain label in fixtures. An unparseable label is not an age, so a version string
+    can never produce a "changed recently" claim.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _settled_date(payment: dict) -> date | None:
+    try:
+        return datetime.fromisoformat(str(payment["settled_at"])).date()
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _settled_amount_units(payment: dict) -> int | None:
+    try:
+        amount = int((payment.get("permit") or {}).get("amount_units"))
+    except (TypeError, ValueError):
+        return None
+    return amount if amount > 0 else None
+
+
+def load_invoice_history(store, invoice: InvoiceRecord, converter: CurrencyConverter) -> InvoiceHistory:
+    """Read the other recorded invoices and this supplier's settlements before evaluation.
+
+    One read-only pass over the store, so `evaluate` stays a function of its inputs. A payment
+    without a settled date or a convertible positive amount is dropped rather than guessed at;
+    the policy then reports insufficient history instead of a comparison it cannot support.
+    """
+    others: list[InvoiceRecord] = []
+    settled: list[SettledPayment] = []
+    for other, _state in store.list_invoices():
+        if other.id == invoice.id:
+            continue
+        others.append(other)
+        payment = store.get_payment(other.id)
+        if not payment:
+            continue
+        settled_on = _settled_date(payment)
+        amount_units = _settled_amount_units(payment)
+        if amount_units is None:
+            amount_units = converter.settlement_amount_usdc(other.amount_units, other.currency)
+        if settled_on is None or amount_units is None or amount_units <= 0:
+            continue
+        settled.append(SettledPayment(other.id, other.supplier_id, amount_units, settled_on))
+    return InvoiceHistory(tuple(others), tuple(settled))
+
+
+def _duplicate_number_checks(
+    invoice: InvoiceRecord,
+    history: InvoiceHistory,
+    settings: Settings,
+    today: date,
+    invoice_ref: str,
+    ref,
+) -> list[PolicyCheck]:
+    """Invoice numbers that match this one after normalization, inside the look-back window.
+
+    The same supplier is a hard hold: two records with one number would pay one bill twice, and a
+    reviewer cannot clear that. Another supplier is an advisory note, because different suppliers
+    may legitimately use the same number. Only invoices dated inside `risk_duplicate_window_days`
+    are compared, so a legitimate annual number reused years later is not held.
+    """
+    target = normalize_invoice_number(invoice.invoice_number)
+    if not target:
+        return []
+    window = settings.risk_duplicate_window_days
+    same: list[InvoiceRecord] = []
+    other: list[InvoiceRecord] = []
+    for candidate in history.other_invoices:
+        if normalize_invoice_number(candidate.invoice_number) != target:
+            continue
+        if not 0 <= (today - candidate.invoice_date).days <= window:
+            continue
+        (same if candidate.supplier_id == invoice.supplier_id else other).append(candidate)
+    checks: list[PolicyCheck] = []
+    ordered = sorted(same, key=lambda item: (item.invoice_number, item.id))
+    if ordered:
+        matched = ordered[0]
+        matched_ref = ref(
+            f"erp:purchase-invoice:{matched.purchase_invoice_id or matched.id}",
+            "accounting_connector",
+            "duplicate_invoice_number",
+            matched.invoice_number,
+        )
+        checks.append(PolicyCheck(
+            "duplicate_number_same_supplier",
+            False,
+            "Invoice number matches "
+            f"{matched.purchase_invoice_id or matched.invoice_number} from the same supplier after ignoring case, "
+            "spaces, punctuation and leading zeros. Resolve the source record; a reviewer cannot clear this.",
+            (invoice_ref, matched_ref),
+            False,
+            False,
+        ))
+    ordered = sorted(other, key=lambda item: (item.invoice_number, item.id))
+    if ordered:
+        matched = ordered[0]
+        other_ref = ref(
+            f"invoice:{matched.id}:number",
+            "invoice_record",
+            "invoice_number",
+            matched.invoice_number,
+        )
+        checks.append(PolicyCheck(
+            "duplicate_number_other_supplier",
+            True,
+            f"The same invoice number exists for another supplier ({matched.purchase_invoice_id or matched.invoice_number}). "
+            "Different suppliers can use the same numbers.",
+            (invoice_ref, other_ref),
+        ))
+    return checks
+
+
+def _similar_amount_check(
+    invoice: InvoiceRecord,
+    history: InvoiceHistory,
+    converter: CurrencyConverter,
+    settings: Settings,
+    today: date,
+    amount_ref: str,
+    ref,
+) -> PolicyCheck | None:
+    """The nearest same-supplier invoice within the amount tolerance and date window, as a note."""
+    target = converter.settlement_amount_usdc(invoice.amount_units, invoice.currency)
+    if target is None or target <= 0:
+        return None
+    tolerance = settings.risk_near_amount_tolerance_percent / Decimal(100)
+    candidates: list[tuple[InvoiceRecord, int]] = []
+    for candidate in history.other_invoices:
+        if candidate.supplier_id != invoice.supplier_id:
+            continue
+        age = (today - candidate.invoice_date).days
+        if not 0 <= age <= settings.risk_near_amount_window_days:
+            continue
+        amount = converter.settlement_amount_usdc(candidate.amount_units, candidate.currency)
+        if amount is None or amount <= 0:
+            continue
+        if Decimal(abs(amount - target)) / Decimal(max(amount, target)) > tolerance:
+            continue
+        candidates.append((candidate, amount))
+    if not candidates:
+        return None
+    matched, amount = sorted(candidates, key=lambda item: (item[0].invoice_number, item[0].id))[0]
+    matched_ref = ref(
+        f"invoice:{matched.id}:amount",
+        "invoice_record",
+        "amount",
+        f"{_usdc_two(amount)} USDC",
+    )
+    return PolicyCheck(
+        "similar_amount_recent",
+        True,
+        f"The same supplier has a {_usdc_two(amount)} USDC invoice from {matched.invoice_date.isoformat()} "
+        f"({matched.purchase_invoice_id or matched.invoice_number}), within "
+        f"{settings.risk_near_amount_tolerance_percent.normalize()}% and {settings.risk_near_amount_window_days} days. "
+        "Similar amounts alone are weak evidence.",
+        (amount_ref, matched_ref),
+    )
+
+
+def _amount_history_checks(
+    invoice: InvoiceRecord,
+    history: InvoiceHistory,
+    converter: CurrencyConverter,
+    settings: Settings,
+    approval: dict | list | None,
+    today: date,
+    amount_ref: str,
+) -> list[PolicyCheck]:
+    """An amount far above this supplier's own settled history, or why it could not be compared.
+
+    The comparison needs at least the configured number of settled amounts inside the window and a
+    positive median. Anything less is an advisory note, never a block and never a guessed ratio.
+    """
+    window = settings.risk_history_window_days
+    minimum = settings.risk_history_min_paid_count
+    cutoff = today - timedelta(days=window)
+    settled = [
+        payment for payment in history.settled_payments
+        if payment.supplier_id == invoice.supplier_id and cutoff <= payment.settled_on <= today
+    ]
+    if len(settled) < minimum:
+        return [PolicyCheck(
+            "history_insufficient",
+            True,
+            f"Only {len(settled)} settled payments in the last {window} days; {minimum} are needed to compare "
+            "amounts. No amount check was applied.",
+            (amount_ref,),
+        )]
+    target = converter.settlement_amount_usdc(invoice.amount_units, invoice.currency)
+    if target is None or target <= 0:
+        return [PolicyCheck(
+            "history_insufficient",
+            True,
+            "This invoice's amount has no configured USDC settlement rate, so no amount check was applied.",
+            (amount_ref,),
+        )]
+    median = Decimal(str(statistics.median(payment.amount_units for payment in settled)))
+    if median <= 0:
+        return [PolicyCheck(
+            "history_insufficient",
+            True,
+            "The supplier's settled median is zero, so no amount check was applied.",
+            (amount_ref,),
+        )]
+    multiple = Decimal(target) / median
+    if multiple <= settings.risk_amount_outlier_multiple:
+        return []
+    acknowledged = _human_ack(approval, "amount_outlier")
+    return [PolicyCheck(
+        "amount_outlier",
+        acknowledged,
+        f"This amount is {multiple:.1f} times the supplier median of {_usdc_two(median)} USDC over "
+        f"{len(settled)} settled payments in {window} days. The review limit is "
+        f"{settings.risk_amount_outlier_multiple.normalize()} times.",
+        (amount_ref,),
+        True,
+        True,
+    )]
+
+
+def _supplier_record_changed_check(
+    supplier,
+    settings: Settings,
+    approval: dict | list | None,
+    today: date,
+    wallet_ref: str,
+) -> PolicyCheck | None:
+    """A recently edited supplier record, when an operator enables the review window."""
+    window = settings.risk_supplier_record_review_days
+    if window <= 0:
+        return None
+    changed_on = _supplier_record_changed_on(supplier.wallet_version)
+    if changed_on is None:
+        return None
+    age = (today - changed_on).days
+    if age < 0 or age > window:
+        return None
+    when = "today" if age == 0 else f"{age} day{'s' if age != 1 else ''} ago"
+    acknowledged = _human_ack(approval, "supplier_record_changed")
+    return PolicyCheck(
+        "supplier_record_changed",
+        acknowledged,
+        f"The supplier record was last edited {when} in the accounting system. "
+        "This check cannot tell which field changed.",
+        (wallet_ref,),
+        True,
+        True,
+    )
+
+
 class DeterministicPolicy:
     def __init__(self, settings: Settings, converter: CurrencyConverter):
         self.settings = settings
@@ -220,6 +528,7 @@ class DeterministicPolicy:
         recommendation: AgentRecommendation,
         approval: dict | None = None,
         now: date | None = None,
+        history: InvoiceHistory | None = None,
     ) -> Decision:
         today = now or date.today()
         evidence_hash = compute_evidence_hash(invoice, accounting, treasury, screening)
@@ -251,6 +560,12 @@ class DeterministicPolicy:
             duplicate_refs = (ref(f"erp:purchase-invoice:{accounting.duplicate_invoice_id}", "accounting_connector", "duplicate_invoice", accounting.duplicate_invoice_id),)
             conflicts.append("An existing accounting invoice has the same supplier invoice reference.")
         checks.append(PolicyCheck("duplicate_invoice", duplicate_ok, "No matching duplicate invoice was found." if duplicate_ok else "A duplicate invoice reference exists.", duplicate_refs))
+        if history is not None:
+            duplicate_number_checks = _duplicate_number_checks(invoice, history, self.settings, today, inv, ref)
+            checks.extend(duplicate_number_checks)
+            if any(check.code == "duplicate_number_same_supplier" for check in duplicate_number_checks):
+                conflicts.append("The same invoice number is already recorded for this supplier.")
+                missing.append("Resolution of the duplicate invoice number in the source record.")
 
         supplier = accounting.supplier
         if supplier is None:
@@ -294,6 +609,11 @@ class DeterministicPolicy:
                 missing.append("Verified approved supplier wallet address.")
             elif not supplier.wallet_verified and not _human_ack(current_approval, "wallet_unverified"):
                 missing.append("Human confirmation that the existing supplier-record wallet is the approved payee.")
+            record_changed = _supplier_record_changed_check(supplier, self.settings, current_approval, today, wallet_ref)
+            if record_changed is not None:
+                checks.append(record_changed)
+                if not record_changed.passed:
+                    missing.append("Human review of the recently changed supplier record.")
 
             candidate_ref: str | None = None
             if invoice.invoice_payee_address:
@@ -315,6 +635,15 @@ class DeterministicPolicy:
                     conflicts.append("Invoice payee differs from the approved supplier wallet.")
                     if not acknowledged:
                         missing.append("Human review of the invoice/supplier wallet mismatch.")
+
+        if history is not None:
+            history_checks = _amount_history_checks(invoice, history, self.converter, self.settings, current_approval, today, amount_ref)
+            checks.extend(history_checks)
+            if any(not check.passed for check in history_checks):
+                missing.append("Human review of the amount above this supplier's settled history.")
+            similar = _similar_amount_check(invoice, history, self.converter, self.settings, today, amount_ref, ref)
+            if similar is not None:
+                checks.append(similar)
 
         invoice_lines_ref = ref(f"invoice:{invoice.id}:lines", "invoice_record", "line_items", str(len(invoice.lines)))
         lines_total = sum(line.amount_units for line in invoice.lines)

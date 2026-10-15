@@ -30,6 +30,8 @@ HUMAN_REVIEW = "human_review"
 RECORDS: dict[str, tuple[str, str]] = {
     "invoice_payable": ("Purchase Invoice", "Accounts payable"),
     "duplicate_invoice": ("Purchase Invoice", "Accounts payable"),
+    "duplicate_number_same_supplier": ("Purchase Invoice", "Accounts payable"),
+    "amount_outlier": ("Purchase Invoice", "Accounts payable"),
     "invoice_line_total": ("Purchase Invoice", "Accounts payable"),
     "accounting_invoice_match": ("Purchase Invoice", "Accounts payable"),
     "amount_limit": ("Purchase Invoice", "Accounts payable"),
@@ -40,6 +42,7 @@ RECORDS: dict[str, tuple[str, str]] = {
     "supplier_record": ("Supplier", "Accounts payable"),
     "supplier_blocked": ("Supplier", "Accounts payable"),
     "wallet_unverified": ("Supplier", "Accounts payable"),
+    "supplier_record_changed": ("Supplier", "Accounts payable"),
     "payee_mismatch": ("Supplier", "Accounts payable"),
     "purchase_order_match": ("Purchase Order", "Procurement"),
     "missing_purchase_order": ("Purchase Order", "Procurement"),

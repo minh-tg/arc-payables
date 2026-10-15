@@ -211,6 +211,29 @@ class AccountingEvidence:
 
 
 @dataclass(frozen=True)
+class SettledPayment:
+    """One settled payment for a supplier, already in settlement USDC."""
+
+    invoice_id: str
+    supplier_id: str
+    amount_units: int
+    settled_on: date
+
+
+@dataclass(frozen=True)
+class InvoiceHistory:
+    """Other recorded invoices and this supplier's settlements, read before evaluation.
+
+    The duplicate and amount checks compare the invoice with records the store already holds,
+    never with anything the invoice or a model says about itself. An empty history is a fact:
+    the policy reports insufficient history instead of inventing a comparison.
+    """
+
+    other_invoices: tuple[InvoiceRecord, ...] = ()
+    settled_payments: tuple[SettledPayment, ...] = ()
+
+
+@dataclass(frozen=True)
 class EvidenceRef:
     id: str
     source: str

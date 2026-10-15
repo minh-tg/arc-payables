@@ -110,6 +110,21 @@ CHECKS: dict[str, dict[str, Any]] = {
     "treasury_fresh": _row("The treasury balance was read seconds ago, not hours ago."),
     "payment_timing": _row("Now is a reasonable time to pay: due soon, or a discount makes early payment pay."),
     "early_discount": _row("An early-payment discount is available and was priced into the timing."),
+    "duplicate_number_same_supplier": _row(
+        "This supplier already has an invoice with this number. Paying both would pay one bill twice.",
+        "Open the matching Purchase Invoice, then cancel or correct the duplicate. A reviewer cannot clear this.",
+    ),
+    "supplier_record_changed": _row(
+        "The supplier record was edited recently. A changed payout address is how redirected payments often start, but this check cannot tell which field changed.",
+        "Confirm the change with the supplier by a channel you already trust, then acknowledge.",
+    ),
+    "amount_outlier": _row(
+        "The amount is far above what this supplier has been paid before.",
+        "Check the invoice against its purchase order, then acknowledge if it is right.",
+    ),
+    "duplicate_number_other_supplier": _row("Another supplier used this invoice number. This is a note, not a block."),
+    "similar_amount_recent": _row("A recent invoice from this supplier has a similar amount. This is a note, not a block."),
+    "history_insufficient": _row("Too few past payments to compare this amount. No amount check ran, and nothing was blocked."),
 }
 
 #: Every screening status, with what it means for payment.

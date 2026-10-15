@@ -279,6 +279,23 @@ class Settings(BaseSettings):
     opensanctions_review_threshold: float = 0.5
     opensanctions_limit: int = 5
 
+    # Deterministic supplier and invoice signals. No model call: each check compares the
+    # invoice with records the store already holds, and the two review checks can be cleared
+    # by a human acknowledgement while the duplicate is a hard hold that no acknowledgement clears.
+    # Duplicate numbers are compared after NFKC, casefold, punctuation removal and leading-zero
+    # stripping, over this window, in settlement USDC.
+    risk_duplicate_window_days: int = 365
+    risk_near_amount_window_days: int = 30
+    risk_near_amount_tolerance_percent: Decimal = Decimal("2")
+    # 0 disables the supplier-record-changed review. The accounting system's `modified` time
+    # moves on any Supplier edit, including the human `wallet verified` tick this product
+    # requires before the first payment, so a non-zero window would hold the normal flow right
+    # after a person verified the wallet. Operators who accept that trade-off may enable it.
+    risk_supplier_record_review_days: int = 0
+    risk_history_window_days: int = 180
+    risk_history_min_paid_count: int = 5
+    risk_amount_outlier_multiple: Decimal = Decimal("3")
+
     # Circle Developer-Controlled Wallets (Arc Testnet only).
     circle_api_key: str | None = None
     circle_entity_secret: str | None = None

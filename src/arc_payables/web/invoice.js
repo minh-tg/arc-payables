@@ -185,17 +185,26 @@ async function renderInvoice(root, [invoiceId]) {
   root.append(next);
 
   if (decision) {
+    const ADVISORY_CHECKS = new Set(['duplicate_number_other_supplier', 'similar_amount_recent', 'history_insufficient']);
     const checks = decision.policy_checks || [];
+    const advisory = checks.filter((check) => ADVISORY_CHECKS.has(check.code));
+    const material = checks.filter((check) => !ADVISORY_CHECKS.has(check.code));
+    const advisoryNote = advisory.length
+      ? ` ${advisory.length} advisory note${advisory.length === 1 ? '' : 's'} ${advisory.length === 1 ? 'does' : 'do'} not change the decision.`
+      : '';
     root.append(panel('Evidence checks',
-      h('p', { class: 'muted' }, `${checks.filter((check) => check.passed).length}/${checks.length} checks passed. Blocking evidence and reviewable exceptions are different decisions.`),
-      table(['Check', 'Result', 'What you can do', 'Evidence'], checks.map((check) => h('tr', {},
-        h('td', {},
-          h('div', { style: 'font-weight: 500;' }, humanizeCode(check.code)),
-        ),
-        h('td', {}, badge(check.passed ? 'Passed' : 'Failed', check.passed ? 'good' : 'bad')),
-        h('td', {}, check.passed ? 'Nothing needed' : check.overridable && check.requires_human ? 'Human review permitted' : 'Correct evidence · no override'),
-        h('td', {}, check.detail, !check.passed ? h('p', { class: 'muted' }, explain('checks', check.code)) : null),
-      ))),
+      h('p', { class: 'muted' }, `${material.filter((check) => check.passed).length}/${material.length} checks passed. Blocking evidence and reviewable exceptions are different decisions.${advisoryNote}`),
+      table(['Check', 'Result', 'What you can do', 'Evidence'], checks.map((check) => {
+        const advisoryCheck = ADVISORY_CHECKS.has(check.code);
+        return h('tr', {},
+          h('td', {},
+            h('div', { style: 'font-weight: 500;' }, humanizeCode(check.code)),
+          ),
+          h('td', {}, advisoryCheck ? badge('Noted', 'neutral') : badge(check.passed ? 'Passed' : 'Failed', check.passed ? 'good' : 'bad')),
+          h('td', {}, advisoryCheck ? 'Nothing required. Does not change the decision.' : check.passed ? 'Nothing needed' : check.overridable && check.requires_human ? 'Human review permitted' : 'Correct evidence · no override'),
+          h('td', {}, check.detail, !check.passed || advisoryCheck ? h('p', { class: 'muted' }, explain('checks', check.code)) : null),
+        );
+      })),
     ));
     if (actions.approve && can('approve')) {
       const reviewer = usesOIDC() ? null : field('Reviewer', 'approval-reviewer', 'Your name');

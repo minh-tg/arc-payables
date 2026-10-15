@@ -441,6 +441,12 @@ const HUMAN_TERMS = {
   address_screening: 'Sanctions & watchlist screening',
   early_discount: 'Early payment discount',
   payment_timing: 'Payment due window',
+  duplicate_number_same_supplier: 'Same invoice number, same supplier',
+  supplier_record_changed: 'Supplier record changed recently',
+  amount_outlier: 'Amount above supplier history',
+  duplicate_number_other_supplier: 'Same invoice number, other supplier',
+  similar_amount_recent: 'Similar recent amount, same supplier',
+  history_insufficient: 'Supplier history too short',
 
   // Attention & Issues
   invoice_escalated: 'Policy check review required',

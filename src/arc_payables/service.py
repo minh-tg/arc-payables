@@ -29,7 +29,7 @@ from .domain import (
     units_to_usdc,
     utcnow,
 )
-from .policy import OVERRIDABLE_CHECKS, DeterministicPolicy, accounting_source_consistency
+from .policy import OVERRIDABLE_CHECKS, DeterministicPolicy, accounting_source_consistency, load_invoice_history
 from .ports import AccountingConnector, AgentRecommendation, PaymentMapping, PaymentProvider, PermitSigner
 from .screening import FixtureScreeningProvider, ScreeningResult
 from .settings import Settings
@@ -1025,6 +1025,7 @@ class APWorkflow:
             context["screening"],
             recommendation,
             approval,
+            history=load_invoice_history(self.store, invoice, self.policy.converter),
         )
 
     @staticmethod
