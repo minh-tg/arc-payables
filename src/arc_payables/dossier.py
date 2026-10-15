@@ -759,13 +759,14 @@ def main(argv: list[str] | None = None) -> int:
         prog="arc-payables-dossier",
         description="Export or verify one settled payment as an offline-checkable JSON dossier.",
     )
-    parser.add_argument("--full-hashes", action="store_true", help="Print hashes in full")
     commands = parser.add_subparsers(dest="command", required=True)
     export_parser = commands.add_parser("export", help="Write a dossier for one settled payment")
     export_parser.add_argument("invoice", help="Invoice id or invoice number")
     export_parser.add_argument("--out", type=Path, help="Write the dossier here instead of dossier-<number>.json")
+    export_parser.add_argument("--full-hashes", action="store_true", help="Print hashes in full")
     verify_parser = commands.add_parser("verify", help="Verify a dossier file offline")
     verify_parser.add_argument("file", type=Path, help="Dossier JSON file")
+    verify_parser.add_argument("--full-hashes", action="store_true", help="Print hashes in full")
     args = parser.parse_args(argv)
 
     if args.command == "export":

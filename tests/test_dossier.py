@@ -305,3 +305,10 @@ def test_main_verifies_a_file_and_returns_the_exit_code(tmp_path, capsys):
     printed = capsys.readouterr().out
     assert code == 0
     assert printed.startswith("VERIFIED")
+
+
+def test_main_accepts_full_hashes_after_the_subcommand(tmp_path, capsys):
+    _lines, document = _exported(tmp_path)
+    code = dossier.main(["verify", str(tmp_path / "dossier.json"), "--full-hashes"])
+    assert code == 0
+    assert document["evidence"]["hash"] in capsys.readouterr().out
