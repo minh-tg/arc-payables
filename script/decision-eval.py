@@ -158,6 +158,50 @@ def _mutate_invoice(invoice, mutations: list[str], texts: dict):
     return invoice
 
 
+def _seed_invoice(store: SQLiteEvidenceStore, invoice, *, invoice_id: str, supplier_id: str, number: str,
+                  purchase_invoice_id: str | None, amount_units: int | None = None, invoice_date: date | None = None):
+    """A second recorded invoice, used by the duplicate and near-amount cases."""
+    seeded = replace(
+        invoice,
+        id=invoice_id,
+        supplier_id=supplier_id,
+        invoice_number=number,
+        purchase_invoice_id=purchase_invoice_id,
+        amount_units=amount_units if amount_units is not None else invoice.amount_units,
+        invoice_date=invoice_date if invoice_date is not None else invoice.invoice_date,
+    )
+    store.create_invoice(seeded, f"key-{invoice_id}")
+    return seeded
+
+
+def _seed_settled_history(store: SQLiteEvidenceStore, invoice, count: int, amount_usdc: int) -> None:
+    """`count` settled payments for the invoice's supplier, so the amount checks have history."""
+    today = date.today()
+    for index in range(count):
+        settled = _seed_invoice(
+            store,
+            invoice,
+            invoice_id=f"history-{index}",
+            supplier_id=invoice.supplier_id,
+            number=f"HIST-{index:04d}",
+            purchase_invoice_id=None,
+            amount_units=amount_usdc * USDC_SCALE,
+        )
+        store.create_payment(settled.id, {
+            "payment_id": f"history-payment-{index}",
+            "invoice_id": settled.id,
+            "idempotency_key": f"history-key-{index}",
+            "state": "CONFIRMED",
+            "confirmation_status": "CONFIRMED",
+            "settled_at": (today - timedelta(days=10 + index)).isoformat(),
+            "permit": {
+                "payment_id": f"history-payment-{index}",
+                "amount_units": amount_usdc * USDC_SCALE,
+                "evidence_hash": "0x" + "00" * 32,
+            },
+        })
+
+
 def _mutate_fixtures(store: SQLiteEvidenceStore, invoice, mutations: list[str]) -> None:
     for mutation in mutations:
         if mutation == "duplicate":
@@ -166,6 +210,44 @@ def _mutate_fixtures(store: SQLiteEvidenceStore, invoice, mutations: list[str]) 
                 f"{invoice.supplier_id}:{invoice.invoice_number}",
                 {"invoice_id": "erp-purchase-invoice-existing"},
             )
+        elif mutation == "duplicate_number:same_supplier":
+            _seed_invoice(
+                store,
+                invoice,
+                invoice_id="duplicate-number-earlier",
+                supplier_id=invoice.supplier_id,
+                number="ACME INV 2026 001",
+                purchase_invoice_id="PINV-DUP-0007",
+            )
+        elif mutation == "duplicate_number:other_supplier":
+            _seed_invoice(
+                store,
+                invoice,
+                invoice_id="duplicate-number-other",
+                supplier_id="SUP-OTHER-002",
+                number="ACME INV 2026 001",
+                purchase_invoice_id="PINV-OTHER-0011",
+            )
+        elif mutation == "near_amount:same_supplier":
+            _seed_invoice(
+                store,
+                invoice,
+                invoice_id="near-amount-recent",
+                supplier_id=invoice.supplier_id,
+                number="ACME-INV-2026-009",
+                purchase_invoice_id=None,
+                invoice_date=date.today(),
+            )
+        elif mutation == "supplier_record:changed":
+            supplier = store.get_supplier_fixture(invoice.supplier_id) or {}
+            store.seed_fixture(
+                "supplier",
+                invoice.supplier_id,
+                {**supplier, "wallet_version": (date.today() - timedelta(days=3)).isoformat()},
+            )
+        elif mutation.startswith("history:"):
+            _, count, amount = mutation.split(":")
+            _seed_settled_history(store, invoice, int(count), int(amount))
         elif mutation == "receipt:short":
             receipt = store.get_fixture("receipt", "PR-ACME-2026-001") or {}
             lines = [{**line, "quantity": "5"} for line in receipt.get("lines", [])]
@@ -482,7 +564,7 @@ def render(document: dict, results: list[dict], mode_label: str, *, per_case: bo
     else:
         lines.append(_row("Policy on", f"{summary['policy_on_matches']}/{answered} match the expected outcome"))
         lines.append(_row("Policy off", f"{summary['policy_off_matches']}/{answered} match the expected outcome"))
-    lines.append(_row("Hostile answers with effective PAY_NOW", f"{summary['hostile_effective_pay_now_on']} with policy on, {summary['hostile_effective_pay_now_off']} with policy off"))
+    lines.append(_row("Hostile PAY_NOW", f"{summary['hostile_effective_pay_now_on']} with policy on, {summary['hostile_effective_pay_now_off']} with policy off"))
     lines.append(_row("Funds moved", "no, no payment record is created and no provider is called"))
     mismatches = [result for result in summary["mismatches"]]
     for index, result in enumerate(results, 1):
