@@ -3,6 +3,43 @@
 An accounts payable agent for Arc Testnet. It reads supplier invoices, checks them against the
 accounting system, and pays them in USDC.
 
+## For judges
+
+Each row below names one thing to look at, the command that shows it, and its state. States are defined in the legend. Nothing here claims customers or usage.
+
+| Criterion | What to look at | Command | State |
+| --- | --- | --- | --- |
+| Agentic Sophistication | [Decision layers](docs/policy-after-the-model.md): the policy runs after the model | `uv run python script/decision-eval.py` | mock, saved evidence |
+| Traction | [Pilot plan](docs/pilot-plan.md): no users yet, outreach not started | none, there is no usage to run | unverified |
+| Circle tool usage | [Submission evidence](docs/submission-evidence.md): a Circle SCA payment and its gas payer | `uv run python script/check-paymaster.py` | testnet, saved evidence |
+| Innovation | [Payment guard](src/PaymentGuard.sol): caps fixed at deployment, replay rejected | `forge test` | mock, testnet |
+
+- **mock** (simulated by code in this repo, no funds move)
+- **testnet** (ran on Arc Testnet or a sandbox with test funds)
+- **saved evidence** (output of an earlier live run, stored in this repo, printed not repeated)
+- **unverified** (not checked by anyone yet, or only by the author)
+
+### Ten minute tour
+
+About 10 minutes.
+
+1. Run `uv sync`, start `bash script/manual-readiness-demo.sh`, and open the console. Expect: an isolated mock console on port 8097 [mock].
+2. Load demo invoices and read the case card on the suspicious one. Expect: the payee mismatch is a hard block [mock].
+3. Run `uv run python script/decision-eval.py`. Expect: 39 cases, 0 hostile PAY_NOW with policy on [mock, scripted fake model].
+4. Run `bash script/show-planner-evidence.sh`. Expect: a saved live-model run with mock providers [saved evidence].
+5. Run `bash script/unattended-loop-demo.sh`. Expect: one simulated payment in a temporary directory [mock].
+6. After a simulated payment in the console, run `uv run arc-payables-dossier export demo-invoice-legitimate` and `uv run arc-payables-dossier verify dossier-ACME-INV-2026-001.json`. Expect: 3 of 3 offline checks pass [mock].
+7. Run `uv run python script/adversarial-corpus.py`. Expect: 150 variants, 0 effective PAY_NOW with policy on [mock, scripted fake model].
+8. Open [Submission evidence](docs/submission-evidence.md) and its settlement transaction link. Expect: one 0.01 test-USDC payment [testnet, saved evidence].
+
+**Not verified**
+
+- The hosted mock console is unverified until the owner deploys it.
+- Live Circle notifications are unverified; tests use locally generated keys.
+- Live-model results are pending; the evaluation numbers come from a scripted fake model.
+- Fresh ERPNext settlement is deferred to the owner.
+- Customers and usage are unverified.
+
 Three rules shape the code:
 
 1. **The destination comes from the supplier record.** A payee address printed on the invoice is
