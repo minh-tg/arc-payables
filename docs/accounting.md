@@ -20,8 +20,9 @@ Settling one authorization can take up to three on-chain operations:
 
 Earlier versions booked the **`guard` operation's fee only**. That understated the aggregate
 metered cost of executing the workflow, even though the supplier received the authorized amount.
-A metered fee is not automatically a business expense: sponsored Circle operations can name a
-paymaster without establishing the ultimate funding, billing or reimbursement arrangement.
+A metered fee is not automatically a business expense: an operation with a nonzero paymaster field can
+name a protocol-level payer without establishing the ultimate funding, billing or reimbursement
+arrangement.
 Finance must approve that interpretation before production posting.
 
 Now each stage is measured as it confirms and the recorded `fee_units` is their **sum**, with
@@ -56,7 +57,7 @@ Console's Payments view shows the booked fee per payment.
 
 | Claim | Evidence | Limit |
 | --- | --- | --- |
-| Current executor records aggregate measured fees | End-to-end test summing operation receipts on a local EVM running the real guard bytecode | Local-chain test, not public Arc gas-price validation, historical fee attribution or proof the business pays sponsored gas |
+| Current executor records aggregate measured fees | End-to-end test summing operation receipts on a local EVM running the real guard bytecode | Local-chain test, not public Arc gas-price validation, historical fee attribution, or evidence of who funds the paymaster |
 | A fee the provider reports later is merged, not replaced | Hermetic test on the deferred-fee path | Uses the mock provider's deferral model |
 | The ledger can represent the fee | Rounding-up tests and the fee-expense computation | A currency with coarser units rounds more |
 | Writeback books the payment and the fee as two documents | Sandbox ERPNext runs recorded in HISTORY.md | Disposable sandbox, not a production chart of accounts |
@@ -66,8 +67,8 @@ Console's Payments view shows the booked fee per payment.
 The [submission evidence packet](submission-evidence.md) records a $0.02 fee journal for the
 0.01 test-USDC settlement. A later-approval/settlement pair inferred from public meters totals
 0.021677754992677056 USDC, rounding up to $0.03 at the demo mapping. The original application's
-operation linkage and complete fee breakdown are unavailable, and ultimate sponsorship/billing
-is unverified. Passing the current aggregate-fee tests does not retroactively close this gap.
+operation linkage and complete fee breakdown are unavailable, and ultimate funding and billing of the
+paymaster is unverified. Passing the current aggregate-fee tests does not retroactively close this gap.
 Do not alter the historical journal based only on the inferred pair.
 
 ## Gates that need an accountant or a live provider
@@ -85,7 +86,8 @@ whether those are the *right* accounts for this business.
 An illustrative mapping is defined in
 [`src/arc_payables/fixtures/standard_coa.json`](../src/arc_payables/fixtures/standard_coa.json).
 It is not an accountant-approved GAAP/IFRS compliance statement. The example fee leg assumes the
-business bears the fee; sponsored gas requires a separately reviewed economic interpretation.
+business bears the fee; a nonzero paymaster field requires a separately reviewed economic
+interpretation of who actually paid.
 
 #### Debit/Credit Proof Tables
 

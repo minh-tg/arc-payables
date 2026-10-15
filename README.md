@@ -298,12 +298,14 @@ Used today, and verified live rather than asserted:
 * **USDC** on Arc, settled through the guard.
 * **Contracts.** The budget is enforced by an on-chain guard rather than by configuration, and the
   service cannot change it.
-* **Gas Station, in effect.** Both Circle settlements debited the wallet exactly the payment amount
-  and nothing else, and the transaction was relayed by a different address carrying a `userOpHash`:
-  the wallet did not pay gas. Circle documents a preconfigured testnet Gas Station policy that
-  sponsors gas for supported wallets, so this is the mechanism the observation matches. The recorded
-  network fee is whatever Circle reports for the settling operation, and it is booked as our own
-  cost either way.
+* **Gas payer in the checked operation.** Both Circle settlements debited the wallet exactly the
+  payment amount and nothing else, and the transaction was relayed by a different address carrying a
+  `userOpHash`. The checked UserOperationEvent has a nonzero paymaster address
+  (0x03df76c8...63103b), the protocol-level gas payer for that operation. Who owns or funds that
+  paymaster, and what the business paid, is not verified here. Run
+  `uv run python script/check-paymaster.py` to read that field back from the public receipt; it
+  exits nonzero when the receipt cannot be read. The recorded network fee is whatever Circle reports
+  for the settling operation, and it is booked as our own cost either way.
 
 Deliberately not used yet, with the reason each one is a decision rather than a gap:
 
