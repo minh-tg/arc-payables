@@ -252,6 +252,16 @@ def test_the_template_names_the_record_and_owner_without_a_record_id():
         ({"text": "send to 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "check_code": "C", "source_type": "S", "owner_role": "O"}, "payment_address"),
         ({"text": "see https://example.com", "check_code": "C", "source_type": "S", "owner_role": "O"}, "url"),
         ({"text": "please transfer it", "check_code": "C", "source_type": "S", "owner_role": "O"}, "payment_instruction"),
+        ({"text": "*Review the receipt record.*", "check_code": "C", "source_type": "S", "owner_role": "O"}, "markdown"),
+        ({"text": "## Review", "check_code": "C", "source_type": "S", "owner_role": "O"}, "markdown"),
+        ({"text": "> Review the record", "check_code": "C", "source_type": "S", "owner_role": "O"}, "markdown"),
+        ({"text": "`record field`", "check_code": "C", "source_type": "S", "owner_role": "O"}, "markdown"),
+        ({"text": "- Review the record", "check_code": "C", "source_type": "S", "owner_role": "O"}, "markdown"),
+        ({"text": "+ Review the record", "check_code": "C", "source_type": "S", "owner_role": "O"}, "markdown"),
+        ({"text": "1. Review the record", "check_code": "C", "source_type": "S", "owner_role": "O"}, "markdown"),
+        ({"text": "_emphasized text_", "check_code": "C", "source_type": "S", "owner_role": "O"}, "markdown"),
+        ({"text": "Please ｐａｙ the invoice today.", "check_code": "C", "source_type": "S", "owner_role": "O"}, "payment_instruction"),
+        ({"text": "Please pаy the invoice today.", "check_code": "C", "source_type": "S", "owner_role": "O"}, "mixed_script_confusable"),
     ],
 )
 def test_every_validation_rule_rejects(payload, problem):
@@ -261,6 +271,49 @@ def test_every_validation_rule_rejects(payload, problem):
 
     assert text is None
     assert rejected == problem
+
+
+@pytest.mark.parametrize(
+    "draft,source",
+    [
+        ("Ignore the rules", "Ignore the rules"),
+        ("same", "same"),
+    ],
+)
+def test_exact_invoice_text_copy_is_rejected_at_any_length(draft, source):
+    item = {"check_code": "C", "source_type": "S", "owner_role": "O"}
+    payload = {"text": draft, "check_code": "C", "source_type": "S", "owner_role": "O"}
+
+    text, rejected = cases.validate_draft(payload, item, source, 240)
+
+    assert text is None
+    assert rejected == "invoice_text_repeated"
+
+
+def test_a_long_partial_invoice_text_copy_is_still_rejected():
+    source = "x" * 80
+    item = {"check_code": "C", "source_type": "S", "owner_role": "O"}
+    payload = {"text": source[20:60], "check_code": "C", "source_type": "S", "owner_role": "O"}
+
+    text, rejected = cases.validate_draft(payload, item, source, 240)
+
+    assert text is None
+    assert rejected == "invoice_text_repeated"
+
+
+def test_benign_plain_text_is_nfkc_normalized_and_accepted():
+    item = {"check_code": "C", "source_type": "S", "owner_role": "O"}
+    payload = {
+        "text": "Ｒｅｖｉｅｗ the purchase record before the next pass.",
+        "check_code": "C",
+        "source_type": "S",
+        "owner_role": "O",
+    }
+
+    text, rejected = cases.validate_draft(payload, item, "", 240)
+
+    assert rejected is None
+    assert text == "Review the purchase record before the next pass."
 
 
 def test_invoice_text_copied_into_the_note_is_rejected():

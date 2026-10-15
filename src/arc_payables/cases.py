@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from typing import Any
 
 from .alerting import WARNING, Alert
@@ -46,6 +47,13 @@ DRAFT_PAYMENT_WORDS = re.compile(
     re.IGNORECASE,
 )
 DRAFT_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+DRAFT_MARKDOWN = re.compile(
+    r"(?m)^\s{0,3}(?:#{1,6}(?:\s|$)|>|[-+*]\s|\d+[.)]\s)|`|"
+    r"(?:\*{1,2}[^*\n]+\*{1,2}|_{1,2}[^_\n]+_{1,2})"
+)
+DRAFT_CONFUSABLES = frozenset(
+    "АаВвЕеКкМмНнОоРрСсТтУуХхІіЈјЅѕӀӏΑΒΕΖΗΙΚΜΝΟΡΤΥΧαβεζηικμνορτυχ"
+)
 
 #: The deterministic note, used when no planner is configured or the model answer is unusable. The
 #: text names the record to correct and never carries invoice-derived text, which is untrusted.
@@ -193,11 +201,10 @@ def template_draft(item: dict[str, Any]) -> str:
 
 
 def validate_draft(payload: Any, item: dict[str, Any], untrusted: str, max_chars: int) -> tuple[str | None, str | None]:
-    """Validate one model answer against the case item. Returns (text, problem), text None if unusable.
+    """Validate the allowed fields and reject unsafe or formatted draft text.
 
-    The model may write only the text. It restates the check and record it is writing about, and any
-    answer that names a different one is rejected, as is any text carrying a URL, a payment address,
-    a money instruction, or a copy of the invoice's own untrusted free text.
+    Rejections cover URLs, payment addresses and instructions, mixed-script confusables, Markdown,
+    control characters, and copied invoice text.
     """
     if not isinstance(payload, dict):
         return None, "not_an_object"
@@ -212,7 +219,7 @@ def validate_draft(payload: Any, item: dict[str, Any], untrusted: str, max_chars
     text = payload.get("text")
     if not isinstance(text, str):
         return None, "missing_text"
-    text = text.strip()
+    text = unicodedata.normalize("NFKC", text.strip())
     if not text:
         return None, "empty"
     if len(text) > max_chars:
@@ -223,6 +230,10 @@ def validate_draft(payload: Any, item: dict[str, Any], untrusted: str, max_chars
         return None, "payment_address"
     if DRAFT_URL.search(text):
         return None, "url"
+    if _has_mixed_script_confusable(text):
+        return None, "mixed_script_confusable"
+    if DRAFT_MARKDOWN.search(text):
+        return None, "markdown"
     if DRAFT_PAYMENT_WORDS.search(text):
         return None, "payment_instruction"
     if _repeats_invoice_text(text, untrusted):
@@ -230,14 +241,19 @@ def validate_draft(payload: Any, item: dict[str, Any], untrusted: str, max_chars
     return text, None
 
 
+def _has_mixed_script_confusable(text: str) -> bool:
+    has_latin = any("LATIN" in unicodedata.name(char, "") for char in text)
+    return has_latin and any(char in DRAFT_CONFUSABLES for char in text)
+
+
 def _repeats_invoice_text(text: str, untrusted: str) -> bool:
     """True when the draft copies a run of the invoice's own free text, which is untrusted data."""
-    hostile = " ".join(str(untrusted or "").split()).casefold()
+    hostile = " ".join(unicodedata.normalize("NFKC", str(untrusted or "")).split()).casefold()
+    plain = " ".join(unicodedata.normalize("NFKC", text).split()).casefold()
+    if hostile and hostile in plain:
+        return True
     if len(hostile) < 20:
         return False
-    plain = " ".join(text.split()).casefold()
-    if hostile in plain:
-        return True
     return any(plain.find(hostile[start:start + 40]) >= 0 for start in range(0, max(0, len(hostile) - 39), 20))
 
 
