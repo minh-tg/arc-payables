@@ -55,7 +55,7 @@ produces an advisory note only, and both candidates stay eligible
 (`tests/test_risk_signals.py`).
 
 For what runs after a model answer, the fake-model numbers and the 2026-10-15 live runs of the
-39 labelled cases (no hostile `PAY_NOW` with the policy on, ten runs across two models, eight clean) and the live injection runs, see
+39 labelled cases (no hostile `PAY_NOW` with the policy on, fifteen runs across three models, fourteen clean) and the live injection runs, see
 [policy-after-the-model.md](policy-after-the-model.md).
 
 ## What this does not show
