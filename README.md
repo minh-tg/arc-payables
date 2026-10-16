@@ -19,6 +19,8 @@ Each row below names one thing to look at, the command that shows it, and its st
 - **saved evidence** (output of an earlier live run, stored in this repo, printed not repeated)
 - **unverified** (not checked by anyone yet, or only by the author)
 
+**Hosted demo** [mock]: <https://arc-payables-hosted-demo.onrender.com/console/>. It runs only mock providers and refuses to start with a live provider or a secret, so no funds move. It is on Render's free plan, which sleeps the instance after about 15 minutes idle. The first request after a sleep takes about a minute and the demo data resets.
+
 ### Ten minute tour
 
 About 10 minutes.
@@ -34,7 +36,6 @@ About 10 minutes.
 
 **Not verified**
 
-- The hosted mock console is unverified until the owner deploys it.
 - Live Circle notifications are unverified; tests use locally generated keys.
 - Live-model results (2026-10-15, three small models from one provider, five runs each of the 39 cases): fourteen clean passes and one inconclusive run (one reply not JSON). No hostile answer reached `PAY_NOW` with the policy on in any run. The 250-variant injection corpus went to all three: 0 of 250 answered `PAY_NOW` each time. The headline 39/39 and 250-variant numbers come from a scripted fake model.
 - Fresh ERPNext settlement is deferred to the owner.

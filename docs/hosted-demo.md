@@ -1,7 +1,16 @@
 # Hosted mock console
 
-A public deployment of the read-only console and API, running only the mock payment and accounting
-providers with fixture screening. The owner deploys it; this repository does not claim a live URL.
+A public deployment of the console and API, running only the mock payment and accounting
+providers with fixture screening.
+
+Live at <https://arc-payables-hosted-demo.onrender.com/console/> on Render's free plan. It was opened signed out in a fresh browser on
+2026-10-15: the console loads, the header reads "Hosted demo · simulated payments & ledger", the
+banner shows on Overview, and `/health`, `/setup`, `/invoices` and `/payments` answer. A free
+instance sleeps after about 15 minutes idle. The next request takes about a minute while it starts,
+and the data is recreated from the seed. Open the URL a minute before showing it to anyone.
+
+It was created from this repository with a Docker web service using `deploy/hosted-demo/Dockerfile`,
+the free plan, auto deploy off and `HOSTED_DEMO=1`. No secret is set on the service.
 
 ## What the profile refuses
 

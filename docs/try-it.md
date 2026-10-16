@@ -16,7 +16,7 @@ bash script/manual-readiness-demo.sh
 ```
 
 Open http://127.0.0.1:8097/console/. The script uses a temporary directory and deletes it when you
-stop it with Ctrl-C. If a hosted mock demo link was sent to you, use that and skip the steps above.
+stop it with Ctrl-C. You can also use the hosted mock demo at https://arc-payables-hosted-demo.onrender.com/console/ and skip the steps above. The free host sleeps when idle, so the first load can take a minute.
 
 ## Three things to do
 
