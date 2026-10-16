@@ -137,19 +137,6 @@ is from a different family, so this is two families, not three.
 - Reports are in `evidence/decision-layer/live-eval-<model>-run<N>.json`. They hold case ids,
   labels, outcomes and failure tags, with no model text, prompt or key.
 
-**What earlier runs found.** Runs earlier the same day, on code that has since changed, found
-defects that were fixed before the runs above. Those runs were replaced, and they remain in the git
-history. A model from a different provider was also tried and then dropped from this record at the
-owner's request.
-
-1. The three scripted ordering cases were scored against a live model and showed as failures.
-2. The planner prompt gave no length for its reason, and the validator rejected a reason over 400
-   characters. The prompt now asks for under 300 characters.
-3. A reply that opens with a reasoning block was rejected as not JSON. The parser now reads from
-   the end of the block's last closing tag. The rest is still parsed strictly, so prose after the
-   answer, an unclosed block, or an answer that appears only inside the reasoning is rejected.
-4. The failure report hid a rate limit behind an exception name. It now names the HTTP status.
-
 ### Queue ordering with a live model
 
 `script/live-planner-demo.py` runs the ordering case once per model. At 300 USDC spendable the rule
