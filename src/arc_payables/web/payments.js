@@ -343,7 +343,7 @@ async function renderPayments(root, [reference] = []) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     exportFeedback.replaceChildren(h('p', { class: 'muted' }, 'CSV exported from recorded payments.'));
   }, exportFeedback);
-  root.append(sectionHeading({ eyebrow: 'Payment history', title: 'Settlements', count: (log.payments || []).length, trailing: exportCSV }), exportFeedback);
+  root.append(sectionHeading({ title: 'Settlements', count: (log.payments || []).length, trailing: exportCSV }), exportFeedback);
   const totals = log.totals || {};
   let filter = 'all';
   const tableHost = h('div', { class: 'table-host' });

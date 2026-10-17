@@ -13,7 +13,7 @@ function stateBadge(state) {
 
 async function renderSetup(root) {
   const data = await api('/setup');
-  root.append(sectionHeading({ eyebrow: 'Configuration', title: 'Setup', count: (data.groups || []).length }));
+  root.append(sectionHeading({ title: 'Setup', count: (data.groups || []).length }));
 
   const stages = [
     ['Connect the accounting system', 'Verify the payable, supplier wallet fields and account mapping. Mock records are examples, not a verified ERPNext connection.'],

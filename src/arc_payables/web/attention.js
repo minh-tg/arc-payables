@@ -72,7 +72,7 @@ function detailTable(item) {
 
 async function renderAttention(root) {
   const data = await api('/attention');
-  root.append(sectionHeading({ eyebrow: 'Action queue', title: 'Exceptions', count: (data.items || []).length }));
+  root.append(sectionHeading({ title: 'Exceptions', count: (data.items || []).length }));
 
   const kpis = statGrid([
     { label: 'Treasury', value: String(data.treasury_usdc ?? '—'), unit: 'USDC', concept: 'treasury' },

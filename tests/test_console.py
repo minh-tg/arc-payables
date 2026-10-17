@@ -256,7 +256,8 @@ def test_every_helper_a_view_imports_exists():
 
 def test_badges_in_fact_values_use_the_page_sans_stack():
     html = (WEB_DIR / "index.html").read_text()
-    assert "dl.facts dd .badge { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }" in html
+    assert "dl.facts dd .badge { font-family: var(--font-ui); }" in html
+    assert "--font-ui: 'Public Sans'" in html
 
 
 def test_settlement_timeline_humanizes_codes_and_formats_times():
@@ -357,3 +358,31 @@ def test_phone_header_keeps_refresh_on_the_title_row():
     assert ".header-meta { display: contents; }" in rules
     assert ".header-refresh { grid-column: 2; grid-row: 1; }" in rules
     assert "#environment-label { grid-column: 1; grid-row: 2;" in rules
+
+
+def test_the_three_faces_are_bundled_and_served_with_their_licences(tmp_path):
+    html = (WEB_DIR / "index.html").read_text()
+    files = re.findall(r"url\('(fonts/[\w.-]+\.woff2)'\)", html)
+    assert len(files) == 3, files
+    client = _client(tmp_path)
+    for name in files:
+        assert (WEB_DIR / name).is_file(), name
+        response = client.get(f"/console/{name}")
+        assert response.status_code == 200, name
+        assert response.content[:4] == b"wOF2", name
+    for licence in ("OFL-SourceSerif4.txt", "OFL-PublicSans.txt", "OFL-IBMPlexMono.txt"):
+        assert "SIL Open Font License" in (WEB_DIR / "fonts" / licence).read_text(), licence
+
+
+def test_labels_are_sentence_case_and_nothing_loads_from_outside():
+    html = (WEB_DIR / "index.html").read_text()
+    rules = re.search(r"<style>([\s\S]*?)</style>", html).group(1)
+    assert "text-transform: uppercase" not in rules
+    assert "letter-spacing: 0.06em" not in rules
+    assert not re.search(r"https?://", rules), "a stylesheet or font must not come from another host"
+
+
+def test_the_explanations_off_view_never_hands_null_to_append():
+    app = (WEB_DIR / "app.js").read_text()
+    body = re.search(r"export function lede\(([\s\S]*?)\n\}", app).group(1)
+    assert "return null" not in body

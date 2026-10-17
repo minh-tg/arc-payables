@@ -141,7 +141,6 @@ async function renderWorker(root) {
   const status = await api('/worker/status');
   root.append(
     sectionHeading({
-      eyebrow: 'Background pass',
       title: 'Worker',
       count: (status.last && status.last.detail && status.last.detail.steps ? status.last.detail.steps.length : 0),
     }),

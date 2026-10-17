@@ -36,7 +36,7 @@ async function renderOverview(root) {
   const waiting = (attention.critical || 0) + (attention.warning || 0);
   const banner = hostedBanner(setup?.deployment);
   if (banner) root.append(banner);
-  root.append(sectionHeading({ eyebrow: 'Payment operations', title: 'Know what can move. See what needs you.', trailing: h('a', { class: 'btn btn-primary', href: '#/queue' }, 'Open payment queue') }));
+  root.append(sectionHeading({ title: 'Know what can move. See what needs you.', trailing: h('a', { class: 'btn btn-primary', href: '#/queue' }, 'Open payment queue') }));
   root.append(lede('Verified supplier invoices, bounded payments, and a ', concept('ledger', 'ledger'), ' that stays in sync. The policy decides what is safe; you decide how to resolve exceptions.'));
   root.append(statGrid([
     { label: 'Planned payment value', value: String(plan?.planned_spend_usdc ?? '—'), unit: 'USDC', note: 'Current read-only plan, not payment authorization', icon: 'check' },
@@ -64,7 +64,7 @@ async function renderOverview(root) {
     );
   });
   const exceptions = h('section', { class: 'card' },
-    sectionHeading({ eyebrow: 'Next actions', title: 'Needs your judgement', count: (attention.items || []).length, trailing: h('a', { class: 'btn', href: '#/attention' }, 'View all') }),
+    sectionHeading({ title: 'Needs your judgement', count: (attention.items || []).length, trailing: h('a', { class: 'btn', href: '#/attention' }, 'View all') }),
     rows.length ? table(['Priority', 'What needs attention', 'Invoice', 'Action'], rows) : h('p', { class: 'muted' }, 'No issues waiting on you. Open the queue to review upcoming payments.'),
   );
   const health = workerHealth(worker);

@@ -259,7 +259,7 @@ def assert_payment_report(page: Page) -> None:
     assert result["event"] == "Invoice received", result
     assert result["state"] == "Pending ledger sync", result
     assert result["time"] != "1792057080" and "2026" in result["time"], result
-    assert result["badgeFonts"] and all("Inter" in family for family in result["badgeFonts"]), result
+    assert result["badgeFonts"] and all("Public Sans" in family for family in result["badgeFonts"]), result
 
 
 def assert_reconcile_finding(page: Page) -> None:

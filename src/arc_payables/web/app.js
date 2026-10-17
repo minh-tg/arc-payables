@@ -527,14 +527,14 @@ export function statGrid(items) {
 }
 
 /**
- * The page heading: a small uppercase eyebrow, the title, and how many rows are behind it.
+ * The page heading: the title, and how many rows are behind it.
  *
  * Every view opens with one, so a reader always knows which screen they are on and what it is
  * counting. The mock this console follows made the same move, and it is the cheapest way to stop a
  * long table looking like it starts in the middle of nowhere. When the title only repeats the page
  * header, the row keeps the count and the actions and drops the heading.
  */
-export function sectionHeading({ eyebrow, title, count, trailing = null }) {
+export function sectionHeading({ title, count, trailing = null }) {
   const side =
     count === undefined && !trailing
       ? null
@@ -555,7 +555,6 @@ export function sectionHeading({ eyebrow, title, count, trailing = null }) {
     h(
       'div',
       { class: 'section-heading-copy' },
-      eyebrow ? h('div', { class: 'section-eyebrow' }, eyebrow) : null,
       h('h2', { class: 'section-title' }, title),
     ),
     side,

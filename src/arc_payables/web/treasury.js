@@ -58,7 +58,7 @@ async function receivablesPanel() {
 async function renderTreasury(root) {
   const forecast = await api('/forecast?days=30');
   const suppliers = await api('/suppliers');
-  root.append(sectionHeading({ eyebrow: 'Coverage and risk', title: 'Treasury and risk', count: suppliers.length }));
+  root.append(sectionHeading({ title: 'Treasury and risk', count: suppliers.length }));
 
   // A view-level lede, rendered whatever the deployment publishes. Placed inside a panel that only
   // appears when a provider reports caps, it would disappear on any deployment without them.

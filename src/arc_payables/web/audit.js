@@ -17,7 +17,6 @@ async function renderAudit(root) {
 
   root.append(
     sectionHeading({
-      eyebrow: 'Evidence',
       title: 'Audit chain',
       count: payments.length,
     }),

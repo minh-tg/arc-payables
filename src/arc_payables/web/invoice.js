@@ -123,7 +123,7 @@ async function renderInvoice(root, [invoiceId]) {
   const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
   const mutate = async (path, options = {}) => { await api(path, { method: 'POST', ...options }); await refresh(); };
 
-  root.append(sectionHeading({ eyebrow: 'Invoice review', title: invoice.invoice_number, trailing: h('a', { class: 'btn', href: '#/queue' }, 'Back to queue') }));
+  root.append(sectionHeading({ title: invoice.invoice_number, trailing: h('a', { class: 'btn', href: '#/queue' }, 'Back to queue') }));
   root.append(h('div', { class: 'invoice-summary card' },
     h('div', {}, badge(detail.state, stateTone(detail.state)), plainWords('states', detail.state), h('p', { class: 'muted' }, `${invoice.supplier_id}${supplier?.name ? ` · ${supplier.name}` : ''} · Due ${invoice.due_date}`)),
     h('div', { class: 'invoice-amount mono' }, invoice.amount, h('span', { class: 'muted' }, ' USDC')),

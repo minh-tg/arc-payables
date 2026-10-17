@@ -44,7 +44,7 @@ function addPayablePanel() {
     h('div', { class: 'credentials form-row' }, h('label', { class: 'field' }, h('span', {}, 'ERPNext purchase invoice'), importId), importButton),
     h('h3', {}, 'Record an invoice document'),
     h('p', { class: 'muted' }, 'A document recorded here is held until someone links it to an ERPNext payable. Its own text never sets the amount or the destination.'),
-    h('div', { class: 'stats' }, Object.keys(fields).map((key) => h('label', { class: 'field' }, h('span', {}, labels[key]), fields[key]))),
+    h('div', { class: 'form-grid' }, Object.keys(fields).map((key) => h('label', { class: 'field' }, h('span', {}, labels[key]), fields[key]))),
     h('div', { class: 'credentials' }, recordButton),
     feedback,
   );
@@ -52,7 +52,7 @@ function addPayablePanel() {
 
 async function renderQueue(root) {
   const [plan, invoices, history] = await Promise.all([api('/plan'), api('/invoices'), api('/plans')]);
-  root.append(sectionHeading({ eyebrow: 'Plan', title: 'Payment queue', count: invoices.length }));
+  root.append(sectionHeading({ title: 'Payment queue', count: invoices.length }));
 
   const feedback = h('div', { role: 'status', 'aria-live': 'polite' });
   const evaluate = async (invoiceId) => {
