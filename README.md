@@ -21,6 +21,20 @@ Each row below names one thing to look at, the command that shows it, and its st
 
 **Hosted demo** [mock]: <https://arc-payables-hosted-demo.onrender.com/console/>. It runs only mock providers and refuses to start with a live provider or a secret, so no funds move. It is on Render's free plan, which sleeps the instance after about 15 minutes idle. The first request after a sleep takes about a minute and the demo data resets.
 
+### Where it sits
+
+Arc Payables runs beside the accounting system. It reads a bill and what the accounting system holds about it, decides, pays once through the guard contract, and writes the result back so the books match the chain.
+
+![Arc Payables between ERPNext and the chain: read bill, pay, write back](docs/images/deployment.svg)
+
+To see that loop without any credentials, run the demo with a simulated ERPNext beside it:
+
+```sh
+bash script/erp-demo.sh
+```
+
+It starts a stand-in for ERPNext on port 8081 (`src/arc_payables/sim_erpnext.py`, in memory, it answers the same REST calls as the real connector and is **not** ERPNext) and the console on port 8097, with accounting set to ERPNext and payments simulated. Enter the printed demo key under **Access keys**, import `ACC-PINV-2026-00101` from the queue, evaluate and pay it, then reload the stand-in's page to see the bill marked Paid with its Payment Entry. `ACC-PINV-2026-00102` belongs to a supplier whose wallet is not verified; the **Verify wallet** button on the stand-in's page is the only way that changes. The real connector against a real ERPNext sandbox is covered in the [ERPNext use case](docs/erpnext-use-case.md).
+
 ### What the console looks like
 
 Demo data and simulated payments, as in the hosted demo above.
