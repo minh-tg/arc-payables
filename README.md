@@ -139,7 +139,7 @@ payment guard's own compiled bytecode is exercised on a local EVM and in the Fou
 
 | Command | What it demonstrates | Credentials |
 | --- | --- | --- |
-| `uv run pytest -q` | The full Python suite, including the executor tests that drive the real guard | none |
+| `forge build && uv run pytest -q` | The full Python suite. The executor tests drive the compiled guard, so run `forge build` first (it needs Foundry's `forge` and `anvil` on PATH) | none |
 | `forge build && forge test` | The guard's unit tests and invariants | none |
 | `uv run arc-payables-fake-circle` | The real `PaymentGuard` bytecode on a local chain carrying Arc's chain id, behind an emulated Circle W3S API | none |
 | `uv run pytest tests/test_circle_executor.py -q -k budget` | The contract refusing a payment the policy approved | none |
