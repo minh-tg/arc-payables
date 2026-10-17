@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -327,15 +329,35 @@ class PaymasterCheck:
         return lines
 
 
-def check_paymaster(rpc: RpcClient, transaction_hash: str) -> PaymasterCheck:
+def check_paymaster(
+    rpc: RpcClient,
+    transaction_hash: str,
+    *,
+    attempts: int = 6,
+    delay_seconds: float = 1.0,
+    sleep: Callable[[float], None] = time.sleep,
+) -> PaymasterCheck:
     """Read one receipt and answer only whether a nonzero paymaster field is present.
 
     Read-only, and never a pass unless the event was read: an unreachable RPC or a missing
-    receipt is INCONCLUSIVE, and a missing, malformed or zero paymaster is FAIL.
+    receipt is INCONCLUSIVE, and a missing, malformed or zero paymaster is FAIL. The public
+    endpoint sits behind several nodes and some return a null receipt for a mined transaction,
+    so a null answer or an error is retried before the check gives up.
     """
-    try:
-        receipt = rpc.call("eth_getTransactionReceipt", [transaction_hash])
-    except Exception:
+    receipt: Any = None
+    unreachable = False
+    for attempt in range(max(1, attempts)):
+        if attempt:
+            sleep(delay_seconds)
+        try:
+            receipt = rpc.call("eth_getTransactionReceipt", [transaction_hash])
+            unreachable = False
+        except Exception:
+            receipt = None
+            unreachable = True
+        if isinstance(receipt, dict):
+            break
+    if unreachable:
         return PaymasterCheck(
             "INCONCLUSIVE", transaction_hash, "not read (RPC unreachable)", None, "unverified"
         )

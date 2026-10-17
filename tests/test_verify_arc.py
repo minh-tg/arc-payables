@@ -242,7 +242,7 @@ def test_paymaster_check_fails_on_a_receipt_without_a_usable_paymaster(case):
 
 
 def test_paymaster_check_is_inconclusive_when_no_receipt_is_returned():
-    check = check_paymaster(_receipt_rpc(None), DEFAULT_PAYMASTER_TRANSACTION_HASH)
+    check = check_paymaster(_receipt_rpc(None), DEFAULT_PAYMASTER_TRANSACTION_HASH, sleep=lambda _s: None)
 
     assert check.verdict == "INCONCLUSIVE" and check.exit_code == 3
     assert "Event:              not read (no receipt returned)" in check.lines()
@@ -250,7 +250,7 @@ def test_paymaster_check_is_inconclusive_when_no_receipt_is_returned():
 
 
 def test_paymaster_check_is_inconclusive_when_the_rpc_is_unreachable():
-    check = check_paymaster(_receipt_rpc(None, unreachable=True), DEFAULT_PAYMASTER_TRANSACTION_HASH)
+    check = check_paymaster(_receipt_rpc(None, unreachable=True), DEFAULT_PAYMASTER_TRANSACTION_HASH, sleep=lambda _s: None)
 
     assert check.verdict == "INCONCLUSIVE" and check.exit_code == 3
     assert "Event:              not read (RPC unreachable)" in check.lines()
@@ -284,3 +284,35 @@ def test_the_paymaster_decoder_ignores_logs_that_are_not_the_standard_event():
     assert user_operation_paymaster(RECEIPTS["malformed_log"]) is None
     assert user_operation_paymaster({}) is None
     assert user_operation_paymaster(None) is None
+
+
+def test_paymaster_check_retries_a_null_receipt_from_a_lagging_node():
+    answers = [None, None, RECEIPTS["nonzero_paymaster"]]
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": answers[len(calls) - 1]})
+
+    rpc = RpcClient("https://rpc.invalid", httpx.Client(transport=httpx.MockTransport(handler)))
+    pauses: list[float] = []
+
+    check = check_paymaster(rpc, DEFAULT_PAYMASTER_TRANSACTION_HASH, sleep=pauses.append)
+
+    assert check.verdict == "VERIFIED"
+    assert len(calls) == 3 and len(pauses) == 2
+
+
+def test_paymaster_check_stops_after_the_attempt_limit():
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": None})
+
+    rpc = RpcClient("https://rpc.invalid", httpx.Client(transport=httpx.MockTransport(handler)))
+
+    check = check_paymaster(rpc, DEFAULT_PAYMASTER_TRANSACTION_HASH, attempts=4, sleep=lambda _s: None)
+
+    assert check.verdict == "INCONCLUSIVE" and check.exit_code == 3
+    assert len(calls) == 4
