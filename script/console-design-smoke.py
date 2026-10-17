@@ -354,6 +354,31 @@ def assert_layout_rules(browser) -> None:
         }"""
     )
     assert gap >= 8, ("filter row sits on its table", gap)
+
+    # Money and dates read the way a ledger prints them, and a figure column has a right-aligned heading.
+    page.goto(f"{BASE_URL}/console/#/queue", wait_until="domcontentloaded")
+    page.get_by_role("button", name="Import payable").wait_for(timeout=10000)
+    formats = page.evaluate(
+        """async () => {
+          const app = await import('/console/app.js');
+          return [
+            app.formatAmount('3200'), app.formatAmount(250), app.formatAmount('0.01'),
+            app.formatAmount('1234.567891'), app.formatAmount('0.1234567'), app.formatAmount(null),
+            app.money('250'), app.formatDate('2026-10-22'), app.formatDate('not a date'), app.shortHash('0x' + 'ab'.repeat(32)),
+          ];
+        }"""
+    )
+    assert formats == [
+        "3,200.00", "250.00", "0.01", "1,234.567891", "0.1234567", "—",
+        "250.00 USDC", "22 Oct 2026", "not a date", "0xababab…ababab",
+    ], formats
+    heading = page.evaluate(
+        """() => {
+          const amount = [...document.querySelectorAll('#view th')].find((el) => el.textContent.trim() === 'Amount');
+          return amount && getComputedStyle(amount).textAlign;
+        }"""
+    )
+    assert heading == "right", ("the Amount heading is not over its figures", heading)
     context.close()
 
 

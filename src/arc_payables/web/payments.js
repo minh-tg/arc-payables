@@ -4,7 +4,7 @@
 // why. A row links to the invoice for the deep evidence, and the lookup accepts whatever an operator
 // is holding, which is usually a transaction hash from a block explorer.
 
-import { actionButton, api, apiKey, badge, can, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, stateTone, table, formatTimestamp } from './app.js';
+import { actionButton, api, apiKey, badge, can, concept, explain, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, stateTone, table, formatTimestamp, money, shortHash } from './app.js';
 
 // Every recorded payment compared with the guard's own settlement log. Reads the chain and signs or
 // sends nothing. Absence is only proof when the search began at block 0, so the coverage is shown.
@@ -70,10 +70,6 @@ function reconciliationResult(report) {
       ? table(['Severity', 'Kind', 'Detail', 'Payment', 'Transaction'], findingRows)
       : h('p', { class: 'muted' }, 'Nothing to report: every recorded payment is accounted for.'),
   ];
-}
-
-function money(value) {
-  return value === null || value === undefined ? '—' : `${value} USDC`;
 }
 
 // An outcome that asks something of a person gets the next move beside it; a settled one does not.
@@ -356,7 +352,7 @@ async function renderPayments(root, [reference] = []) {
         h('td', {}, h('a', { href: `#/invoice/${row.invoice_id}` }, row.invoice_number)),
         h('td', {}, row.supplier_id),
         h('td', { class: 'num' }, money(row.amount_usdc)),
-        h('td', {}, row.recipient || '—'),
+        h('td', { class: 'mono', title: row.recipient || null }, row.recipient ? shortHash(row.recipient) : '—'),
         h('td', {}, row.confirmation_status ? badge(row.confirmation_status, stateTone(row.confirmation_status)) : '—', row.simulated ? badge('Simulated', 'warn') : null, plainWords('confirmations', row.confirmation_status)),
         h('td', {}, row.erp_status ? badge(row.erp_status, stateTone(row.erp_status)) : '—'),
         h('td', { class: 'num' }, row.fee_usdc ? money(row.fee_usdc) : '—'),
@@ -365,7 +361,7 @@ async function renderPayments(root, [reference] = []) {
           {},
           row.transaction_hash
             ? row.simulated || !row.explorer_url
-              ? h('span', { class: 'mono' }, row.transaction_hash)
+              ? h('span', { class: 'mono', title: row.transaction_hash }, shortHash(row.transaction_hash))
               : h('a', { href: row.explorer_url, target: '_blank', rel: 'noreferrer' }, `${row.transaction_hash.slice(0, 12)}…`)
             : '—',
         ),

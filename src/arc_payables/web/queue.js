@@ -1,8 +1,4 @@
-import { actionButton, api, badge, can, concept, h, humanizeCode, lede, nextStep, panel, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
-
-function money(value) {
-  return value === null || value === undefined ? '—' : `${value} USDC`;
-}
+import { actionButton, api, badge, can, concept, h, humanizeCode, lede, nextStep, panel, refresh, registerView, sectionHeading, stateTone, table, formatDate, money } from './app.js';
 
 // Two ways in. Importing adopts the accounting record, which is the normal route. Recording a document
 // holds it until a person links it to a payable, because a captured document is not a payable.
@@ -72,7 +68,7 @@ async function renderQueue(root) {
       ),
       h('td', {}, invoice.supplier_id || '—'),
       h('td', { class: 'num' }, money(invoice.amount)),
-      h('td', { class: 'mono' }, invoice.due_date || '—'),
+      h('td', { title: invoice.due_date || null }, formatDate(invoice.due_date)),
       h('td', {}, badge(state, stateTone(state))),
       h(
         'td',

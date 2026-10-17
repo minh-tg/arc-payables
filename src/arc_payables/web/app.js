@@ -182,6 +182,39 @@ export async function api(path, { method = 'GET', body = null, approval = false 
   return payload;
 }
 
+// Money is printed the way a ledger prints it: thousands separators and at least two decimals. USDC has
+// six decimals, so a value that needs more than six is shown as received instead of being rounded.
+const AMOUNT_FORMAT = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+
+export function formatAmount(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const text = String(value);
+  const decimals = text.split('.')[1];
+  const number = Number(value);
+  if (!Number.isFinite(number) || (decimals && decimals.length > 6)) return text;
+  return AMOUNT_FORMAT.format(number);
+}
+
+export function money(value) {
+  const text = formatAmount(value);
+  return text === '—' ? text : `${text} USDC`;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// A date written 2026-10-22 reads as 22 Oct 2026, so day and month cannot be swapped by a reader.
+export function formatDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? ''));
+  if (!match) return value ? String(value) : '—';
+  return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1]} ${match[1]}`;
+}
+
+// Long hashes and addresses cost a table three lines. The whole value stays in the cell's title.
+export function shortHash(value) {
+  const text = String(value ?? '');
+  return text.length > 20 ? `${text.slice(0, 8)}…${text.slice(-6)}` : text;
+}
+
 export function h(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs || {})) {
@@ -361,10 +394,13 @@ export function table(headers, rows) {
       if (headers[index] !== undefined) cell.setAttribute('data-label', headerLabel(headers[index]));
     });
   }
+  // A column whose every cell is a figure gets a right-aligned heading, so the heading sits over the digits.
+  const bodyRows = [...body.querySelectorAll('tr')];
+  const numeric = headers.map((_, index) => rows.length > 0 && bodyRows.every((row) => row.children[index]?.classList.contains('num')));
   return h(
     'div',
     { class: 'table-wrapper responsive-table' },
-    h('table', {}, h('thead', {}, h('tr', {}, headers.map((label) => h('th', { scope: 'col' }, label || 'Actions')))), body),
+    h('table', {}, h('thead', {}, h('tr', {}, headers.map((label, index) => h('th', { scope: 'col', class: numeric[index] ? 'num' : null }, label || 'Actions')))), body),
   );
 }
 
@@ -519,7 +555,7 @@ export function statGrid(items) {
           h('div', { class: 'label' }, term ? concept(term, label) : label),
           glyph ? h('span', { class: 'stat-icon' }, icon(glyph)) : null,
         ),
-        h('div', { class: 'value' }, `${value ?? '—'}`, unit ? h('span', { class: 'unit' }, ` ${unit}`) : null),
+        h('div', { class: 'value' }, unit === 'USDC' ? formatAmount(value) : `${value ?? '—'}`, unit ? h('span', { class: 'unit' }, ` ${unit}`) : null),
         note ? h('div', { class: 'note' }, note) : null,
       ),
     ),
@@ -762,7 +798,7 @@ export function confirmPayment(invoice, supplier, deployment) {
       h('p', { class: 'muted' }, simulated ? 'No on-chain funds move. This records a simulated settlement.' : 'This submits real USDC on Arc Testnet. It is not a mainnet payment.'),
       h('dl', { class: 'facts' },
         h('dt', {}, 'Invoice'), h('dd', {}, invoice.invoice_number),
-        h('dt', {}, 'Exact amount'), h('dd', {}, `${invoice.amount} USDC`),
+        h('dt', {}, 'Exact amount'), h('dd', {}, money(invoice.amount)),
         h('dt', {}, 'Trusted destination'), h('dd', {}, supplier.wallet),
         h('dt', {}, 'Accounting'), h('dd', {}, deployment.accounting_provider === 'mock' ? 'Simulated ledger' : 'ERPNext · writes to the configured ledger'),
       ),
@@ -814,7 +850,7 @@ export async function refreshShell() {
   const health = workerHealth(worker);
   if (dot) dot.className = `agent-dot ${health.tone}`;
   if (text) text.textContent = health.label;
-  if (pill) pill.textContent = forecast && forecast.balance_usdc != null ? `${forecast.balance_usdc} USDC` : 'Balance unavailable';
+  if (pill) pill.textContent = forecast && forecast.balance_usdc != null ? money(forecast.balance_usdc) : 'Balance unavailable';
   if (count) {
     const problems = attention ? (attention.critical || 0) + (attention.warning || 0) : 0;
     count.hidden = !problems;

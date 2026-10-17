@@ -59,7 +59,7 @@ assert_no_payment
 browser focus 'button[data-action=review-payment]'
 browser press Enter
 browser wait 'dialog[open]'
-check "const text=document.querySelector('dialog').textContent; if(!text.includes('Confirm simulated payment') || !text.includes('250 USDC') || !text.includes('0x1111111111111111111111111111111111111111')) throw Error('Confirmation omitted exact payment or simulation'); if(document.activeElement.dataset.action!=='cancel-payment') throw Error('Dialog did not initially focus Cancel');"
+check "const text=document.querySelector('dialog').textContent; if(!text.includes('Confirm simulated payment') || !text.includes('250.00 USDC') || !text.includes('0x1111111111111111111111111111111111111111')) throw Error('Confirmation omitted exact payment or simulation'); if(document.activeElement.dataset.action!=='cancel-payment') throw Error('Dialog did not initially focus Cancel');"
 browser press Tab
 check "const focus=document.activeElement; if(focus.dataset.action!=='confirm-payment' || parseFloat(getComputedStyle(focus).outlineWidth)<=0 || getComputedStyle(focus).outlineStyle==='none') throw Error('Keyboard confirmation focus missing/invisible');"
 browser press Shift+Tab
@@ -109,7 +109,7 @@ check "const audit=await(await fetch('/audit/verify')).json(); if(!audit.ok || a
 check "window.originalFetch=window.fetch; window.fetch=async(path,options)=>{if(String(path).startsWith('/forecast')) await new Promise(r=>setTimeout(r,500)); return window.originalFetch(path,options);}; location.hash='#/overview'; setTimeout(()=>location.hash='#/queue',20);"
 browser wait --text 'Pay in this order'
 browser wait 700
-check "if(document.querySelector('#view').textContent.includes('Know what can move')) throw Error('Stale route overwrote queue'); window.fetch=window.originalFetch;"
+check "if(document.querySelector('#view').textContent.includes('Payables at a glance')) throw Error('Stale route overwrote queue'); window.fetch=window.originalFetch;"
 # Populate real durable worker advice, still using only local mock providers. Opening history
 # must not start payments, and expanded long evidence identifiers must fit a phone viewport.
 mock_command arc-payables-worker --once --autopay --intake >/dev/null

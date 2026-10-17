@@ -1,5 +1,5 @@
 // One decision workspace. UI affordances never replace the server's policy or authorization.
-import { actionButton, api, approvalToken, can, usesOIDC, badge, concept, confirmPayment, deploymentContext, deploymentLabel, errorPanel, explain, formatTimestamp, h, humanizeCode, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table } from './app.js';
+import { actionButton, api, approvalToken, can, usesOIDC, badge, concept, confirmPayment, deploymentContext, deploymentLabel, errorPanel, explain, formatTimestamp, h, humanizeCode, lede, panel, plainWords, refresh, registerView, sectionHeading, stateTone, table, formatAmount, formatDate } from './app.js';
 
 export function invoiceActions(detail) {
   const checks = detail.decision?.policy_checks || [];
@@ -125,8 +125,8 @@ async function renderInvoice(root, [invoiceId]) {
 
   root.append(sectionHeading({ title: invoice.invoice_number, trailing: h('a', { class: 'btn', href: '#/queue' }, 'Back to queue') }));
   root.append(h('div', { class: 'invoice-summary card' },
-    h('div', {}, badge(detail.state, stateTone(detail.state)), plainWords('states', detail.state), h('p', { class: 'muted' }, `${invoice.supplier_id}${supplier?.name ? ` · ${supplier.name}` : ''} · Due ${invoice.due_date}`)),
-    h('div', { class: 'invoice-amount mono' }, invoice.amount, h('span', { class: 'muted' }, ' USDC')),
+    h('div', {}, badge(detail.state, stateTone(detail.state)), plainWords('states', detail.state), h('p', { class: 'muted' }, `${invoice.supplier_id}${supplier?.name ? ` · ${supplier.name}` : ''} · Due ${formatDate(invoice.due_date)}`)),
+    h('div', { class: 'invoice-amount' }, formatAmount(invoice.amount), h('span', { class: 'muted' }, ' USDC')),
   ));
   root.append(h('ol', { class: 'payment-stages', 'aria-label': 'Payment lifecycle' },
     [['Evidence', Boolean(decision)], ['Authorized', Boolean(detail.payment)], ['Settled', detail.payment?.confirmation_status === 'CONFIRMED'], ['Ledger recorded', detail.state === 'ERP_RECORDED']].map(([label, complete]) => h('li', { class: complete ? 'done' : '' }, `${complete ? '✓ ' : ''}${label}`)),
@@ -212,7 +212,7 @@ async function renderInvoice(root, [invoiceId]) {
       : '';
     root.append(panel('Evidence checks',
       h('p', { class: 'muted' }, `${material.filter((check) => check.passed).length}/${material.length} checks passed. Blocking evidence and reviewable exceptions are different decisions.${advisoryNote}`),
-      table(['Check', 'Result', 'What you can do', 'Evidence'], checks.map((check) => {
+      table(['Check', 'Result', 'What you can do', 'Evidence'], [...checks].sort((a, b) => Number(a.passed) - Number(b.passed)).map((check) => {
         const advisoryCheck = ADVISORY_CHECKS.has(check.code);
         return h('tr', {},
           h('td', {},

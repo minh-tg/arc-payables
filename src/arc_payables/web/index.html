@@ -227,6 +227,10 @@
             .nav-end .row { display: flex; gap: 6px; }
       #status { font-size: var(--text-sm); padding: 0 2px; }
       #identity-controls { font-size: var(--text-sm); color: var(--muted); }
+      .access-keys { display: flex; flex-direction: column; gap: 6px; }
+      .access-keys > summary { font-size: var(--text-sm); font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+      .access-keys[open] > summary { color: var(--fg); }
+      .access-keys .field { margin-bottom: 6px; }
 
       .main-content { display: flex; flex-direction: column; min-width: 0; }
 
@@ -622,8 +626,11 @@
         <div class="nav-end">
           <div id="identity-controls" role="status" aria-live="polite"></div>
           <div id="shared-credentials">
-          <label class="field" for="api-key">API access key<input id="api-key" type="password" placeholder="Not needed for default demo" autocomplete="off" /></label>
-          <label class="field" for="approval-token">Human approval token<input id="approval-token" type="password" placeholder="Only for reviewable exceptions" autocomplete="off" /></label>
+            <details class="access-keys">
+              <summary>Access keys</summary>
+              <label class="field" for="api-key">API access key<input id="api-key" type="password" placeholder="Not needed for default demo" autocomplete="off" /></label>
+              <label class="field" for="approval-token">Human approval token<input id="approval-token" type="password" placeholder="Only for reviewable exceptions" autocomplete="off" /></label>
+            </details>
           </div>
           <div class="row">
             <button id="theme-toggle" type="button" title="Switch between light and dark">Theme: light</button>
@@ -678,6 +685,8 @@
       const guideToggle = document.getElementById('guide-toggle');
       keyField.value = apiKey();
       tokenField.value = approvalToken();
+      // The keys sit behind a disclosure, but a tab that already holds one keeps it in view.
+      if (keyField.value || tokenField.value) document.querySelector('.access-keys').open = true;
       themeToggle.textContent = `Theme: ${theme()}`;
       guideToggle.textContent = `Explaining: ${guided() ? 'on' : 'off'}`;
       keyField.addEventListener('change', () => {

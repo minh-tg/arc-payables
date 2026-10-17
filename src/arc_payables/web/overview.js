@@ -1,5 +1,5 @@
 // Business questions first; operational detail remains available without dominating the landing page.
-import { api, badge, concept, h, lede, logPanel, panel, registerView, sectionHeading, statGrid, table, workerHealth } from './app.js';
+import { api, badge, concept, h, lede, logPanel, panel, registerView, sectionHeading, statGrid, table, workerHealth, formatAmount, formatDate, money } from './app.js';
 import { demoJourney } from './journey.js';
 
 const optional = (path) => api(path).catch(() => null);
@@ -36,12 +36,12 @@ async function renderOverview(root) {
   const waiting = (attention.critical || 0) + (attention.warning || 0);
   const banner = hostedBanner(setup?.deployment);
   if (banner) root.append(banner);
-  root.append(sectionHeading({ title: 'Know what can move. See what needs you.', trailing: h('a', { class: 'btn btn-primary', href: '#/queue' }, 'Open payment queue') }));
+  root.append(sectionHeading({ title: 'Payables at a glance', trailing: h('a', { class: 'btn btn-primary', href: '#/queue' }, 'Open payment queue') }));
   root.append(lede('Verified supplier invoices, bounded payments, and a ', concept('ledger', 'ledger'), ' that stays in sync. The policy decides what is safe; you decide how to resolve exceptions.'));
   root.append(statGrid([
     { label: 'Planned payment value', value: String(plan?.planned_spend_usdc ?? '—'), unit: 'USDC', note: 'Current read-only plan, not payment authorization', icon: 'check' },
     { label: 'Due in 30 days', value: String(forecast.due_within_horizon_usdc ?? '—'), unit: 'USDC', note: 'Includes obligations the agent cannot yet pay', icon: 'fileText' },
-    { label: 'Available after reserve', value: String(plan?.spendable_usdc ?? '—'), unit: 'USDC', note: `Reserve floor: ${forecast.reserve_floor_usdc ?? '—'} USDC`, concept: 'reserve_floor', icon: 'wallet' },
+    { label: 'Available after reserve', value: String(plan?.spendable_usdc ?? '—'), unit: 'USDC', note: `Reserve floor: ${money(forecast.reserve_floor_usdc)}`, concept: 'reserve_floor', icon: 'wallet' },
     { label: 'Issues needing you', value: String(waiting), tone: waiting ? 'warn' : 'good', note: `${attention.critical || 0} critical · ${attention.warning || 0} warning`, icon: 'alert' },
   ]));
   if (!setup) root.append(h('p', { class: 'warn-text', role: 'status' }, 'Environment details unavailable. Payment mode must be confirmed again before submitting.'));
@@ -71,7 +71,7 @@ async function renderOverview(root) {
   const coverage = panel('Treasury coverage',
     h('p', {}, forecast.shortfall ? badge('Shortfall forecast', 'warn') : badge('Covered within horizon', 'good')),
     forecast.shortfall
-      ? h('p', { class: 'guide-note' }, `${forecast.shortfall_usdc} USDC shortfall from ${forecast.shortfall_date}. Review inflows and payment timing; do not bypass the reserve.`)
+      ? h('p', { class: 'guide-note' }, `${money(forecast.shortfall_usdc)} shortfall from ${formatDate(forecast.shortfall_date)}. Review inflows and payment timing; do not bypass the reserve.`)
       : h('p', { class: 'muted' }, 'Due obligations are covered while preserving the configured reserve.'),
     h('a', { class: 'btn', href: '#/treasury' }, 'Review cash coverage'),
     h('div', { class: 'health-summary' }, badge(health.label, health.tone === 'ok' ? 'good' : health.tone), h('a', { href: '#/worker' }, 'Worker history')),
@@ -82,7 +82,7 @@ async function renderOverview(root) {
   root.append(h('details', { class: 'card' },
     h('summary', {}, 'Payment safeguards & recorded activity'),
     h('p', { class: 'muted' }, caps
-      ? `${caps.per_payment} USDC per payment · ${caps.epoch} per epoch · ${caps.recipient_epoch} per recipient. Fixed at deployment; refunds do not restore spent allowance.`
+      ? `${money(caps.per_payment)} per payment · ${formatAmount(caps.epoch)} per epoch · ${formatAmount(caps.recipient_epoch)} per recipient. Fixed at deployment; refunds do not restore spent allowance.`
       : 'No on-chain guard budgets were published by this provider. Demo values are not deployed contract limits.'),
     caps?.paused ? badge('Guard paused', 'bad') : null,
     h('p', { class: 'guide-note' }, 'An agent can advise, but it cannot approve an exception or choose a different recipient.'),

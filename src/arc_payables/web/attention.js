@@ -1,16 +1,12 @@
 // What needs a person. Read-only: the work waiting on a human and the alerts the last pass raised,
 // taken from the same snapshot the metrics are rendered from, so the two cannot disagree.
 
-import { api, badge, concept, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table } from './app.js';
+import { api, badge, concept, h, humanizeCode, lede, nextStep, panel, plainWords, registerView, sectionHeading, statGrid, table, formatDate, money } from './app.js';
 
 function tone(severity) {
   if (severity === 'critical') return 'bad';
   if (severity === 'warning') return 'warn';
   return '';
-}
-
-function money(value) {
-  return value === null || value === undefined ? '—' : `${value} USDC`;
 }
 
 // What this invoice needs corrected, from its case. A record to correct and a review to acknowledge
@@ -43,7 +39,7 @@ function detailTable(item) {
           h('td', {}, h('a', { href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, row.invoice_number)),
           h('td', {}, row.supplier_id),
           h('td', { class: 'num' }, money(row.amount_usdc)),
-          h('td', {}, row.due_date),
+          h('td', { title: row.due_date || null }, formatDate(row.due_date)),
           h('td', {}, caseCell(row)),
           h('td', {}, h('a', { class: 'btn', href: `#/invoice/${encodeURIComponent(row.invoice_id)}` }, 'Review evidence')),
         ),

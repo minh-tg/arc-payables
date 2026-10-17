@@ -1,11 +1,7 @@
 // Treasury visibility: forward coverage against what is coming, and the counterparty risk that
 // constrains it. Both are read-only except for re-screening.
 
-import { actionButton, api, badge, can, concept, formatTimestamp, h, humanizeCode, lede, panel, plainWords, refresh, registerView, sectionHeading, statGrid, table } from './app.js';
-
-function money(value) {
-  return value === null || value === undefined ? '—' : `${value} USDC`;
-}
+import { actionButton, api, badge, can, concept, formatTimestamp, h, humanizeCode, lede, panel, plainWords, refresh, registerView, sectionHeading, statGrid, table, formatDate, money } from './app.js';
 
 // Expected inflows as the forecast counts them. Syncing reads open sales invoices from the accounting
 // system; marking one collected stops counting it. Neither authorizes or moves anything.
@@ -103,9 +99,9 @@ async function renderTreasury(root) {
         table(
           ['Budget', 'Cap', 'Used', ''],
           [
-            h('tr', {}, h('td', {}, 'Per payment'), h('td', { class: 'num' }, `${caps.per_payment} USDC`), h('td', { class: 'muted' }, 'hard cap per call'), h('td', {}, bar(0, caps.per_payment))),
-            h('tr', {}, h('td', {}, 'Epoch total'), h('td', { class: 'num' }, `${caps.epoch} USDC`), h('td', { class: 'num' }, `${epochSpent} USDC`), h('td', {}, bar(epochSpent, caps.epoch))),
-            h('tr', {}, h('td', {}, 'Per recipient'), h('td', { class: 'num' }, `${caps.recipient_epoch} USDC`), h('td', { class: 'muted' }, 'tracked per recipient on chain'), h('td', {}, null)),
+            h('tr', {}, h('td', {}, 'Per payment'), h('td', { class: 'num' }, money(caps.per_payment)), h('td', { class: 'muted' }, 'hard cap per call'), h('td', {}, bar(0, caps.per_payment))),
+            h('tr', {}, h('td', {}, 'Epoch total'), h('td', { class: 'num' }, money(caps.epoch)), h('td', { class: 'num' }, money(epochSpent)), h('td', {}, bar(epochSpent, caps.epoch))),
+            h('tr', {}, h('td', {}, 'Per recipient'), h('td', { class: 'num' }, money(caps.recipient_epoch)), h('td', { class: 'muted' }, 'tracked per recipient on chain'), h('td', {}, null)),
           ],
         ),
         h('p', { class: 'muted' }, caps.paused ? 'The guard is paused: no payment can settle.' : `Window rolls every ${caps.epoch_days} day(s). Refunds do not restore a spent allowance.`),
@@ -117,7 +113,7 @@ async function renderTreasury(root) {
     panel(
       `Forward coverage · next ${forecast.horizon_days} days`,
       forecast.shortfall
-        ? h('p', { class: 'error' }, `Shortfall of ${money(forecast.shortfall_usdc)} from ${forecast.shortfall_date}: ${forecast.uncovered_invoice_ids.length} ${forecast.uncovered_invoice_ids.length === 1 ? 'obligation' : 'obligations'} the balance cannot cover while keeping the reserve.`)
+        ? h('p', { class: 'error' }, `Shortfall of ${money(forecast.shortfall_usdc)} from ${formatDate(forecast.shortfall_date)}: ${forecast.uncovered_invoice_ids.length} ${forecast.uncovered_invoice_ids.length === 1 ? 'obligation' : 'obligations'} the balance cannot cover while keeping the reserve.`)
         : h('p', {}, badge('every obligation in the horizon is covered while keeping the reserve', 'good')),
       h('p', { class: 'muted' }, forecast.rationale),
       forecast.notes.length ? h('ul', { class: 'tight' }, forecast.notes.map((note) => h('li', {}, note))) : null,
@@ -131,11 +127,11 @@ async function renderTreasury(root) {
       h('td', {}, h('a', { href: `#/invoice/${item.invoice_id}` }, item.invoice_number)),
       h('td', {}, item.supplier_id),
       h('td', { class: 'num' }, money(item.amount_usdc)),
-      h('td', { class: 'mono' }, item.due_date),
+      h('td', { title: item.due_date || null }, formatDate(item.due_date)),
       h('td', {}, String(item.days_until_due)),
       h('td', {}, item.coverable ? badge('covered', 'good') : badge('uncovered', 'bad')),
       h('td', {}, item.payable_by_agent ? badge('payable', 'good') : badge('not payable', 'warn')),
-      h('td', {}, item.discount_value_usdc ? `${item.discount_value_usdc} USDC by ${item.discount_deadline}` : '—'),
+      h('td', {}, item.discount_value_usdc ? `${money(item.discount_value_usdc)} by ${formatDate(item.discount_deadline)}` : '—'),
       h('td', {}, humanizeCode(item.not_payable_reason) || (item.reasons || []).map(humanizeCode).join(', ')),
     ),
   );
