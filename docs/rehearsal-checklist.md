@@ -32,7 +32,7 @@ the timeline in [demo-recording.md](demo-recording.md) and the cues in
 - [ ] `uv run python script/decision-eval.py` (39 cases, scripted fake model, no key).
 - [ ] `uv run python script/adversarial-corpus.py` (250 variants, scripted fake model, about 30 seconds).
 - [ ] Console: **Load demo invoices**, open the suspicious invoice, **Evaluate**, expand the failed check.
-- [ ] Console: open the clean invoice, **Evaluate**, **Review payment**, **Cancel**, reopen, **Confirm**, **Verify audit**.
+- [ ] Console: open the clean invoice, **Evaluate invoice**, **Review simulated payment**, **Cancel**, reopen, **Confirm simulation**, **Verify audit chain**.
 - [ ] Run each command once before the take so the shell has no cold-start delay on camera.
 
 ## Audio and captions

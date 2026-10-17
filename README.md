@@ -21,6 +21,20 @@ Each row below names one thing to look at, the command that shows it, and its st
 
 **Hosted demo** [mock]: <https://arc-payables-hosted-demo.onrender.com/console/>. It runs only mock providers and refuses to start with a live provider or a secret, so no funds move. It is on Render's free plan, which sleeps the instance after about 15 minutes idle. The first request after a sleep takes about a minute and the demo data resets.
 
+### What the console looks like
+
+Demo data and simulated payments, as in the hosted demo above.
+
+![Overview with four ruled figures and the guided demo](docs/images/console-overview.png)
+
+The payee on this invoice does not match the trusted supplier record, so it is held and no approval overrides it:
+
+![A held invoice with its failed checks](docs/images/console-blocked-invoice.png)
+
+Before any payment the dialog shows the exact amount and the trusted destination, and says plainly that it is simulated:
+
+![Payment review dialog for a simulated payment](docs/images/console-payment-review.png)
+
 ### Ten minute tour
 
 About 10 minutes.

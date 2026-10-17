@@ -86,7 +86,7 @@ The API states/codes below are stable reference points; the UI may display frien
 | M07 | Cancel using Escape; reopen and cancel with the visible cancel control. | Dialog closes, focus returns sensibly, control works again, and payment count stays **0**. Nothing was submitted by cancellation. |
 | M08 | Reopen, confirm the **simulated** payment once, and wait for completion. | State reaches `ERP_RECORDED`; settlement/accounting links appear and payment count becomes **1**. This is mock ledger writeback, not an ERPNext or on-chain transaction. |
 | M09 | Refresh the invoice, leave and return, and inspect the payment report. | Still exactly one recorded payment. No second payment control is offered for the settled invoice. Invoice, amount, trusted recipient and simulated accounting records agree. |
-| M10 | Click **Verify history** / **Verify audit**. Open Audit and verify again. | Integrity reports intact/success only after verification. The backend audit report has `ok: true`, signed entries and the configured demo signer anchor. |
+| M10 | Click **Verify audit chain** on the invoice page (or **Verify demo history** in the Overview guide). Open Audit chain and verify again. | Integrity reports intact/success only after verification. The backend audit report has `ok: true`, signed entries and the configured demo signer anchor. |
 
 Check counts after M03/M05/M07/M08/M09 in the second terminal:
 
