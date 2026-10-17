@@ -224,7 +224,8 @@ export function concept(code, label = code) {
 // The plain-language introduction to a view, shown only while the reader is still being walked
 // through. Returns nothing in normal view, so callers can append it unconditionally.
 export function lede(...children) {
-  if (!guided()) return null;
+  // An empty fragment, not null: views pass this to root.append(), which writes the text "null".
+  if (!guided()) return document.createDocumentFragment();
   return h('p', { class: 'lede' }, ...children);
 }
 
