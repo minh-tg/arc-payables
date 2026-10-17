@@ -772,6 +772,7 @@ export function deploymentLabel(deployment) {
   if (!deployment) return 'Environment unknown';
   if (deployment.hosted && deployment.mode === 'demo') return 'Hosted demo · simulated payments & ledger';
   if (deployment.mode === 'demo') return 'Demo · simulated payments & ledger';
+  if (deployment.payment_provider === 'mock' && deployment.accounting_provider === 'frappe') return 'Simulated payments · ERPNext connected';
   if (deployment.mode === 'mixed') return 'Mixed providers · check Setup';
   if (deployment.mode === 'testnet') return 'Arc Testnet · real testnet payments';
   return 'Environment unknown';
