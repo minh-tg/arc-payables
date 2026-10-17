@@ -330,6 +330,8 @@
       .payment-dialog h2 { font-family: var(--font-figure); font-size: var(--text-2xl); font-weight: 650; margin-bottom: 12px; }
       .payment-dialog > p { margin-bottom: 16px; }
       .payment-dialog .action-row { justify-content: flex-end; }
+      /* The address is the line to check, so it sits on one line instead of wrapping to a stray character. */
+      .payment-dialog dd.mono { font-size: var(--text-sm); white-space: nowrap; overflow-wrap: normal; }
       [role='status']:not(:empty) { margin-top: 12px; }
       .setup-stages { list-style: none; display: grid; gap: 14px; margin: 16px 0; }
       .setup-stages li { display: flex; gap: 12px; }

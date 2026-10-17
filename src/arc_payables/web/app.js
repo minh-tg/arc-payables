@@ -799,7 +799,7 @@ export function confirmPayment(invoice, supplier, deployment) {
       h('dl', { class: 'facts' },
         h('dt', {}, 'Invoice'), h('dd', {}, invoice.invoice_number),
         h('dt', {}, 'Exact amount'), h('dd', {}, money(invoice.amount)),
-        h('dt', {}, 'Trusted destination'), h('dd', {}, supplier.wallet),
+        h('dt', {}, 'Trusted destination'), h('dd', { class: 'mono' }, supplier.wallet),
         h('dt', {}, 'Accounting'), h('dd', {}, deployment.accounting_provider === 'mock' ? 'Simulated ledger' : 'ERPNext · writes to the configured ledger'),
       ),
       h('p', { class: 'guide-note' }, 'The server rechecks the evidence and guard limits before authorizing. Approval cannot change this destination.'),
