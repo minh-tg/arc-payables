@@ -158,6 +158,22 @@ def assert_view(page: Page, route: str, title: str, width: int) -> None:
           overflowingTables: [...document.querySelectorAll('.table-wrapper')]
             .filter((el) => el.scrollWidth > el.clientWidth)
             .map((el) => ({scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, heading: el.innerText.slice(0, 80)})),
+          splitBadgeWords: [...document.querySelectorAll('#view .badge')]
+            .filter((el) => el.getClientRects().length)
+            .flatMap((el) => {
+              const split = [];
+              const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+              while (walker.nextNode()) {
+                const node = walker.currentNode;
+                for (const match of node.textContent.matchAll(/[A-Za-z]{3,}/g)) {
+                  const range = document.createRange();
+                  range.setStart(node, match.index);
+                  range.setEnd(node, match.index + match[0].length);
+                  if (range.getClientRects().length > 1) split.push(match[0]);
+                }
+              }
+              return split;
+            }),
           splitMono: [...document.querySelectorAll('#view .table-wrapper td.mono')]
             .filter((el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length > 1; })
             .map((el) => el.textContent.trim()),
@@ -171,6 +187,7 @@ def assert_view(page: Page, route: str, title: str, width: int) -> None:
         assert not result["undersized"], (route, width, result["undersized"])
         assert not result["smallTargets"], (route, width, result["smallTargets"])
     assert not result["overflowingTables"], (route, width, result["overflowingTables"])
+    assert not result["splitBadgeWords"], (route, width, "a status word is broken across lines", result["splitBadgeWords"])
     if width == 1280:
         assert not result["splitMono"], (route, result["splitMono"])
         if route in {"payments", "audit", "treasury"}:

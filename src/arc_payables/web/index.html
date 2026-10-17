@@ -365,6 +365,8 @@
       .badge.success { background: var(--ok-soft); color: var(--ok-ink); border-left-color: var(--ok); }
       .badge.neutral { background: transparent; color: var(--muted); border-color: var(--border); border-left-color: var(--border-strong); }
       .badge + .badge { margin-left: 6px; }
+      /* A status word is never broken inside the word, whatever the cell around it does. */
+      .badge { overflow-wrap: normal; word-break: normal; hyphens: none; }
 
       /* A ledger: no box, a heavy rule under the header, hairlines between rows. */
       .table-wrapper { overflow-x: auto; background: transparent; }
