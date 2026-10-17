@@ -37,8 +37,8 @@
   <text x="54" y="268" class="item">Supplier bills</text>
   <text x="54" y="298" class="item">Verified supplier payout wallets</text>
   <text x="54" y="328" class="item">Payment and fee records</text>
-  <text x="54" y="436" class="note">In the demo: a simulated ERPNext</text>
-  <text x="54" y="456" class="note">that answers the same requests.</text>
+  <text x="54" y="436" class="note">In the demo: a real ERPNext sandbox</text>
+  <text x="54" y="456" class="note">running on this machine.</text>
 
   <!-- Arc Payables -->
   <rect class="box" x="420" y="120" width="380" height="360" rx="3"/>
@@ -89,5 +89,5 @@
   <!-- legend -->
   <text x="30" y="528" class="step">1  Arc Payables reads a bill and what ERPNext holds about it.   2  If every check passes, it asks the wallet to pay once.</text>
   <text x="30" y="552" class="step">3  It writes the payment and the fee back to ERPNext, so the books match the chain.</text>
-  <text x="30" y="580" class="note">Run once for real on Arc Testnet with test money (12 Oct). In the console demo, ERPNext and the payment are simulated.</text>
+  <text x="30" y="580" class="note">Run once for real on Arc Testnet with test money (12 Oct). In the console demo, ERPNext is a real sandbox and the payment is simulated.</text>
 </svg>

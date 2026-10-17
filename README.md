@@ -27,13 +27,14 @@ Arc Payables runs beside the accounting system. It reads a bill and what the acc
 
 ![Arc Payables between ERPNext and the chain: read bill, pay, write back](docs/images/deployment.svg)
 
-To see that loop without any credentials, run the demo with a simulated ERPNext beside it:
+To see that loop against a real ERPNext, run the sandbox described in [deploy/erpnext/README.md](deploy/erpnext/README.md) (upstream ERPNext v15 in containers, bound to 127.0.0.1) and start the console beside it:
 
 ```sh
-bash script/erp-demo.sh
+bash script/erpnext-demo.sh        # console on 8097, reads the sandbox credentials from .secret/erpnext-sandbox.env
+bash script/erpnext-demo-reset.sh  # seed a fresh unpaid bill and un-verify the supplier wallet
 ```
 
-It starts a stand-in for ERPNext on port 8081 (`src/arc_payables/sim_erpnext.py`, in memory, it answers the same REST calls as the real connector and is **not** ERPNext) and the console on port 8097, with accounting set to ERPNext and payments simulated. Enter the printed demo key under **Access keys**, import `ACC-PINV-2026-00101` from the queue, evaluate and pay it, then reload the stand-in's page to see the bill marked Paid with its Payment Entry. `ACC-PINV-2026-00102` belongs to a supplier whose wallet is not verified; the **Verify wallet** button on the stand-in's page is the only way that changes. The real connector against a real ERPNext sandbox is covered in the [ERPNext use case](docs/erpnext-use-case.md).
+Payments stay simulated, so no chain transaction is made. Enter the printed key under **Access keys** and import the new Purchase Invoice from the queue. The bill is held because the demo supplier's wallet is not verified. Tick **USDC Wallet Verified** on the supplier in ERPNext, which is the only way a payout wallet becomes trusted, evaluate again, pay, and reload the invoice in ERPNext to see it marked Paid with a submitted Payment Entry. The script refuses any ERPNext URL that is not on this machine.
 
 ### What the console looks like
 
