@@ -346,7 +346,7 @@ async function renderPayments(root, [reference] = []) {
   root.append(sectionHeading({ eyebrow: 'Payment history', title: 'Settlements', count: (log.payments || []).length, trailing: exportCSV }), exportFeedback);
   const totals = log.totals || {};
   let filter = 'all';
-  const tableHost = h('div', {});
+  const tableHost = h('div', { class: 'table-host' });
 
   const paint = () => {
     const rows = (log.payments || []).filter((row) => keep(row, filter)).map((row) =>

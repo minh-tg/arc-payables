@@ -41,7 +41,7 @@ function addPayablePanel() {
     'Add a payable',
     h('h3', {}, 'Import from ERPNext'),
     h('p', { class: 'muted' }, 'Adopts the accounting record\'s amount, currency and lines. This is the normal route into the queue.'),
-    h('div', { class: 'credentials' }, h('label', { class: 'field' }, h('span', {}, 'ERPNext purchase invoice'), importId), importButton),
+    h('div', { class: 'credentials form-row' }, h('label', { class: 'field' }, h('span', {}, 'ERPNext purchase invoice'), importId), importButton),
     h('h3', {}, 'Record an invoice document'),
     h('p', { class: 'muted' }, 'A document recorded here is held until someone links it to an ERPNext payable. Its own text never sets the amount or the destination.'),
     h('div', { class: 'stats' }, Object.keys(fields).map((key) => h('label', { class: 'field' }, h('span', {}, labels[key]), fields[key]))),

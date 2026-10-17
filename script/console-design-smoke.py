@@ -292,6 +292,54 @@ def assert_reconcile_finding(page: Page) -> None:
     page.close()
 
 
+def assert_layout_rules(browser) -> None:
+    """Regressions found by eye: stray text with the explanations off, a button off its input's line,
+    and a filter row pressed against its table."""
+    context = browser.new_context(viewport={"width": 1280, "height": 900})
+    context.add_init_script("sessionStorage.setItem('arc_payables.guide', 'off')")
+    page = context.new_page()
+    for route in ROUTES:
+        page.goto(f"{BASE_URL}/console/#/{route}", wait_until="domcontentloaded")
+        page.locator("#view .card, #view .stats").first.wait_for(state="visible", timeout=10000)
+        stray = page.evaluate(
+            """() => {
+              const hits = [];
+              const walker = document.createTreeWalker(document.getElementById('view'), NodeFilter.SHOW_TEXT);
+              while (walker.nextNode()) {
+                const text = walker.currentNode.textContent.trim();
+                if (['null', 'undefined', 'NaN'].includes(text)) hits.push(text);
+              }
+              return hits;
+            }"""
+        )
+        assert not stray, (route, "stray text with explanations off", stray)
+
+    page.goto(f"{BASE_URL}/console/#/queue", wait_until="domcontentloaded")
+    page.get_by_role("button", name="Import payable").wait_for(timeout=10000)
+    boxes = page.evaluate(
+        """() => {
+          const button = [...document.querySelectorAll('#view button')].find((el) => el.textContent.trim() === 'Import payable');
+          const input = button.parentElement.querySelector('input');
+          const a = input.getBoundingClientRect();
+          const b = button.getBoundingClientRect();
+          return {inputBottom: a.bottom, buttonBottom: b.bottom, inputHeight: a.height, buttonHeight: b.height};
+        }"""
+    )
+    assert abs(boxes["inputBottom"] - boxes["buttonBottom"]) <= 1, ("import button is off its input", boxes)
+
+    page.goto(f"{BASE_URL}/console/#/payments", wait_until="domcontentloaded")
+    page.get_by_role("button", name="Failed").wait_for(timeout=10000)
+    gap = page.evaluate(
+        """() => {
+          const chips = document.querySelector('#view button[aria-pressed]').parentElement;
+          const table = chips.closest('.card').querySelector('.table-wrapper');
+          return table.getBoundingClientRect().top - chips.getBoundingClientRect().bottom;
+        }"""
+    )
+    assert gap >= 8, ("filter row sits on its table", gap)
+    context.close()
+
+
 def save_screenshots(browser) -> None:
     SHOTS.mkdir(parents=True, exist_ok=True)
     for theme in ("light", "dark"):
@@ -333,6 +381,7 @@ def main() -> None:
             context.close()
         assert_payment_report(browser.new_page(viewport={"width": 1280, "height": 900}))
         assert_reconcile_finding(browser.new_page(viewport={"width": 1280, "height": 900}))
+        assert_layout_rules(browser)
         save_screenshots(browser)
         browser.close()
     print("PASS  11 routes at 1280px, 1024px, 900px and 390px, table widths, phone targets, invoice layout and four screenshots")

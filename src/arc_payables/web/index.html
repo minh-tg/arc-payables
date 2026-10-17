@@ -276,6 +276,8 @@
       .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
       .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
       .credentials { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      /* A labelled field beside its button: the button lines up with the input, not the label above it. */
+      .credentials.form-row { align-items: flex-end; }
 
       .card {
         background: var(--surface);
@@ -288,7 +290,7 @@
       .card > h2 { font-size: var(--text-lg); font-weight: 600; margin-bottom: 12px; letter-spacing: -0.01em; }
       .card > h3 { font-size: var(--text-base); font-weight: 600; margin: 16px 0 4px; }
       .card > p { margin-bottom: 12px; }
-      .card > .table-wrapper { margin-top: 12px; }
+      .card > .table-wrapper, .card > .table-host { margin-top: 12px; }
       .card > .table-wrapper + p { margin-top: 12px; }
       .card > details { margin-top: 12px; }
       td { overflow-wrap: break-word; }
