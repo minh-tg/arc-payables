@@ -49,7 +49,7 @@ cd "$WORKDIR"
 printf 'ERPNext (real sandbox): %s\n' "$FRAPPE_URL_VALUE"
 printf 'Arc Payables:           http://127.0.0.1:%s/console/\n' "$PORT"
 printf 'In the console open "Access keys" in the sidebar and enter the API access key: %s\n' "$CONSOLE_KEY"
-printf 'Import ACC-PINV-2026-00001. Payments are simulated and the chain is not touched.\n'
+printf 'Import the bill that script/erpnext-demo-reset.sh printed. Payments are simulated and the chain is not touched.\n'
 printf 'Disposable files: %s\n' "$WORKDIR"
 env -i PATH="$PATH" HOME="$HOME" LANG="${LANG:-C.UTF-8}" \
   ENVIRONMENT=local AUTH_MODE=testnet_tokens API_KEY="$CONSOLE_KEY" APPROVAL_TOKEN= \
