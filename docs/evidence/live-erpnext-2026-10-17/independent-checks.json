@@ -1,0 +1,77 @@
+{
+ "checked_at_utc": "2026-10-18, within minutes of the payment at 01:56:07Z",
+ "scope": "Arc Testnet, test USDC, disposable ERPNext sandbox. One payment of 0.01 USDC. Integration evidence, not customer adoption.",
+ "chain": {
+  "rpc": "https://rpc.testnet.arc.io",
+  "chain_id": 5042002,
+  "guard_deployment_tx": "0x1bc6e4502470bf81117274d82a2bed15f92ffa1993575fe5c32b8580002bd222",
+  "guard_address": "0x13120C0ff3687178172Bc16CcB3840EEe55B1650",
+  "guard_configuration_read_from_chain": {
+   "policySigner": "0x41db4f9192e607d445f51a54724c375a88c0372e",
+   "pauser": "0xe67b0288db86abd9d072d8909017cc625976b9b8",
+   "paymentToken": "0x3600000000000000000000000000000000000000",
+   "perPaymentCap_units": 20000,
+   "epochCap_units": 50000,
+   "recipientEpochCap_units": 20000,
+   "epochLength_seconds": 86400,
+   "paused": 0,
+   "runtime_code_bytes": 4615
+  },
+  "payment_tx": "0x90e96a2317a57d3134fe74c0bf2b2e12aebd4ba3da45442e0199fcd7c8c495c0",
+  "receipt": {
+   "status": "0x1",
+   "block": 67764995,
+   "outer_destination": "ERC-4337 entry point 0x0000000071727de22e5e9d8baf0edac6f37da032"
+  },
+  "usdc_transfer": {
+   "from": "0x784fcf77d0f718210dbadbce1a464bcb67e58aed",
+   "to": "0x1111111111111111111111111111111111111111",
+   "units": 10000,
+   "usdc": 0.01
+  },
+  "events_from_the_guard": 2,
+  "payer_native_usdc_before": 0.23,
+  "payer_native_usdc_after": 0.22
+ },
+ "circle": {
+  "operation_id": "fd0eb709-bf7a-5fb9-8477-ba52ae37661c",
+  "http": 200,
+  "state": "COMPLETE",
+  "blockchain": "ARC-TESTNET",
+  "operation": "CONTRACT_EXECUTION",
+  "transaction_type": "OUTBOUND",
+  "fee_level": "MEDIUM",
+  "network_fee_this_operation": "0.24661899262",
+  "contract_address": "0x13120c0ff3687178172bc16ccb3840eee55b1650",
+  "tx_hash_equals_chain_hash": true,
+  "wallet_equals_configured_wallet": true,
+  "wallet": {
+   "blockchain": "ARC-TESTNET",
+   "accountType": "SCA",
+   "state": "LIVE",
+   "custodyType": "DEVELOPER"
+  }
+ },
+ "erpnext": {
+  "version": "ERPNext 15.121.5 (real upstream sandbox in containers, loopback only)",
+  "verifier": "arc-payables-erp-verify --tx <hash> --invoice ACC-PINV-2026-00003",
+  "result": "consistent",
+  "purchase_invoice": "ACC-PINV-2026-00003: submitted, Paid, outstanding 0.0",
+  "payment_entry": "ACC-PAY-2026-00002: submitted, paid 0.01, received 0.01, allocated 0.01, no deductions, reference ARC-TESTNET:<payment tx>",
+  "fee_journal_entry": "ACC-JV-2026-00001: submitted, balanced, debit 0.41 credit 0.41 (the fee Circle reported across the approval and the payment, rounded up to the cent)",
+  "ledger": "payment rows balance at 0.01, fee rows balance at 0.41"
+ },
+ "application_record": {
+  "audit_chain_verified": true,
+  "entries": 12,
+  "file": "erpnext-live-payment-report.json",
+  "note": "This record is the application's own, which the 12 October run lacks."
+ },
+ "not_verified_or_open": [
+  "Who funds the paymaster that paid the gas. The wallet balance fell only by the 0.01 paid, so the 0.41 USD fee booked in ERPNext is the fee Circle reported, not an amount the wallet paid.",
+  "The accounting treatment of that fee, which an accountant has not reviewed.",
+  "Sanctions screening: ERPNext supplies none, so the result is UNAVAILABLE and the policy applies its reduced automatic limit instead of asking a reviewer.",
+  "The integration user in the sandbox has broad roles. This is not a least-privilege setup.",
+  "The guard was deployed from the arc-canteen deployer wallet with a freshly generated throwaway policy signer. The earlier guard's signer key was not available."
+ ]
+}

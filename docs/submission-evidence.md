@@ -7,6 +7,7 @@
 - [Settlement transaction](https://testnet.arcscan.app/tx/0x007678e3a08575390a39b8a77ac7598847db3ca7f0fb8a01eae39a1b61741db0)
 - [Guard deployment transaction](https://testnet.arcscan.app/tx/0xb0e3b5fbc6a41db4dd6243b7454fe9dde31d305674f9e641f8f43d0d005139fe)
 - [Guard address](https://testnet.arcscan.app/address/0xbe0477081f90e68b6699a585d5d31ad93d96f318)
+- [A second real payment, from an ERPNext bill, with the application's own record (17 October)](live-erpnext-payment.md)
 - [Saved public RPC requests, responses and decoded findings](evidence/arc-testnet-settlement.json)
 - [Redacted Circle transaction and SCA wallet response excerpts](evidence/circle-settlement.json)
 - [Redacted ERPNext invoice, payment, journal and GL snapshot](evidence/erpnext-sandbox-settlement.json)

@@ -11,7 +11,7 @@ Each row below names one thing to look at, the command that shows it, and its st
 | --- | --- | --- | --- |
 | Agentic Sophistication | [Decision layers](docs/policy-after-the-model.md): the policy runs after the model | `uv run python script/decision-eval.py` | mock, saved evidence |
 | Traction | [Pilot plan](docs/pilot-plan.md): no users yet, outreach not started | none, there is no usage to run | unverified |
-| Circle tool usage | [Submission evidence](docs/submission-evidence.md): a Circle SCA payment and its gas payer | `uv run python script/check-paymaster.py` | testnet, saved evidence |
+| Circle tool usage | [Submission evidence](docs/submission-evidence.md) and [a second payment from an ERPNext bill](docs/live-erpnext-payment.md): a Circle SCA wallet paying through our guard | `uv run python script/check-paymaster.py` | testnet, saved evidence |
 | Innovation | [Payment guard](src/PaymentGuard.sol): caps fixed at deployment, replay rejected | `forge test` | mock |
 
 - **mock** (simulated by code in this repo, no funds move)
