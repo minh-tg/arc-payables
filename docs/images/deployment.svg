@@ -48,7 +48,8 @@
   <text x="444" y="238" class="item">Checks each bill against the records</text>
   <text x="444" y="268" class="item">Pays only to the verified wallet</text>
   <text x="444" y="298" class="item">Limits, reserve and duplicate checks</text>
-  <text x="444" y="328" class="item">AI gives advice, rules decide</text>
+  <rect x="432" y="306" width="356" height="34" rx="3" fill="none" stroke="#2a5d85" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="444" y="329" class="item" style="font-weight:600">AI adviser: judgement calls only, rules decide</text>
   <text x="444" y="358" class="item">Signs one permit for one payment</text>
   <text x="444" y="388" class="item">Keeps a tamper-evident history</text>
   <text x="444" y="456" class="note">In the demo: payments are simulated.</text>
@@ -89,5 +90,5 @@
   <!-- legend -->
   <text x="30" y="528" class="step">1  Arc Payables reads a bill and what ERPNext holds about it.   2  If every check passes, it asks the wallet to pay once.</text>
   <text x="30" y="552" class="step">3  It writes the payment and the fee back to ERPNext, so the books match the chain.</text>
-  <text x="30" y="580" class="note">Run once for real on Arc Testnet with test money (12 Oct). In the console demo, ERPNext is a real sandbox and the payment is simulated.</text>
+  <text x="30" y="580" class="note">Real payments on Arc Testnet with test money: 12 Oct, and 17 Oct from an ERPNext bill. In the console demo, the payment is simulated.</text>
 </svg>
