@@ -174,21 +174,6 @@ curl -s localhost:8000/audit/verify -H "X-API-Key: $API_KEY"
 It recomputes the hash chain over every event and reports the first entry that fails, if any. The
 console at `/console` shows the same per invoice, with a verification button.
 
-## Shot list
-
-**Under three minutes**, not three minutes exactly. Prefer the [safe 2:40 recording plan](docs/demo-recording.md): mock walkthrough plus saved integration evidence, no new live actions. The alternative live shot list below requires separate operator authorization; trim it below 3:00 including closing cards.
-
-| Time | On screen | Say |
-| --- | --- | --- |
-| 0:00 | The queue in `/console`, plan ordering and reasons | What this is: an AP agent that can propose payments but cannot authorize them |
-| 0:25 | Invoice detail, `policy_checks` list | The checks are re-derived from evidence and each one shows what it read |
-| 0:50 | The supplier record in ERPNext, wallet and verified tick | The destination only ever comes from here; an invoice address is evidence and never a destination |
-| 1:10 | Preflight output from `live-run` | It refuses before anything is signed, and here is what it checked |
-| 1:35 | Explorer page for the transaction | The transfer went through the guard, which enforces a budget fixed at deployment |
-| 2:00 | The Payment Entry and its GL entries | The supplier received the exact authorized amount, and the fee is a separate expense |
-| 2:25 | `/audit/verify` returning `ok` | The decision record is hash linked and signed, so it can be checked later rather than trusted |
-| 2:45 | `/forecast` and `/suppliers` | And when the balance cannot cover everything, it says what to pay first and where the money runs out |
-
 ## Failure cases
 
 Thirty seconds each, and they are the most convincing part of the demo because they show the system
