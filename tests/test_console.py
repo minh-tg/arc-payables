@@ -386,3 +386,13 @@ def test_the_explanations_off_view_never_hands_null_to_append():
     app = (WEB_DIR / "app.js").read_text()
     body = re.search(r"export function lede\(([\s\S]*?)\n\}", app).group(1)
     assert "return null" not in body
+
+
+def test_every_module_and_both_interface_fonts_are_preloaded():
+    html = (WEB_DIR / "index.html").read_text()
+    preloaded = set(re.findall(r'<link rel="modulepreload" href="([a-z]+\.js)"', html))
+    assert preloaded == {path.name for path in WEB_DIR.glob("*.js")}, "a module is missing from, or extra in, the preload list"
+    fonts = set(re.findall(r'<link rel="preload" href="(fonts/[\w.-]+\.woff2)" as="font"', html))
+    declared = set(re.findall(r"url\('(fonts/[\w.-]+\.woff2)'\)", html))
+    assert fonts and fonts <= declared, "a preloaded font is not one the stylesheet declares"
+    assert "#view:empty::before" in html and "Loading…" in html

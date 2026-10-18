@@ -4,6 +4,21 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tameion · operator console</title>
+    <!-- The modules and the two interface fonts are fetched in parallel with the page, so the first
+         screen does not wait on a chain of imports or swap its typeface after it appears. -->
+    <link rel="preload" href="fonts/PublicSans-latin-wght.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="fonts/SourceSerif4-latin-wght.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="modulepreload" href="app.js" />
+    <link rel="modulepreload" href="overview.js" />
+    <link rel="modulepreload" href="queue.js" />
+    <link rel="modulepreload" href="attention.js" />
+    <link rel="modulepreload" href="payments.js" />
+    <link rel="modulepreload" href="audit.js" />
+    <link rel="modulepreload" href="worker.js" />
+    <link rel="modulepreload" href="setup.js" />
+    <link rel="modulepreload" href="invoice.js" />
+    <link rel="modulepreload" href="treasury.js" />
+    <link rel="modulepreload" href="journey.js" />
     <script>
       // Apply the saved theme before first paint so the page never flashes the wrong one. This reads
       // the same store app.js writes: session storage, scoped to the tab like the credentials.
@@ -256,6 +271,8 @@
 
       main { flex: 1; padding: 24px; overflow-y: auto; }
       #view { max-width: 1200px; margin: 0 auto; }
+      /* Until a view has rendered, say so, instead of showing an empty page. */
+      #view:empty::before { content: 'Loading…'; display: block; color: var(--muted); padding: 24px 0; }
       .view { display: none; }
       .view.active { display: block; }
 
