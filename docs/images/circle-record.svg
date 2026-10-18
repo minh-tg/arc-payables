@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" role="img" aria-labelledby="t d">
+  <title id="t">The payment, in Circle's own record</title>
+  <desc id="d">Circle reports the operation as COMPLETE on ARC-TESTNET: a contract execution from a developer-controlled Circle wallet against the PaymentGuard contract, paying 0.01 USDC to the supplier's verified account. The guard's limits were fixed at deployment.</desc>
+  <defs>
+    <style>
+      text { font-family: 'Public Sans', 'Segoe UI', system-ui, sans-serif; fill: #1f2a33; }
+      .title { font-family: 'Source Serif 4', Georgia, serif; font-size: 38px; font-weight: 650; }
+      .lead { font-size: 25px; }
+      .k { font-size: 22px; font-weight: 600; fill: #55626b; }
+      .v { font-size: 27px; }
+      .vb { font-size: 27px; font-weight: 650; }
+      .note { font-size: 19px; fill: #55626b; }
+      .rule { stroke: #1f2a33; stroke-width: 2; }
+      .hair { stroke: #d3d7cd; stroke-width: 1.5; }
+    </style>
+  </defs>
+  <rect width="1200" height="600" fill="#f4f5f0"/>
+  <text x="60" y="78" class="title">The payment, in Circle's own record</text>
+  <text x="60" y="122" class="lead">Paid from a Circle wallet on Arc Testnet, through a contract with limits set in advance.</text>
+  <line x1="60" y1="152" x2="1140" y2="152" class="rule"/>
+
+  <text x="60" y="200" class="k">Status</text>
+  <text x="400" y="200" class="vb">COMPLETE</text>
+  <line x1="60" y1="222" x2="1140" y2="222" class="hair"/>
+
+  <text x="60" y="270" class="k">Operation</text>
+  <text x="400" y="270" class="v">Contract execution on ARC-TESTNET, from a Circle wallet</text>
+  <line x1="60" y1="292" x2="1140" y2="292" class="hair"/>
+
+  <text x="60" y="340" class="k">Contract</text>
+  <text x="400" y="340" class="v">PaymentGuard, 0x1312…1650</text>
+  <line x1="60" y1="362" x2="1140" y2="362" class="hair"/>
+
+  <text x="60" y="410" class="k">Limits, fixed at deployment</text>
+  <text x="400" y="410" class="v">0.02 USDC per payment, 0.05 USDC per day</text>
+  <line x1="60" y1="432" x2="1140" y2="432" class="hair"/>
+
+  <text x="60" y="480" class="k">Transaction</text>
+  <text x="400" y="480" class="v">0x90e96a…c495c0, the same one on the public record</text>
+  <line x1="60" y1="502" x2="1140" y2="502" class="rule"/>
+
+  <text x="60" y="544" class="note">Circle operation fd0eb709-bf7a-5fb9-8477-ba52ae37661c. Test money only, on a test network.</text>
+</svg>
