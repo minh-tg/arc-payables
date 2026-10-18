@@ -75,6 +75,15 @@ class FrappeAccountingConnector:
         """The fee Journal Entry reference for a settlement."""
         return (SIMULATED_FEE_REFERENCE if self.simulated else FEE_REFERENCE).format(tx_hash=tx_hash)
 
+    def fee_source(self) -> str:
+        """Where the fee figure comes from, for the remark on the fee entry."""
+        provider = str(getattr(self.settings, "payment_provider", "") or "").lower()
+        return {
+            "circle": "the sum of the network fees Circle reported for this payment's operations",
+            "local": "measured from this payment's transaction receipts on chain",
+            "mock": "simulated, no transaction exists",
+        }.get(provider, "as reported by the payment provider")
+
     @property
     def configured(self) -> bool:
         return bool(self.base_url and self.settings.frappe_api_key and self.settings.frappe_api_secret)
@@ -431,6 +440,7 @@ class FrappeAccountingConnector:
                 smallest_unit=self._currency_smallest_unit(mapping.company_currency),
                 tx_hash=tx_hash,
                 supplier_amount_units=invoice.amount_units,
+                fee_source=self.fee_source(),
             )
         except AccountingMappingError as exc:
             raise FrappeAdapterError(None, f"network-fee expense is invalid: {exc}") from exc

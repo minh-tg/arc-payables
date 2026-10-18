@@ -213,7 +213,8 @@ class FeeExpenseAmounts:
     """The Arc network fee as our own expense, in the company currency."""
 
     measured_amount: Decimal
-    """Fee as measured on chain, in the company currency. May be below the smallest bookable unit."""
+    """Fee as the payment path stated it (see ``fee_source``), in the company currency. May be below
+    the smallest bookable unit."""
 
     booked_amount: Decimal
     """Fee actually booked: ``measured_amount`` rounded up to a representable amount."""
@@ -242,8 +243,13 @@ def compute_fee_expense(
     smallest_unit: Decimal,
     tx_hash: str,
     supplier_amount_units: int,
+    fee_source: str = "as reported by the payment provider",
 ) -> FeeExpenseAmounts:
-    """Compute the separate expense entry for the network fee we absorbed."""
+    """Compute the separate expense entry for the network fee we absorbed.
+
+    ``fee_source`` says where the figure came from, because the remark is what an accountant reads:
+    a fee measured from receipts and a fee a provider reported are not the same evidence.
+    """
     if fee_units <= 0:
         raise AccountingMappingError("A fee expense needs a positive measured fee")
     company_currency = (company_currency or "").upper()
@@ -258,14 +264,14 @@ def compute_fee_expense(
         raise AccountingMappingError("The booked network fee must never be less than the measured fee")
 
     if booked == measured:
-        rounding = "The measured fee is booked as measured."
+        rounding = "It is booked unchanged."
     else:
         rounding = (
             f"Booked as {_plain(booked)} {company_currency}, rounded up to the smallest unit "
             f"{company_currency} can represent."
         )
     remark = (
-        f"Arc network fee for transaction {tx_hash}: measured {_plain(measured)} {source_currency} on chain. "
+        f"Arc network fee for the payment in transaction {tx_hash}: {_plain(measured)} {source_currency}, {fee_source}. "
         f"{rounding} The supplier received exactly {_plain(supplier_amount)} {source_currency}; "
         "this fee is absorbed by us and is not deducted from the supplier."
     )

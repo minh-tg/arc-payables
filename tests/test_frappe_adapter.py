@@ -208,6 +208,27 @@ def test_fee_expense_rounds_up_to_the_smallest_bookable_unit():
     assert "rounded up" not in exact.remark
 
 
+@pytest.mark.parametrize(
+    ("provider", "says", "never"),
+    [
+        ("circle", "Circle reported", "measured"),
+        ("local", "measured from this payment's transaction receipts", "Circle"),
+        ("mock", "simulated, no transaction exists", "on chain"),
+    ],
+)
+def test_the_fee_remark_says_where_the_figure_came_from(provider, says, never):
+    # A fee Circle reported is not a fee measured on chain; the remark must not claim more than it has.
+    fee_entries: dict[str, dict] = {}
+    connector = FrappeAccountingConnector(
+        _settings(payment_provider=provider),
+        httpx.Client(transport=httpx.MockTransport(_payment_handler({}, {"create": 0, "submit": 0, "fee_create": 0}, fee_entries=fee_entries))),
+    )
+    connector.create_fee_expense(_invoice(), "0x" + "ab" * 32, 406_429, _mapping())
+    remark = fee_entries["JV-1"]["user_remark"]
+    assert says in remark
+    assert never not in remark
+
+
 # --------------------------------------------------------------------------------------
 # Live connector behaviour
 # --------------------------------------------------------------------------------------
