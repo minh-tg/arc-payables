@@ -50,6 +50,7 @@ def _mapping(**overrides) -> PaymentMapping:
 def _settings(**overrides) -> Settings:
     values = {
         "_env_file": None,
+        "payment_provider": "circle",  # a real settlement unless a test says otherwise
         "frappe_url": "https://erp.example.test",
         "frappe_api_key": "not-a-real-key",
         "frappe_api_secret": "not-a-real-secret",
@@ -477,9 +478,28 @@ def test_payment_entry_carries_exactly_the_supplier_amount():
     assert "deductions" not in payload
     assert payload["source_exchange_rate"] == "1"
     assert payload["target_exchange_rate"] == "1"
+    assert payload["reference_no"] == "ARC-TESTNET:" + "0x" + "ab" * 32
 
     reused = connector.create_payment_entry(_invoice(), "0x" + "ab" * 32, _mapping())
     assert reused.already_existed is True
+    assert counters == {"create": 1, "submit": 1, "fee_create": 0}
+
+
+def test_a_simulated_payment_is_never_booked_as_an_arc_transaction():
+    # The mock provider makes up its transaction hash. Written as "ARC-TESTNET:<hash>" it would read as
+    # money paid on chain to anyone looking at the books, so it is marked as simulated instead.
+    entries: dict[str, dict] = {}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
+    connector = FrappeAccountingConnector(
+        _settings(payment_provider="mock"), httpx.Client(transport=httpx.MockTransport(_payment_handler(entries, counters)))
+    )
+    tx_hash = "0x" + "ab" * 32
+    connector.create_payment_entry(_invoice(), tx_hash, _mapping())
+    assert entries["PE-1"]["reference_no"] == "SIMULATED:" + tx_hash
+    assert connector.payment_reference(tx_hash) == "SIMULATED:" + tx_hash
+
+    reused = connector.create_payment_entry(_invoice(), tx_hash, _mapping())
+    assert reused.already_existed is True      # found again under the same reference: no second booking
     assert counters == {"create": 1, "submit": 1, "fee_create": 0}
 
 
@@ -512,6 +532,17 @@ def test_network_fee_is_booked_as_its_own_expense_entry():
     reused = connector.create_fee_expense(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
     assert reused is not None and reused.already_existed is True
     assert counters == {"create": 0, "submit": 1, "fee_create": 1}
+
+
+def test_a_simulated_fee_is_booked_under_a_simulated_reference():
+    fee_entries: dict[str, dict] = {}
+    counters = {"create": 0, "submit": 0, "fee_create": 0}
+    connector = FrappeAccountingConnector(
+        _settings(payment_provider="mock"),
+        httpx.Client(transport=httpx.MockTransport(_payment_handler({}, counters, fee_entries=fee_entries))),
+    )
+    connector.create_fee_expense(_invoice(), "0x" + "ab" * 32, 10_000, _mapping())
+    assert fee_entries["JV-1"]["cheque_no"] == "SIMULATED-FEE:" + "0x" + "ab" * 32
 
 
 def test_no_fee_means_no_expense_entry():

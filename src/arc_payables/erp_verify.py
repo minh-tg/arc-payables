@@ -20,12 +20,7 @@ from dataclasses import asdict, dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from .frappe_adapter import (
-    FEE_REFERENCE,
-    PAYMENT_REFERENCE,
-    FrappeAccountingConnector,
-    FrappeAdapterError,
-)
+from .frappe_adapter import FrappeAccountingConnector, FrappeAdapterError
 from .settings import get_settings
 
 OK, FAIL, SKIPPED = "ok", "fail", "skipped"
@@ -103,7 +98,7 @@ def verify_settlement(
 ) -> Report:
     report = Report(tx_hash=tx_hash)
     try:
-        entry = connector.find_payment_entry(PAYMENT_REFERENCE.format(tx_hash=tx_hash))
+        entry = connector.find_payment_entry(connector.payment_reference(tx_hash))
     except FrappeAdapterError as exc:
         report.add("payment_entry_found", False, str(exc))
         return report
@@ -149,7 +144,7 @@ def verify_settlement(
     _check_ledger(report, connector, "payment_entry", report.payment_entry)
 
     try:
-        fee = connector.find_fee_expense(FEE_REFERENCE.format(tx_hash=tx_hash))
+        fee = connector.find_fee_expense(connector.fee_reference(tx_hash))
     except FrappeAdapterError as exc:
         report.add("fee_entry_found", False, str(exc))
         return report

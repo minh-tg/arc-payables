@@ -15,7 +15,7 @@ no business uses it. The [gates at the end](#what-is-not-done) are the work that
 | Purchase Invoice | amount, currency, lines, due date, state | The amount and lines are compared with the captured invoice. Any difference is a hard block. Only a submitted invoice whose open balance equals its grand total is payable. |
 | Supplier | the payee wallet | The wallet comes only from the Supplier custom fields (`custom_usdc_wallet_address`, `custom_usdc_wallet_verified`). An address printed on an invoice is evidence, never a destination. A disabled or on-hold supplier blocks payment. |
 | Purchase Order, Purchase Receipt | three-way match | A missing or inconsistent document blocks payment until a reviewer waives it. A waiver never changes the destination or the amount. |
-| Payment Entry | the result | Created after settlement, for exactly the supplier amount, allocated to the invoice, no deductions. `reference_no` is `ARC-TESTNET:<tx hash>`. |
+| Payment Entry | the result | Created after settlement, for exactly the supplier amount, allocated to the invoice, no deductions. `reference_no` is `ARC-TESTNET:<tx hash>`, or `SIMULATED:<hash>` when the payment is simulated. |
 | Journal Entry | the network fee | A separate entry, keyed `ARC-TESTNET-FEE:<tx hash>`, so the fee never reduces what the supplier receives. |
 
 The writeback runs through a REST user that is not Administrator (the connector refuses
