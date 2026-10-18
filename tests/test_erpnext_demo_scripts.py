@@ -11,10 +11,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / "script" / "erpnext-demo.sh"
 RESET = ROOT / "script" / "erpnext-demo-reset.sh"
+LIVE = ROOT / "script" / "erpnext-live-demo.sh"
 SECRET = "very-secret-value-do-not-print"
 
 
-@pytest.mark.parametrize("script", [DEMO, RESET])
+@pytest.mark.parametrize("script", [DEMO, RESET, LIVE])
 def test_the_script_parses(script):
     assert subprocess.run(["bash", "-n", str(script)], capture_output=True).returncode == 0
 
@@ -63,3 +64,37 @@ def test_the_credentials_file_lives_in_a_git_ignored_directory():
         ["git", "check-ignore", "-q", ".secret/erpnext-sandbox.env"], cwd=ROOT
     ).returncode
     assert ignored == 0
+
+
+def test_the_live_launcher_refuses_a_remote_erpnext_before_any_request(tmp_path):
+    erp = tmp_path / "erp.env"
+    erp.write_text(f"FRAPPE_URL=https://erp.example.com\nFRAPPE_API_KEY=k\nFRAPPE_API_SECRET={SECRET}\n")
+    live = tmp_path / "live.env"
+    live.write_text(f"CIRCLE_API_KEY={SECRET}\nPERMIT_SIGNING_PRIVATE_KEY={SECRET}\n")
+    result = subprocess.run(
+        ["bash", str(LIVE)], capture_output=True, text=True,
+        env={"PATH": os.environ["PATH"], "HOME": str(tmp_path), "ERP_ENV_FILE": str(erp), "LIVE_ENV_FILE": str(live)},
+    )
+    assert result.returncode == 2
+    assert "must be http://127.0.0.1 or http://localhost" in result.stderr
+    assert SECRET not in result.stdout + result.stderr
+
+
+def test_the_live_launcher_reads_only_named_variables_and_clears_the_environment():
+    text = LIVE.read_text()
+    assert "env -i" in text and "--host 127.0.0.1" in text and "0.0.0.0" not in text
+    assert "'FRAPPE_[A-Z0-9_]+'" in text
+    assert "CIRCLE_[A-Z0-9_]+|PERMIT_SIGNING_(PRIVATE_KEY|ADDRESS)" in text
+    assert "PAYMENT_PROVIDER=circle" in text and "WORKER_AUTOPAY=false" in text
+    assert "sops" not in text.lower()
+
+
+def test_the_live_launcher_says_plainly_that_confirming_spends_test_usdc():
+    assert "confirming a payment sends test USDC" in LIVE.read_text()
+
+
+def test_the_reset_script_takes_only_a_small_decimal_amount():
+    for bad in ("abc", "1.234", "-5", ""):
+        result = subprocess.run(["bash", str(RESET), "--amount", bad], capture_output=True, text=True,
+                                env={"PATH": os.environ["PATH"], "HOME": "/nonexistent"})
+        assert result.returncode == 2 and "--amount takes a USD figure" in result.stderr

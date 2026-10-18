@@ -3,13 +3,21 @@
 # of script/erpnext-demo.sh. It un-verifies the demo supplier's wallet and seeds a fresh unpaid bill.
 # It never pays anything and never touches a chain. Sandbox only: the URL must be on this machine.
 #
-#   bash script/erpnext-demo-reset.sh
+#   bash script/erpnext-demo-reset.sh                 # the default 250.00 USD bill
+#   bash script/erpnext-demo-reset.sh --amount 0.01   # a one-cent bill, for a real Arc Testnet payment
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${ERP_ENV_FILE:-$ROOT/.secret/erpnext-sandbox.env}"
 COMPANY="Arc Demo Inc"
 SUPPLIER="Arc Payables Demo Supplier - ADI"
 WALLET="${DEMO_SUPPLIER_WALLET:-0x1111111111111111111111111111111111111111}"
+AMOUNT_ARGS=()
+if [ "${1:-}" = "--amount" ]; then
+  [[ "${2:-}" =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || { echo "--amount takes a USD figure with at most two decimals, for example 0.01." >&2; exit 2; }
+  AMOUNT_ARGS=(--quantity 1 --rate "$2")
+  shift 2
+fi
+[ "$#" -eq 0 ] || { echo "Usage: bash script/erpnext-demo-reset.sh [--amount USD]" >&2; exit 2; }
 [ -r "$ENV_FILE" ] || { echo "No sandbox credentials at $ENV_FILE (see deploy/erpnext/README.md)." >&2; exit 2; }
 command -v uv >/dev/null
 
@@ -39,5 +47,5 @@ FRAPPE_URL="$url"; FRAPPE_API_KEY="$key"; FRAPPE_API_SECRET="$secret"
 set +a
 uv run --project "$ROOT" --frozen arc-payables-erpnext-bootstrap \
   --company "$COMPANY" --wallet "$WALLET" --posting-date "$posting_date" \
-  --invoice-reference "$reference" --apply | grep -E "^  purchase_invoice:|Sandbox provisioning complete"
+  --invoice-reference "$reference" "${AMOUNT_ARGS[@]}" --apply | grep -E "^  purchase_invoice:|Sandbox provisioning complete"
 echo "Import the Purchase Invoice named above in the console."
