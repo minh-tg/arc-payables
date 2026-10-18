@@ -39,6 +39,12 @@ PAYMENT_REFERENCE = "ARC-TESTNET:{tx_hash}"
 FEE_REFERENCE = "ARC-TESTNET-FEE:{tx_hash}"
 """Reference number on the network-fee Journal Entry for the same transaction."""
 
+SIMULATED_PAYMENT_REFERENCE = "SIMULATED:{tx_hash}"
+"""Reference number when the payment provider is the mock: the hash is made up and exists on no chain,
+so the books must not present it as an Arc transaction."""
+
+SIMULATED_FEE_REFERENCE = "SIMULATED-FEE:{tx_hash}"
+
 
 class FrappeAdapterError(RuntimeError):
     def __init__(self, status_code: int | None, operation: str, *, uncertain: bool | None = None):
@@ -55,6 +61,19 @@ class FrappeAccountingConnector:
         self.base_url = (settings.frappe_url or "").rstrip("/")
         self.client = client or httpx.Client(timeout=settings.frappe_timeout_seconds)
         self._verified_api_user = False
+
+    @property
+    def simulated(self) -> bool:
+        """True when payments come from the mock provider and no transaction exists on chain."""
+        return str(getattr(self.settings, "payment_provider", "") or "").lower() == "mock"
+
+    def payment_reference(self, tx_hash: str) -> str:
+        """The Payment Entry reference for a settlement. Writing and finding use this one method."""
+        return (SIMULATED_PAYMENT_REFERENCE if self.simulated else PAYMENT_REFERENCE).format(tx_hash=tx_hash)
+
+    def fee_reference(self, tx_hash: str) -> str:
+        """The fee Journal Entry reference for a settlement."""
+        return (SIMULATED_FEE_REFERENCE if self.simulated else FEE_REFERENCE).format(tx_hash=tx_hash)
 
     @property
     def configured(self) -> bool:
@@ -314,7 +333,7 @@ class FrappeAccountingConnector:
         mapping: PaymentMapping,
         posting_date: date | None = None,
     ) -> ERPWriteResult:
-        reference = PAYMENT_REFERENCE.format(tx_hash=tx_hash)
+        reference = self.payment_reference(tx_hash)
         existing = self.find_payment_entry(reference)
         if existing:
             self._verify_existing_entry(existing, invoice, mapping)
@@ -390,7 +409,7 @@ class FrappeAccountingConnector:
         """
         if fee_units <= 0:
             return None
-        reference = FEE_REFERENCE.format(tx_hash=tx_hash)
+        reference = self.fee_reference(tx_hash)
         existing = self.find_fee_expense(reference)
         if existing:
             self._verify_existing_fee_entry(existing, fee_units, mapping)
