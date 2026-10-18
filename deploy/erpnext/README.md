@@ -46,6 +46,25 @@ so the policy's accepted status vocabulary now matches the real values (`Complet
 > through a tunnel, public proxy, or LAN binding. Do not enter real supplier data or payment
 > credentials. The ERPNext UI here is the external ERP application, not a Arc Payables frontend.
 
+## One-command setup
+
+`script/erpnext-sandbox-setup.sh` runs steps 1 to 5 and the provisioning below without a
+browser or a prompt. It skips every step whose result already exists, never passes `--force`
+and never removes a site or a volume. Preview it first:
+
+```bash
+bash script/erpnext-sandbox-setup.sh --dry-run   # numbered plan and the container tool, nothing started
+bash script/erpnext-sandbox-setup.sh             # pull, start, new-site, wizard, user, bootstrap
+```
+
+It writes two private files, both mode 600 and both inside the git-ignored `.secret/`:
+`.secret/erpnext-admin-password.txt` (the Administrator password it generated) and
+`.secret/erpnext-sandbox.env` (`FRAPPE_URL`, the integration user's API key and secret, and the
+non-secret `FRAPPE_*` mapping lines the bootstrap prints). It refuses any `FRAPPE_URL` that is
+not `http://127.0.0.1` or `http://localhost`, and prints neither file's contents. Finish with
+`bash script/erpnext-demo.sh`. The manual steps below stay the reference when a step needs
+diagnosis.
+
 ## 1. Pull and start the services
 
 ```bash
