@@ -67,7 +67,7 @@ About 10 minutes.
 
 - Live Circle notifications are unverified; tests use locally generated keys.
 - Live-model results (2026-10-15, three small models from one provider, five runs each of the 39 cases): fourteen clean passes and one inconclusive run (one reply not JSON). No hostile answer reached `PAY_NOW` with the policy on in any run. The 250-variant injection corpus went to all three: 0 of 250 answered `PAY_NOW` each time. The headline 39/39 and 250-variant numbers come from a scripted fake model.
-- Fresh ERPNext settlement is deferred to the owner.
+- A real payment from an ERPNext bill ran on 17 October with the application's own record ([evidence](docs/live-erpnext-payment.md)). The accounting treatment of its fee and who funds the paymaster are unverified.
 - Customers and usage are unverified.
 
 Three rules shape the code:
